@@ -53,3 +53,4 @@ Deploy to Vercel, connect a Blob store, and add the two env vars to Production a
 - Vercel Blob client uploads (direct browser → Blob with token)  
 
 # AdsCreator
+# ads-creatorv2

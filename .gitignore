@@ -2,3 +2,14 @@
 .env
 node_modules
 .vercel
+.env.local.bak
+SYNC_API_KEY.code-search
+ 
+# Secrets
+.env.*
+*.env
+*.env.*
+!**/.env.example
+
+# API keys
+*_API_KEY.*
