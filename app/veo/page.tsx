@@ -1,6 +1,6 @@
-'use client';
-
 export const dynamic = 'force-dynamic';
+
+'use client';
 
 import '../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
