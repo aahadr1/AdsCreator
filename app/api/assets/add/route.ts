@@ -1,0 +1,289 @@
+import { NextRequest } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import Replicate from 'replicate';
+
+export const runtime = 'nodejs';
+
+type MediaKind = 'image' | 'video';
+
+async function ensureBucket({ supabaseUrl, serviceRoleKey, bucket, publicBucket }: { supabaseUrl: string; serviceRoleKey: string; bucket: string; publicBucket: boolean; }) {
+  const sb = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+  try {
+    const { data: bucketInfo } = await sb.storage.getBucket(bucket);
+    if (!bucketInfo) {
+      await sb.storage.createBucket(bucket, { public: publicBucket });
+    }
+  } catch {}
+}
+
+async function labelAndEmbed({
+  assetUrl,
+  kind,
+  replicate,
+}: {
+  assetUrl: string;
+  kind: MediaKind;
+  replicate: Replicate;
+}): Promise<{
+  title: string;
+  description: string;
+  labels: string[];
+  keywords: string[];
+  embedding: number[];
+  analysis?: Record<string, unknown> | null;
+} | null> {
+  try {
+    const analysisFields = [
+      'title',
+      'summary',
+      'scene_category',
+      'subjects',
+      'actions',
+      'product_present',
+      'product_names',
+      'brand_logos',
+      'has_text',
+      'text_in_scene',
+      'emotion_tone',
+      'shot_types',
+      'camera_movements',
+      'duration_seconds',
+      'key_moments'
+    ];
+    const jsonSpec = `Return strictly valid JSON with keys: { ${analysisFields.join(
+      ', '
+    )} }. Types: title:string; summary:string; scene_category:string; subjects:string[]; actions:string[]; product_present:boolean; product_names:string[]; brand_logos:string[]; has_text:boolean; text_in_scene:string; emotion_tone:string[]; shot_types:string[]; camera_movements:string[]; duration_seconds:number|null; key_moments:Array<{timestamp:string,label:string}>.`;
+
+    let modelOutput: unknown;
+    if (kind === 'video') {
+      const prompt = `${jsonSpec} Focus on what is visually happening and what would help an auto-editor pick B-roll.`;
+      modelOutput = await replicate.run('lucataco/apollo-7b', {
+        input: {
+          video: assetUrl,
+          prompt,
+          temperature: 0.2,
+          max_new_tokens: 512,
+          top_p: 0.7,
+        },
+      });
+    } else {
+      const prompt = `${jsonSpec} The media is an image. Analyze the image and output the JSON only.`;
+      modelOutput = await replicate.run('openai/gpt-4.1-mini', {
+        input: {
+          prompt,
+          image_input: [assetUrl],
+          temperature: 0.2,
+          max_completion_tokens: 512,
+          system_prompt: 'You are a precise visual analyst. Respond with JSON only.'
+        },
+      });
+    }
+
+    const rawText = (() => {
+      if (typeof modelOutput === 'string') return modelOutput as string;
+      if (Array.isArray(modelOutput)) return (modelOutput as unknown[]).map((v) => String(v)).join('\n');
+      return JSON.stringify(modelOutput);
+    })();
+    const jStart = rawText.indexOf('{');
+    const jEnd = rawText.lastIndexOf('}');
+    const trimmed = jStart >= 0 && jEnd >= 0 ? rawText.slice(jStart, jEnd + 1) : rawText;
+
+    let parsed: any = {};
+    try { parsed = JSON.parse(trimmed); } catch {}
+
+    const title: string = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : 'Untitled asset';
+    const summary: string = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+    const subjects: string[] = Array.isArray(parsed.subjects) ? parsed.subjects.filter((v: unknown) => typeof v === 'string') : [];
+    const actions: string[] = Array.isArray(parsed.actions) ? parsed.actions.filter((v: unknown) => typeof v === 'string') : [];
+    const productNames: string[] = Array.isArray(parsed.product_names) ? parsed.product_names.filter((v: unknown) => typeof v === 'string') : [];
+    const brandLogos: string[] = Array.isArray(parsed.brand_logos) ? parsed.brand_logos.filter((v: unknown) => typeof v === 'string') : [];
+    const emotionTone: string[] = Array.isArray(parsed.emotion_tone) ? parsed.emotion_tone.filter((v: unknown) => typeof v === 'string') : [];
+    const sceneCategory: string = typeof parsed.scene_category === 'string' ? parsed.scene_category : '';
+
+    const derivedLabels = [
+      ...subjects,
+      ...actions,
+      ...productNames,
+      ...brandLogos,
+      sceneCategory,
+      ...emotionTone,
+    ].filter((v) => typeof v === 'string' && v.trim()).slice(0, 24);
+
+    const description: string = [title, summary].filter(Boolean).join(' — ');
+    const labels: string[] = derivedLabels;
+    const keywords: string[] = labels;
+
+    const embeddingText = [title, summary, labels.join(' ')].filter(Boolean).join('\n');
+    let embedding: number[] = [];
+    try {
+      const embedModel = process.env.REPLICATE_EMBED_MODEL || 'lucataco/snowflake-arctic-embed-l:38f2c666dd6a9f96c50eca69bbb0029ed03cba002a289983dc0b487a93cfb1b4';
+      const embOut = (await replicate.run(embedModel, { input: { prompt: embeddingText } })) as any;
+      embedding = Array.isArray(embOut) ? embOut : (embOut?.data || embOut?.embedding || []);
+    } catch {
+      // Skip embedding if model fails
+      embedding = [];
+    }
+
+    const analysis: Record<string, unknown> = {
+      title,
+      summary,
+      scene_category: sceneCategory,
+      subjects,
+      actions,
+      product_present: Boolean(parsed.product_present),
+      product_names: productNames,
+      brand_logos: brandLogos,
+      has_text: Boolean(parsed.has_text),
+      text_in_scene: typeof parsed.text_in_scene === 'string' ? parsed.text_in_scene : '',
+      emotion_tone: emotionTone,
+      shot_types: Array.isArray(parsed.shot_types) ? parsed.shot_types : [],
+      camera_movements: Array.isArray(parsed.camera_movements) ? parsed.camera_movements : [],
+      duration_seconds: typeof parsed.duration_seconds === 'number' ? parsed.duration_seconds : null,
+      key_moments: Array.isArray(parsed.key_moments) ? parsed.key_moments : [],
+      source_model: kind === 'video' ? 'lucataco/apollo-7b' : 'openai/gpt-4.1-mini',
+    };
+
+    return {
+      title,
+      description,
+      labels,
+      keywords,
+      embedding: Array.isArray(embedding) ? embedding.map((v) => Number(v)) : [],
+      analysis,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    const bucket = process.env.SUPABASE_ASSETS_BUCKET || 'assets';
+    const publicBucket = (process.env.SUPABASE_BUCKET_PUBLIC || 'true').toLowerCase() === 'true';
+    if (!supabaseUrl || !serviceRoleKey) return new Response('Server misconfigured: missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY', { status: 500 });
+
+    const body = await req.json();
+    const { url, kind, user_id: bodyUserId } = body || {} as { url?: string; kind?: MediaKind; user_id?: string };
+    if (!url || typeof url !== 'string') return new Response('Missing url', { status: 400 });
+    const mediaKind: MediaKind = (kind === 'image' || kind === 'video') ? kind : (/\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(url) ? 'image' : 'video');
+
+    // Resolve user id if provided via Authorization header or body
+    let userId: string | null = null;
+    if (typeof bodyUserId === 'string' && bodyUserId) userId = bodyUserId;
+    if (!userId) {
+      const authHeader = req.headers.get('authorization') || '';
+      const token = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7) : '';
+      if (token) {
+        try {
+          const authSb = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
+          const { data: { user } } = await authSb.auth.getUser();
+          if (user?.id) userId = user.id;
+        } catch {}
+      }
+    }
+
+    await ensureBucket({ supabaseUrl, serviceRoleKey, bucket, publicBucket });
+    const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+
+    // Download
+    const response = await fetch(url);
+    if (!response.ok) return new Response(`Failed to fetch media: ${response.statusText}`, { status: 400 });
+    const arrayBuffer = await response.arrayBuffer();
+    const contentType = response.headers.get('content-type') || (mediaKind === 'image' ? 'image/png' : 'video/mp4');
+    const extFromType = contentType.includes('png') ? 'png' : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : contentType.includes('webp') ? 'webp' : contentType.includes('gif') ? 'gif' : contentType.includes('mp4') ? 'mp4' : contentType.includes('quicktime') ? 'mov' : 'bin';
+
+    const safeName = url.split('/').pop()?.split('?')[0]?.replace(/[^a-zA-Z0-9_.-]/g, '_') || `asset.${extFromType}`;
+    const path = `assets/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(path, new Uint8Array(arrayBuffer), { upsert: false, cacheControl: '3600', contentType });
+    if (uploadError) return new Response(`Upload failed: ${uploadError.message}`, { status: 500 });
+
+    const publicUrl = publicBucket ? supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl : (await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60)).data?.signedUrl || '';
+
+    // Update media_assets with resolved public_url/mime/bucket
+    try {
+      await supabase
+        .from('media_assets')
+        .update({ public_url: publicUrl, mime_type: contentType, bucket })
+        .eq('storage_path', path);
+    } catch {}
+
+    // Insert media_assets row (pending) best-effort
+    let assetRow: any = null;
+    try {
+      const { data, error } = await supabase
+        .from('media_assets')
+        .insert({
+          created_by: userId,
+          type: mediaKind,
+          storage_path: path,
+          status: 'pending',
+        })
+        .select('*')
+        .single();
+      if (!error) assetRow = data;
+    } catch {}
+
+    // Auto label/index
+    let updated: any = null;
+    try {
+      const token = process.env.REPLICATE_API_TOKEN as string | undefined;
+      if (token) {
+        const replicate = new Replicate({ auth: token });
+        const labeled = await labelAndEmbed({ assetUrl: publicUrl || url, kind: mediaKind, replicate });
+        if (labeled) {
+          const { title, description, labels, keywords, embedding, analysis } = labeled;
+          // Write media_labels, media_descriptions, media_index, and update media_assets
+          try {
+            if (Array.isArray(labels) && labels.length) {
+              const rows = labels.map((label) => ({ asset_id: assetRow?.id, label, confidence: null, source: 'replicate' }));
+              await supabase.from('media_labels').insert(rows);
+            }
+          } catch {}
+          try {
+            if (description || title) {
+              await supabase.from('media_descriptions').insert({ asset_id: assetRow?.id, description: [title, description].filter(Boolean).join(' — '), source: 'replicate' });
+            }
+          } catch {}
+          try {
+            if (Array.isArray(embedding) && embedding.length) {
+              await supabase.from('media_index').insert({ asset_id: assetRow?.id, embedding, index_version: 1 });
+            }
+          } catch {}
+          // Optional: persist structured analysis if table exists
+          try {
+            if (analysis && assetRow?.id) {
+              await supabase.from('media_analysis').insert({ asset_id: assetRow.id, analysis });
+            }
+          } catch {}
+          try {
+            const { data } = await supabase
+              .from('media_assets')
+              .update({ status: 'ready' })
+              .eq('storage_path', path)
+              .select('*')
+              .single();
+            updated = data || null;
+          } catch {}
+        }
+      }
+    } catch {}
+
+    return Response.json({
+      ok: true,
+      bucket,
+      path,
+      publicUrl,
+      userId,
+      asset: updated || assetRow || null,
+    });
+  } catch (e: any) {
+    return new Response(`Error: ${e.message}`, { status: 500 });
+  }
+}
+
+
