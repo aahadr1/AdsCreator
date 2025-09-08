@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
     // Basic allowlist: only http(s)
     if (!target && req.headers.get('x-target-url')) {
-      target = req.headers.get('x-target-url') || undefined;
+      target = req.headers.get('x-target-url') || null;
     }
     if (!target) {
       return new Response('Missing url', { status: 400 });

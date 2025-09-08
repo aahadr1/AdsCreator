@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     if (!parts.length) return new Response('Missing parts', { status: 400 });
 
     // Embed queries in batch
-    const embedModel = process.env.REPLICATE_EMBED_MODEL || 'lucataco/snowflake-arctic-embed-l:38f2c666dd6a9f96c50eca69bbb0029ed03cba002a289983dc0b487a93cfb1b4';
+    const embedModel = (process.env.REPLICATE_EMBED_MODEL || 'lucataco/snowflake-arctic-embed-l:38f2c666dd6a9f96c50eca69bbb0029ed03cba002a289983dc0b487a93cfb1b4') as `${string}/${string}`;
     const embeddings: number[][] = [];
     for (const p of parts) {
       const embOut = (await replicate.run(embedModel, { input: { prompt: p.text } })) as unknown;

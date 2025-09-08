@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       if (typeof (body as any).output_quality === 'number') input.output_quality = Math.min(100, Math.max(0, (body as any).output_quality));
     }
 
-    const output = (await replicate.run(model, { input })) as unknown;
+    const output = (await replicate.run(model as `${string}/${string}`, { input })) as unknown;
 
     let url: string | null = null;
     if (Array.isArray(output) && output.length > 0) {

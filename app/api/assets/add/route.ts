@@ -116,7 +116,7 @@ async function labelAndEmbed({
     const embeddingText = [title, summary, labels.join(' ')].filter(Boolean).join('\n');
     let embedding: number[] = [];
     try {
-      const embedModel = process.env.REPLICATE_EMBED_MODEL || 'lucataco/snowflake-arctic-embed-l:38f2c666dd6a9f96c50eca69bbb0029ed03cba002a289983dc0b487a93cfb1b4';
+      const embedModel = (process.env.REPLICATE_EMBED_MODEL || 'lucataco/snowflake-arctic-embed-l:38f2c666dd6a9f96c50eca69bbb0029ed03cba002a289983dc0b487a93cfb1b4') as `${string}/${string}`;
       const embOut = (await replicate.run(embedModel, { input: { prompt: embeddingText } })) as any;
       embedding = Array.isArray(embOut) ? embOut : (embOut?.data || embOut?.embedding || []);
     } catch {

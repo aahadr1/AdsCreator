@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 'use client';
 
 import '../globals.css';
@@ -370,7 +372,7 @@ Rules:
               <span className="badge">{templates.length}</span>
             </div>
             {templates.length === 0 ? (
-              <div className="small">No templates yet. Click "Save as template" to add one.</div>
+              <div className="small">No templates yet. Click &quot;Save as template&quot; to add one.</div>
             ) : (
               <div style={{display:'grid', gap:8}}>
                 {templates.map(t => (

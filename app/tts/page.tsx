@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 'use client';
 
 import '../globals.css';
@@ -53,7 +55,7 @@ export default function TtsPage() {
           .filter((v: any) => v.voice_id && v.name);
         setElVoices(normalized);
         if (normalized.length > 0) {
-          const exists = normalized.some(v => v.voice_id === elVoiceId);
+          const exists = normalized.some((v: any) => v.voice_id === elVoiceId);
           if (!exists) setElVoiceId(normalized[0].voice_id);
         }
       } catch (e: any) {

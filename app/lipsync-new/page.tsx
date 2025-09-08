@@ -1,8 +1,9 @@
+export const dynamic = 'force-dynamic';
+
 'use client';
 
 import '../globals.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createFFmpeg, fetchFile, type FFmpeg } from '@ffmpeg/ffmpeg';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 import AddToDatabaseButton from '../../components/AddToDatabaseButton';
 
@@ -14,16 +15,6 @@ export default function LipsyncNewPage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
-  const [videoDurationSec, setVideoDurationSec] = useState<number | null>(null);
-  const [audioDurationSec, setAudioDurationSec] = useState<number | null>(null);
-  const [videoOverLimit, setVideoOverLimit] = useState(false);
-  const [audioOverLimit, setAudioOverLimit] = useState(false);
-  const [trimVideoTo60, setTrimVideoTo60] = useState(false);
-  const [trimAudioTo60, setTrimAudioTo60] = useState(false);
-
-  // Manual trim selections (start positions); the output duration is min(60, remaining)
-  const [videoStartSec, setVideoStartSec] = useState<number>(0);
-  const [audioStartSec, setAudioStartSec] = useState<number>(0);
 
   const [useText, setUseText] = useState(false);
   const [text, setText] = useState('');
@@ -51,96 +42,18 @@ export default function LipsyncNewPage() {
 
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const lastStatusRef = useRef<ReplicateStatus | null>(null);
-  const ffmpegRef = useRef<FFmpeg | null>(null);
 
   const pushLog = (line: string) => setLogLines((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${line}`]);
 
-  const getMediaDuration = useCallback(async (file: File): Promise<number> => {
-    const url = URL.createObjectURL(file);
-    const isVideo = (file.type || '').startsWith('video');
-    const el = document.createElement(isVideo ? 'video' : 'audio');
-    el.preload = 'metadata';
-    return new Promise<number>((resolve) => {
-      const cleanup = () => URL.revokeObjectURL(url);
-      el.onloadedmetadata = () => {
-        const d = Number(el.duration);
-        cleanup();
-        resolve(Number.isFinite(d) ? d : 0);
-      };
-      el.onerror = () => { cleanup(); resolve(0); };
-      el.src = url;
-    });
-  }, []);
 
   const onSelectVideo = useCallback(async (file: File) => {
     setVideoFile(file);
-    const d = await getMediaDuration(file);
-    setVideoDurationSec(d);
-    const over = d > 60.01;
-    setVideoOverLimit(over);
-    setTrimVideoTo60(over ? true : false);
-  }, [getMediaDuration]);
+  }, []);
 
   const onSelectAudio = useCallback(async (file: File) => {
     setAudioFile(file);
-    const d = await getMediaDuration(file);
-    setAudioDurationSec(d);
-    const over = d > 60.01;
-    setAudioOverLimit(over);
-    setTrimAudioTo60(over ? true : false);
-  }, [getMediaDuration]);
+  }, []);
 
-  const ensureFfmpeg = useCallback(async () => {
-    if (ffmpegRef.current) return ffmpegRef.current;
-    const versionTag = (process.env.NEXT_PUBLIC_FFMPEG_CORE_VERSION as string) || '0.11.0';
-    const candidates = [
-      (process.env.NEXT_PUBLIC_FFMPEG_CORE_URL as string) || '',
-      `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${versionTag}/dist/ffmpeg-core.js`,
-      `https://unpkg.com/@ffmpeg/core@${versionTag}/dist/ffmpeg-core.js`,
-    ].filter(Boolean) as string[];
-
-    let lastError: any = null;
-    for (const url of candidates) {
-      try {
-        pushLog(`Loading FFmpeg core from: ${url}`);
-        const ff = createFFmpeg({ log: false, corePath: url });
-        await ff.load();
-        ffmpegRef.current = ff;
-        pushLog('FFmpeg loaded.');
-        return ff;
-      } catch (e: any) {
-        lastError = e;
-        pushLog(`FFmpeg load failed for ${url}: ${e?.message || e}`);
-      }
-    }
-    throw new Error(lastError?.message || 'Failed to load FFmpeg');
-  }, [pushLog]);
-
-  const getExtension = (file: File): string => {
-    const nameExt = (file.name.split('.').pop() || '').toLowerCase();
-    if (nameExt) return nameExt;
-    if ((file.type || '').includes('mp4')) return 'mp4';
-    if ((file.type || '').includes('quicktime') || (file.type || '').includes('mov')) return 'mov';
-    if ((file.type || '').includes('wav')) return 'wav';
-    if ((file.type || '').includes('mpeg')) return 'mp3';
-    return 'dat';
-  };
-
-  const trimTo60Seconds = useCallback(async (file: File, kind: 'video' | 'audio', startSeconds: number = 0): Promise<File> => {
-    const ff = await ensureFfmpeg();
-    const ext = getExtension(file);
-    const inputName = `input.${ext}`;
-    const outputName = `output.${ext}`;
-    ff.FS('writeFile', inputName, await fetchFile(file));
-    const startArg = Math.max(0, Math.floor(Number.isFinite(startSeconds) ? startSeconds : 0)).toString();
-    await ff.run('-ss', startArg, '-t', '60', '-i', inputName, '-c', 'copy', outputName);
-    const data = ff.FS('readFile', outputName);
-    const trimmedBlob = new Blob([data.buffer], { type: file.type || (kind === 'video' ? 'video/mp4' : 'audio/wav') });
-    const outFile = new File([trimmedBlob], file.name.replace(/(\.[^.]+)?$/, '_trimmed$1'), { type: trimmedBlob.type });
-    try { ff.FS('unlink', inputName); } catch {}
-    try { ff.FS('unlink', outputName); } catch {}
-    return outFile;
-  }, [ensureFfmpeg]);
 
   async function uploadIfNeeded(): Promise<{ videoUrl: string; audioUrl?: string } | false> {
     if (!videoFile) return false;
@@ -161,21 +74,11 @@ export default function LipsyncNewPage() {
       return res.json() as Promise<{ url: string; path: string }>;
     };
 
-    let fileToUploadVideo = videoFile;
-    if ((videoOverLimit && trimVideoTo60) || (typeof videoDurationSec === 'number' && videoDurationSec > 0 && videoStartSec > 0)) {
-      pushLog(`Trimming video to 60s from ${Math.floor(videoStartSec)}s…`);
-      fileToUploadVideo = await trimTo60Seconds(videoFile, 'video', videoStartSec);
-    }
-    const v = await uploadOnce(fileToUploadVideo);
+    const v = await uploadOnce(videoFile);
     setVideoUrl(v.url);
     let aUrl: string | undefined;
     if (!useText && audioFile) {
-      let fileToUploadAudio = audioFile;
-      if ((audioOverLimit && trimAudioTo60) || (typeof audioDurationSec === 'number' && audioDurationSec > 0 && audioStartSec > 0)) {
-        pushLog(`Trimming audio to 60s from ${Math.floor(audioStartSec)}s…`);
-        fileToUploadAudio = await trimTo60Seconds(audioFile, 'audio', audioStartSec);
-      }
-      const a = await uploadOnce(fileToUploadAudio);
+      const a = await uploadOnce(audioFile);
       setAudioUrl(a.url);
       aUrl = a.url;
     }
@@ -265,7 +168,7 @@ export default function LipsyncNewPage() {
 
       // Save job id to task
       if (createdTaskId) {
-        try { await supabase.from('tasks').update({ job_id: data.id, status: (data.status as string) || 'queued' }).eq('id', createdTaskId); } catch {}
+        try { await supabase.from('tasks').update({ status: (data.status as string) || 'queued', job_id: data.id }).eq('id', createdTaskId); } catch {}
       }
 
       if (pollRef.current) clearInterval(pollRef.current);
@@ -464,34 +367,8 @@ export default function LipsyncNewPage() {
           <div className="dnd-title">Video File</div>
           <div className="dnd-subtitle">MP4/MOV • clear face • 2–10s • 720p–1080p</div>
           {videoFile && <div className="fileInfo">📹 {videoFile.name} ({Math.round(videoFile.size/1024/1024*10)/10} MB)</div>}
-          {typeof videoDurationSec === 'number' && <div className="small">Duration: {Math.round(videoDurationSec)}s</div>}
           {videoUrl && <div className="fileInfo">🔗 Uploaded successfully</div>}
         </div>
-
-        {videoOverLimit && (
-          <label className="small" style={{display:'flex', gap:8, alignItems:'center', marginTop:8}}>
-            <input type="checkbox" checked={trimVideoTo60} onChange={(e)=> setTrimVideoTo60(e.target.checked)} /> Trim video to 60s (keep start)
-          </label>
-        )}
-
-        {!!videoFile && typeof videoDurationSec === 'number' && videoDurationSec > 0 && (
-          <div style={{marginTop:8}}>
-            <div className="small" style={{display:'flex', justifyContent:'space-between'}}>
-              <span>Video start time</span>
-              <span>{Math.floor(videoStartSec)}s / {Math.floor(videoDurationSec)}s</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(0, Math.floor(Math.max(0, videoDurationSec - 1)))}
-              step={1}
-              value={Math.min(videoStartSec, Math.max(0, Math.floor(videoDurationSec - 1)))}
-              onChange={(e)=> setVideoStartSec(Number(e.target.value))}
-              style={{width:'100%'}}
-            />
-            <div className="small">Selected window: {Math.min(60, Math.max(0, Math.floor(videoDurationSec - videoStartSec)))}s</div>
-          </div>
-        )}
 
         {!useText && (
           <div className={`dnd`} style={{marginTop: 'var(--space-5)'}}
@@ -503,33 +380,7 @@ export default function LipsyncNewPage() {
             <div className="dnd-title">Audio File</div>
             <div className="dnd-subtitle">WAV/MP3/M4A/AAC • &lt; 5MB</div>
             {audioFile && <div className="fileInfo">🎙️ {audioFile.name} ({Math.round(audioFile.size/1024/1024*10)/10} MB)</div>}
-            {typeof audioDurationSec === 'number' && <div className="small">Duration: {Math.round(audioDurationSec)}s</div>}
             {audioUrl && <div className="fileInfo">🔗 Uploaded successfully</div>}
-          </div>
-        )}
-
-        {!useText && audioOverLimit && (
-          <label className="small" style={{display:'flex', gap:8, alignItems:'center', marginTop:8}}>
-            <input type="checkbox" checked={trimAudioTo60} onChange={(e)=> setTrimAudioTo60(e.target.checked)} /> Trim audio to 60s (keep start)
-          </label>
-        )}
-
-        {!useText && !!audioFile && typeof audioDurationSec === 'number' && audioDurationSec > 0 && (
-          <div style={{marginTop:8}}>
-            <div className="small" style={{display:'flex', justifyContent:'space-between'}}>
-              <span>Audio start time</span>
-              <span>{Math.floor(audioStartSec)}s / {Math.floor(audioDurationSec)}s</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(0, Math.floor(Math.max(0, audioDurationSec - 1)))}
-              step={1}
-              value={Math.min(audioStartSec, Math.max(0, Math.floor(audioDurationSec - 1)))}
-              onChange={(e)=> setAudioStartSec(Number(e.target.value))}
-              style={{width:'100%'}}
-            />
-            <div className="small">Selected window: {Math.min(60, Math.max(0, Math.floor(audioDurationSec - audioStartSec)))}s</div>
           </div>
         )}
 

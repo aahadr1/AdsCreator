@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     const replicate = new Replicate({ auth: token });
-    const embedModel = process.env.REPLICATE_EMBED_MODEL || 'lucataco/snowflake-arctic-embed-l:38f2c666dd6a9f96c50eca69bbb0029ed03cba002a289983dc0b487a93cfb1b4';
+    const embedModel = (process.env.REPLICATE_EMBED_MODEL || 'lucataco/snowflake-arctic-embed-l:38f2c666dd6a9f96c50eca69bbb0029ed03cba002a289983dc0b487a93cfb1b4') as `${string}/${string}`;
     const chooserModel = process.env.REPLICATE_SEQUENCE_MODEL || 'meta/meta-llama-3-70b-instruct';
 
     // Top-k retrieval per segment
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     }));
 
     const chooserPrompt = `You are an expert UGC editor. For each segment, pick one candidate asset id and provide a one-sentence rationale and a confidence 0..1. Return JSON { items: [{ segment_id, chosen_asset_id, rationale, confidence }] } only.\n\nDATA:\n${JSON.stringify(chooserInput)}`;
-    const chooserOut = (await replicate.run(chooserModel, { input: { prompt: chooserPrompt, temperature: 0.1 } })) as unknown;
+    const chooserOut = (await replicate.run(chooserModel as `${string}/${string}`, { input: { prompt: chooserPrompt, temperature: 0.1 } })) as unknown;
     const chooserTxt = typeof chooserOut === 'string' ? chooserOut : Array.isArray(chooserOut) ? chooserOut.join('\n') : JSON.stringify(chooserOut);
     const sIdx = chooserTxt.indexOf('{'); const eIdx = chooserTxt.lastIndexOf('}');
     const parsed = sIdx >= 0 && eIdx >= 0 ? (() => { try { return JSON.parse(chooserTxt.slice(sIdx, eIdx + 1)) as { items?: any[] } } catch { return { items: [] as any[] } } })() : { items: [] as any[] };

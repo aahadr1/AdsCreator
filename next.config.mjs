@@ -1,6 +1,7 @@
 import path from 'path';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
+// No direct webpack import; rely on aliasing and client dynamic import
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -13,30 +14,6 @@ const nextConfig = {
     ],
   },
   headers: async () => [],
-  webpack: (config) => {
-    // Workaround for @ffmpeg/ffmpeg dev corePath resolution in Next.js
-    // Force using our shim that points to CDN for corePath
-    let ffmpegDefaultOptionsPath;
-    try {
-      ffmpegDefaultOptionsPath = require.resolve('@ffmpeg/ffmpeg/src/browser/defaultOptions.js');
-    } catch {}
-    config.resolve.alias = {
-      ...(config.resolve.alias || {}),
-      '@ffmpeg/ffmpeg/src/browser/defaultOptions.js': path.join(
-        process.cwd(),
-        'vendor/ffmpeg/defaultOptions.js'
-      ),
-      ...(ffmpegDefaultOptionsPath
-        ? {
-            [ffmpegDefaultOptionsPath]: path.join(
-              process.cwd(),
-              'vendor/ffmpeg/defaultOptions.js'
-            ),
-          }
-        : {}),
-    };
-    return config;
-  },
 };
 
 export default nextConfig;

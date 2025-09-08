@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     const replicate = new Replicate({ auth: token });
     const model = (process.env.REPLICATE_SEGMENT_MODEL || 'meta/meta-llama-3-8b-instruct') as `${string}/${string}`;
     const sys = 'Segment ad script. Return JSON array of items: { start_sec|null, end_sec|null, text, intent, keywords[], visual_style }.';
-    const out = (await replicate.run(model, { input: { prompt: `${sys}\n\nSCRIPT:\n${text}\n\nReturn JSON array only.`, temperature: 0.1 } })) as unknown;
+    const out = (await replicate.run(model as `${string}/${string}`, { input: { prompt: `${sys}\n\nSCRIPT:\n${text}\n\nReturn JSON array only.`, temperature: 0.1 } })) as unknown;
     const raw = typeof out === 'string' ? out : Array.isArray(out) ? out.join('\n') : JSON.stringify(out);
     const s = raw.indexOf('['), e = raw.lastIndexOf(']');
     const arr = s >= 0 && e >= 0 ? (() => { try { return JSON.parse(raw.slice(s, e + 1)) as unknown[] } catch { return [] as unknown[] } })() : [] as unknown[];

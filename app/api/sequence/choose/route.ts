@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     });
 
     const model = 'meta/meta-llama-3-70b-instruct';
-    const out = (await replicate.run(model, {
+    const out = (await replicate.run(model as `${string}/${string}`, {
       input: {
         prompt: `${system}\n\nDATA (JSON):\n${JSON.stringify(summary)}\n\nReturn JSON for { items: [...] } only.`,
         max_tokens: 1200,

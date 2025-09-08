@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       input = base;
     }
 
-    const output = (await replicate.run(model, { input: input! })) as unknown;
+    const output = (await replicate.run(model as `${string}/${string}`, { input: input! })) as unknown;
 
     let url: string | null = null;
     if (output && typeof output === 'object' && 'url' in (output as any) && typeof (output as any).url === 'function') {

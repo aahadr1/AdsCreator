@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     let lastErr: string | null = null;
     for (const m of modelCandidates) {
       try {
-        const out = (await replicate.run(m, { input: { prompt: `${system}\n\n${prompt}`, temperature: 0.1 } })) as unknown;
+        const out = (await replicate.run(m as `${string}/${string}`, { input: { prompt: `${system}\n\n${prompt}`, temperature: 0.1 } })) as unknown;
         textOut = typeof out === 'string' ? out : Array.isArray(out) ? out.join('\n') : JSON.stringify(out);
         arr = extractJsonArray(textOut);
         if (arr) break;
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
       const reformCandidates = modelCandidates;
       for (const m of reformCandidates) {
         try {
-          const out2 = (await replicate.run(m, { input: { prompt: reformatPrompt, temperature: 0.0 } })) as unknown;
+          const out2 = (await replicate.run(m as `${string}/${string}`, { input: { prompt: reformatPrompt, temperature: 0.0 } })) as unknown;
           const txt2 = typeof out2 === 'string' ? out2 : Array.isArray(out2) ? out2.join('\n') : JSON.stringify(out2);
           arr = extractJsonArray(txt2);
           if (arr) break;
@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
           'Return JSON array only, items like: { index:number, rush_ideas:string[3] }.',
           `SEGMENTS (JSON):\n${JSON.stringify(segments.map((s) => ({ index: s.index, text: s.text, desired: s.desired_rush_description, keywords: s.keywords || [] })))}`,
         ].join('\n');
-        const out = (await replicate.run(ideasModel, { input: { prompt: ideasPrompt, temperature: 0.1 } })) as unknown;
+        const out = (await replicate.run(ideasModel as `${string}/${string}`, { input: { prompt: ideasPrompt, temperature: 0.1 } })) as unknown;
         const txt = typeof out === 'string' ? out : Array.isArray(out) ? out.join('\n') : JSON.stringify(out);
         const arr2 = extractJsonArray(txt);
         if (arr2) {
