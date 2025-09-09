@@ -167,15 +167,14 @@ export default function Dashboard() {
           return; 
         }
 
-        // Load tasks
-        const { data: tasksData } = await supabase
-          .from('tasks')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(20);
-
-        setTasks((tasksData as Task[]) || []);
+        // Load tasks from Cloudflare KV via API
+        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}`);
+        if (res.ok) {
+          const json = (await res.json()) as { tasks?: Task[] };
+          setTasks(Array.isArray(json.tasks) ? json.tasks : []);
+        } else {
+          setTasks([]);
+        }
         
         // Simulate loading recent activity
         setRecentActivity([
