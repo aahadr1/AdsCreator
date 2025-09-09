@@ -2,7 +2,7 @@
 
 import '../../globals.css';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { supabaseClient as supabase } from '../../../lib/supabaseClient';
+// Database functionality removed
 
 type BulkItem = {
   id: string;
@@ -54,9 +54,6 @@ export default function BulkTranscriptionPage() {
   }, []);
 
   const runOne = useCallback(async (item: BulkItem) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Please sign in at /auth before creating tasks.');
-
     setItems(prev => prev.map(it => it.id === item.id ? { ...it, status: 'uploading', error: null } : it));
     const audioUrl = await uploadOnce(item.file);
 
@@ -69,22 +66,6 @@ export default function BulkTranscriptionPage() {
       audio_file: audioUrl,
     } as Record<string, any>;
 
-    const { data: inserted, error: insertErr } = await supabase
-      .from('tasks')
-      .insert({
-        user_id: user.id,
-        type: 'lipsync',
-        status: 'queued',
-        provider: 'replicate',
-        model_id: 'openai/gpt-4o-transcribe',
-        options_json: options,
-        audio_url: audioUrl,
-        text_input: prompt || null,
-      })
-      .select('*')
-      .single();
-    if (insertErr || !inserted) throw new Error(insertErr?.message || 'Failed to create task');
-
     const res = await fetch('/api/transcription/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -94,9 +75,7 @@ export default function BulkTranscriptionPage() {
     const json = (await res.json()) as { text?: string | null };
     const text = json.text || '';
 
-    await supabase.from('tasks').update({ status: 'finished' }).eq('id', inserted.id);
-
-    setItems(prev => prev.map(it => it.id === item.id ? { ...it, status: 'finished', transcript: text, taskId: inserted.id } : it));
+    setItems(prev => prev.map(it => it.id === item.id ? { ...it, status: 'finished', transcript: text, taskId: null } : it));
   }, [language, prompt, temperature, uploadOnce]);
 
   const downloadItem = useCallback((item: BulkItem) => {

@@ -1,7 +1,5 @@
 import { NextRequest } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../lib/r2';
-import Replicate from 'replicate';
 
 export const runtime = 'nodejs';
 
@@ -149,38 +147,19 @@ async function labelAndEmbed({
 
 export async function POST(req: NextRequest) {
   try {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
     const r2AccountId = process.env.R2_ACCOUNT_ID || '';
     const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
     const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
     const r2Endpoint = process.env.R2_S3_ENDPOINT || null;
     const bucket = process.env.R2_BUCKET || 'assets';
     const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL || null;
-    if (!supabaseUrl || !serviceRoleKey) return new Response('Server misconfigured: missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY', { status: 500 });
     if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey) return new Response('Server misconfigured: missing R2 credentials', { status: 500 });
 
     const body = await req.json();
-    const { url, kind, user_id: bodyUserId } = body || {} as { url?: string; kind?: MediaKind; user_id?: string };
+    const { url, kind } = body || {} as { url?: string; kind?: MediaKind };
     if (!url || typeof url !== 'string') return new Response('Missing url', { status: 400 });
     const mediaKind: MediaKind = (kind === 'image' || kind === 'video') ? kind : (/\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(url) ? 'image' : 'video');
 
-    // Resolve user id if provided via Authorization header or body
-    let userId: string | null = null;
-    if (typeof bodyUserId === 'string' && bodyUserId) userId = bodyUserId;
-    if (!userId) {
-      const authHeader = req.headers.get('authorization') || '';
-      const token = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7) : '';
-      if (token) {
-        try {
-          const authSb = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` } } });
-          const { data: { user } } = await authSb.auth.getUser();
-          if (user?.id) userId = user.id;
-        } catch {}
-      }
-    }
-
-    const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
     const r2 = createR2Client({ accountId: r2AccountId, accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey, bucket, endpoint: r2Endpoint });
     await ensureR2Bucket(r2, bucket);
 
@@ -197,82 +176,11 @@ export async function POST(req: NextRequest) {
     await r2PutObject({ client: r2, bucket, key: path, body: new Uint8Array(arrayBuffer), contentType, cacheControl: '3600' });
     const publicUrl = r2PublicUrl({ publicBaseUrl, bucket, key: path }) || '';
 
-    // Update media_assets with resolved public_url/mime/bucket
-    try {
-      await supabase
-        .from('media_assets')
-        .update({ public_url: publicUrl, mime_type: contentType, bucket })
-        .eq('storage_path', path);
-    } catch {}
-
-    // Insert media_assets row (pending) best-effort
-    let assetRow: any = null;
-    try {
-      const { data, error } = await supabase
-        .from('media_assets')
-        .insert({
-          created_by: userId,
-          type: mediaKind,
-          storage_path: path,
-          status: 'pending',
-        })
-        .select('*')
-        .single();
-      if (!error) assetRow = data;
-    } catch {}
-
-    // Auto label/index
-    let updated: any = null;
-    try {
-      const token = process.env.REPLICATE_API_TOKEN as string | undefined;
-      if (token) {
-        const replicate = new Replicate({ auth: token });
-        const labeled = await labelAndEmbed({ assetUrl: publicUrl || url, kind: mediaKind, replicate });
-        if (labeled) {
-          const { title, description, labels, keywords, embedding, analysis } = labeled;
-          // Write media_labels, media_descriptions, media_index, and update media_assets
-          try {
-            if (Array.isArray(labels) && labels.length) {
-              const rows = labels.map((label) => ({ asset_id: assetRow?.id, label, confidence: null, source: 'replicate' }));
-              await supabase.from('media_labels').insert(rows);
-            }
-          } catch {}
-          try {
-            if (description || title) {
-              await supabase.from('media_descriptions').insert({ asset_id: assetRow?.id, description: [title, description].filter(Boolean).join(' — '), source: 'replicate' });
-            }
-          } catch {}
-          try {
-            if (Array.isArray(embedding) && embedding.length) {
-              await supabase.from('media_index').insert({ asset_id: assetRow?.id, embedding, index_version: 1 });
-            }
-          } catch {}
-          // Optional: persist structured analysis if table exists
-          try {
-            if (analysis && assetRow?.id) {
-              await supabase.from('media_analysis').insert({ asset_id: assetRow.id, analysis });
-            }
-          } catch {}
-          try {
-            const { data } = await supabase
-              .from('media_assets')
-              .update({ status: 'ready' })
-              .eq('storage_path', path)
-              .select('*')
-              .single();
-            updated = data || null;
-          } catch {}
-        }
-      }
-    } catch {}
-
     return Response.json({
       ok: true,
       bucket,
       path,
       publicUrl,
-      userId,
-      asset: updated || assetRow || null,
     });
   } catch (e: any) {
     return new Response(`Error: ${e.message}`, { status: 500 });

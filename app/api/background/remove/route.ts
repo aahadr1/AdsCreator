@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
 import { spawn } from 'child_process';
-import { createClient } from '@supabase/supabase-js';
 import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../lib/r2';
 import path from 'path';
 import os from 'os';
@@ -13,18 +12,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null) as { video_url?: string | null, output_basename?: string | null } | null;
     if (!body || !body.video_url) return new Response('Missing video_url', { status: 400 });
 
-    const supabaseUrl = process.env.SUPABASE_URL as string;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
     const r2AccountId = process.env.R2_ACCOUNT_ID || '';
     const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
     const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
     const r2Endpoint = process.env.R2_S3_ENDPOINT || null;
     const outputsBucket = process.env.R2_BUCKET || 'outputs';
     const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL || null;
-    if (!supabaseUrl || !serviceRoleKey) return new Response('Server misconfigured: missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY', { status: 500 });
     if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey) return new Response('Server misconfigured: missing R2 credentials', { status: 500 });
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
     const r2 = createR2Client({ accountId: r2AccountId, accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey, bucket: outputsBucket, endpoint: r2Endpoint });
     await ensureR2Bucket(r2, outputsBucket);
 

@@ -2,8 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
+// Database functionality removed
 
 type ReplicateStatus = 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'queued' | 'unknown';
 
@@ -225,7 +224,7 @@ export default function LipsyncNewPage() {
               <div className="small" style={{marginTop:8}}>
                 <a href={outputUrl} target="_blank" rel="noreferrer">Open output in new tab</a>
               </div>
-              <AddToDatabaseButton mediaUrl={outputUrl} kind="video" size="large" context={{ model: model === 'kling' ? 'kwaivgi/kling-lip-sync' : 'sync/lipsync-2', inputs: [{ type: 'video', url: videoUrl || undefined, label: 'video' }, useText ? { type: 'text', text, label: 'text' } : { type: 'audio', url: audioUrl || undefined, label: 'audio' }].filter(Boolean) as any }} />
+              {/* Database functionality removed */}
             </div>
           ) : (
             <div>

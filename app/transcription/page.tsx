@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
+// Database functionality removed
 
 type TranscribeResponse = { text?: string | null; raw?: any };
 

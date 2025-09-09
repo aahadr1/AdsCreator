@@ -2,7 +2,7 @@
 
 import './globals.css';
 import { useEffect, useMemo, useState } from 'react';
-import { supabaseClient as supabase } from '../lib/supabaseClient';
+// Database functionality removed
 import { 
   Activity, 
   Zap, 

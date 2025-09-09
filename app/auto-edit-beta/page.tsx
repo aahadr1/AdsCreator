@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
+// Database functionality removed
 
 type Segment = {
   id: string;

@@ -2,8 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
+// Database functionality removed
 
 type VeoResponse = { url?: string | null; raw?: any };
 
@@ -212,7 +211,7 @@ export default function VeoPage() {
                 ) : null}
                 <a href={`${videoUrl}${videoUrl.includes('?') ? '&' : '?'}download=true`} style={{padding:'8px 12px', background:'var(--accent)', color:'white', borderRadius:'6px', textDecoration:'none'}}>Download</a>
               </div>
-              <AddToDatabaseButton mediaUrl={rawVideoUrl || videoUrl} kind="video" size="large" context={{ prompt, model, inputs: [imageUrl ? { type: 'image', url: imageUrl, label: 'reference_image' } : undefined, startFrameUrl ? { type: 'image', url: startFrameUrl, label: 'start_frame' } : undefined, endFrameUrl ? { type: 'image', url: endFrameUrl, label: 'end_frame' } : undefined].filter(Boolean) as any }} />
+              {/* Database functionality removed */}
             </div>
           ) : (
             <div style={{fontSize:16, color:'#b7c2df'}}>Generated video will appear here.</div>

@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
+// Database functionality removed
 import { 
   Activity, 
   Clock, 
@@ -495,7 +494,7 @@ export default function TasksPage() {
                                     Download
                                   </a>
                             </div>
-                                <AddToDatabaseButton mediaUrl={preferred} kind="image" />
+                                {/* Database functionality removed */}
                               </>
                           );
                         }
@@ -533,7 +532,7 @@ export default function TasksPage() {
                                   Download
                                 </a>
                               </div>
-                              <AddToDatabaseButton mediaUrl={preferred} kind="video" />
+                              {/* Database functionality removed */}
                             </>
                           );
                         })()}

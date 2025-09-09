@@ -2,8 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
+// Database functionality removed
 
 type ImageResponse = { url?: string | null; raw?: any };
 
@@ -173,7 +172,7 @@ export default function ImagePage() {
                 ) : null}
                 <a href={`${imageUrl}${imageUrl.includes('?') ? '&' : '?'}download=true`} style={{padding:'8px 12px', background:'var(--accent)', color:'white', borderRadius:'6px', textDecoration:'none'}}>Download</a>
               </div>
-              <AddToDatabaseButton mediaUrl={rawImageUrl || imageUrl} kind="image" size="large" context={{ prompt, model, inputs: (inputImageUrl||inputImageUrls.length)? [{ type: 'image', url: inputImageUrl || inputImageUrls[0], label: 'input_image' }] : undefined }} />
+              {/* Database functionality removed */}
             </div>
           ) : (
             <div style={{fontSize:16, color:'#b7c2df'}}>Generated image will appear here.</div>

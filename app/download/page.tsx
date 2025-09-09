@@ -3,8 +3,7 @@
 import '../globals.css';
 import { useState, KeyboardEvent } from 'react';
 import Image from 'next/image';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
+// Database functionality removed
 
 type DownloadResponse = { url?: string | null; raw?: any };
 
@@ -135,7 +134,7 @@ export default function DownloadPage() {
             isImage ? (
               <>
                 <Image src={mediaUrl} alt="Downloaded image" width={1280} height={720} style={{ maxWidth: '100%', height: 'auto', borderRadius: 8 }} />
-                <AddToDatabaseButton mediaUrl={rawUrl || mediaUrl} kind="image" />
+                {/* Database functionality removed */}
               </>
             ) : (
               <>
@@ -161,7 +160,7 @@ export default function DownloadPage() {
                     </>
                   ) : null}
                 </div>
-                <AddToDatabaseButton mediaUrl={rawUrl || mediaUrl} kind="video" />
+                {/* Database functionality removed */}
               </>
             )
           ) : (

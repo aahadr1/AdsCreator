@@ -2,8 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
+// Database functionality removed
 
 type JobStatus = 'queued' | 'running' | 'finished' | 'error' | 'cancelled' | 'unknown';
 
@@ -305,7 +304,7 @@ export default function LipsyncPage() {
                   </div>
                 );
               })()}
-              <AddToDatabaseButton mediaUrl={finishedVideoUrl} kind="video" size="large" context={{ model: backend, inputs: [{ type: 'video', url: videoUrl || undefined, label: 'video' }, { type: 'audio', url: audioUrl || undefined, label: 'audio' }].filter(Boolean) as any, extra: { engine } }} />
+              {/* Database functionality removed */}
             </div>
           ) : (
             <div>

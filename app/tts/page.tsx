@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useEffect, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
+// Database functionality removed
 
 type TtsResponse = { url?: string | null; raw?: any };
 

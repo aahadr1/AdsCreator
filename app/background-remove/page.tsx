@@ -2,8 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
+// Database functionality removed
 
 type ReplicateStatus = 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'queued' | 'unknown';
 
@@ -152,7 +151,7 @@ export default function BackgroundRemovePage() {
               <div className="small" style={{marginTop:8}}>
                 <a href={outputUrl} target="_blank" rel="noreferrer">Open output in new tab</a>
               </div>
-              <AddToDatabaseButton mediaUrl={outputUrl} kind="video" size="large" context={{ model: 'lucataco/rembg-video', inputs: videoUrl ? [{ type: 'video', url: videoUrl, label: 'input' }] : undefined, extra: { mode, backgroundColor } }} />
+              {/* Database functionality removed */}
             </div>
           ) : (
             <div style={{fontSize:16, color:'#b7c2df'}}>Processed video will appear here.</div>

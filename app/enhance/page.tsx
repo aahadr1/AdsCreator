@@ -2,8 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useState } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import AddToDatabaseButton from '../../components/AddToDatabaseButton';
+// Database functionality removed
 
 type EnhanceResponse = { url?: string | null; raw?: any };
 
@@ -111,7 +110,7 @@ export default function EnhancePage() {
           {outputUrl ? (
             <div>
               <img src={outputUrl} style={{ maxWidth: '100%', borderRadius: 8 }} />
-              <AddToDatabaseButton mediaUrl={outputUrl} kind="image" size="large" context={{ model: 'topazlabs/image-upscale', prompt: 'enhance', inputs: imageUrl ? [{ type: 'image', url: imageUrl, label: 'input' }] : undefined, extra: { enhance_model: enhanceModel, upscale_factor: upscaleFactor, face_enhancement: faceEnhancement, subject_detection: subjectDetection } }} />
+              {/* Database functionality removed */}
             </div>
           ) : (
             <div style={{fontSize:16, color:'#b7c2df'}}>Enhanced image will appear here.</div>
