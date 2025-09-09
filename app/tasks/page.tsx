@@ -63,16 +63,14 @@ export default function TasksPage() {
         setLoading(false);
         return; 
       }
-        const { data, error: selectError } = await supabase
-          .from('tasks')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-      if (selectError) { 
-        setError(selectError.message || 'Failed to load tasks'); 
-        return; 
-      }
-        setTasks(data || []);
+        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}`);
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '');
+          setError(txt || 'Failed to load tasks');
+          return;
+        }
+        const json = (await res.json()) as { tasks?: Task[] };
+        setTasks(Array.isArray(json.tasks) ? json.tasks : []);
       setError(null);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load tasks');
