@@ -1,7 +1,6 @@
 import './globals.css'
 import { LayoutWrapper } from '../components/LayoutWrapper';
 import { AuthGate } from '../components/AuthGate';
-import { SubscriptionGate } from '../components/SubscriptionGate';
 
 export const metadata = {
   title: "Lipsync App",
@@ -18,11 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body suppressHydrationWarning>
         <AuthGate>
-          <SubscriptionGate>
-            <LayoutWrapper>
-              {children}
-            </LayoutWrapper>
-          </SubscriptionGate>
+          <LayoutWrapper>
+            {children}
+          </LayoutWrapper>
         </AuthGate>
       </body>
     </html>

@@ -2,6 +2,7 @@
 
 import './globals.css';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabaseClient as supabase } from '../lib/supabaseClient';
 import { 
   Activity, 
@@ -39,6 +40,7 @@ import {
   Monitor,
   Lightbulb
 } from 'lucide-react';
+import { LogIn, LogOut } from 'lucide-react';
 
 type Task = {
   id: string;
@@ -151,10 +153,13 @@ const QuickAction = ({ title, subtitle, href, icon, gradient, shortcut }: QuickA
 );
 
 export default function Dashboard() {
+  const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string>('');
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
+
+  const isAuthenticated = Boolean(userEmail);
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -193,6 +198,21 @@ export default function Dashboard() {
 
     loadDashboardData();
   }, []);
+
+  const goToAuth = () => {
+    router.push('/auth');
+  };
+
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setUserEmail('');
+      router.replace('/auth');
+    } catch (e) {
+      console.error('Sign out failed:', e);
+    }
+  };
 
   const metrics = useMemo(() => {
     const total = tasks.length;
@@ -389,6 +409,34 @@ export default function Dashboard() {
             <div className="user-avatar">
               {userEmail ? userEmail.charAt(0).toUpperCase() : 'G'}
             </div>
+            <button
+              type="button"
+              className="header-action-btn"
+              aria-label={isAuthenticated ? 'Sign out' : 'Sign in or Sign up'}
+              onClick={isAuthenticated ? handleSignOut : goToAuth}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  if (isAuthenticated) {
+                    void handleSignOut();
+                  } else {
+                    goToAuth();
+                  }
+                }
+              }}
+            >
+              {isAuthenticated ? (
+                <>
+                  <LogOut size={18} />
+                  <span className="desktop-only">Sign out</span>
+                </>
+              ) : (
+                <>
+                  <LogIn size={18} />
+                  <span className="desktop-only">Sign in / Up</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </header>
