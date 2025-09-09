@@ -2,7 +2,7 @@
 
 import './globals.css';
 import { useEffect, useMemo, useState } from 'react';
-// Database functionality removed
+import { supabaseClient as supabase } from '../lib/supabaseClient';
 import { 
   Activity, 
   Zap, 
@@ -159,9 +159,23 @@ export default function Dashboard() {
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
-        // Database operations removed
-        setUserEmail('');
-        setTasks([]);
+        const { data: { user } } = await supabase.auth.getUser();
+        setUserEmail(user?.email || '');
+        
+        if (!user) { 
+          setLoading(false); 
+          return; 
+        }
+
+        // Load tasks
+        const { data: tasksData } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        setTasks((tasksData as Task[]) || []);
         
         // Simulate loading recent activity
         setRecentActivity([

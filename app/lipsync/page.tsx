@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
-// Database functionality removed
+import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 type JobStatus = 'queued' | 'running' | 'finished' | 'error' | 'cancelled' | 'unknown';
 
@@ -82,7 +82,8 @@ export default function LipsyncPage() {
 
   async function startLipsync() {
     try {
-      // Auth removed - proceeding with task creation
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { pushLog('Please sign in at /auth before creating a task.'); return; }
 
       const urls = await uploadIfNeeded();
       if (!urls) return;
