@@ -1,20 +1,11 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../lib/r2';
 import Replicate from 'replicate';
 
 export const runtime = 'nodejs';
 
 type MediaKind = 'image' | 'video';
-
-async function ensureBucket({ supabaseUrl, serviceRoleKey, bucket, publicBucket }: { supabaseUrl: string; serviceRoleKey: string; bucket: string; publicBucket: boolean; }) {
-  const sb = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-  try {
-    const { data: bucketInfo } = await sb.storage.getBucket(bucket);
-    if (!bucketInfo) {
-      await sb.storage.createBucket(bucket, { public: publicBucket });
-    }
-  } catch {}
-}
 
 async function labelAndEmbed({
   assetUrl,
@@ -160,9 +151,14 @@ export async function POST(req: NextRequest) {
   try {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-    const bucket = process.env.SUPABASE_ASSETS_BUCKET || 'assets';
-    const publicBucket = (process.env.SUPABASE_BUCKET_PUBLIC || 'true').toLowerCase() === 'true';
+    const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+    const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+    const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+    const r2Endpoint = process.env.R2_S3_ENDPOINT || null;
+    const bucket = process.env.R2_BUCKET || 'assets';
+    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL || null;
     if (!supabaseUrl || !serviceRoleKey) return new Response('Server misconfigured: missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY', { status: 500 });
+    if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey) return new Response('Server misconfigured: missing R2 credentials', { status: 500 });
 
     const body = await req.json();
     const { url, kind, user_id: bodyUserId } = body || {} as { url?: string; kind?: MediaKind; user_id?: string };
@@ -184,8 +180,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await ensureBucket({ supabaseUrl, serviceRoleKey, bucket, publicBucket });
     const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+    const r2 = createR2Client({ accountId: r2AccountId, accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey, bucket, endpoint: r2Endpoint });
+    await ensureR2Bucket(r2, bucket);
 
     // Download
     const response = await fetch(url);
@@ -197,12 +194,8 @@ export async function POST(req: NextRequest) {
     const safeName = url.split('/').pop()?.split('?')[0]?.replace(/[^a-zA-Z0-9_.-]/g, '_') || `asset.${extFromType}`;
     const path = `assets/${Date.now()}-${safeName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(path, new Uint8Array(arrayBuffer), { upsert: false, cacheControl: '3600', contentType });
-    if (uploadError) return new Response(`Upload failed: ${uploadError.message}`, { status: 500 });
-
-    const publicUrl = publicBucket ? supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl : (await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60)).data?.signedUrl || '';
+    await r2PutObject({ client: r2, bucket, key: path, body: new Uint8Array(arrayBuffer), contentType, cacheControl: '3600' });
+    const publicUrl = r2PublicUrl({ publicBaseUrl, bucket, key: path }) || '';
 
     // Update media_assets with resolved public_url/mime/bucket
     try {

@@ -1,6 +1,7 @@
 .env.local
 .env
 node_modules
+.next
 .vercel
 .env.local.bak
 SYNC_API_KEY.code-search

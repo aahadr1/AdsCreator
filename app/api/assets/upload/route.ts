@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../lib/r2';
 
 export const runtime = 'nodejs';
 
@@ -14,9 +15,14 @@ export async function POST(req: NextRequest) {
   try {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-    const bucket = process.env.SUPABASE_ASSETS_BUCKET || 'assets';
-    const publicBucket = (process.env.SUPABASE_BUCKET_PUBLIC || 'true').toLowerCase() === 'true';
+    const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+    const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+    const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+    const r2Endpoint = process.env.R2_S3_ENDPOINT || null;
+    const bucket = process.env.R2_BUCKET || 'assets';
+    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL || null;
     if (!supabaseUrl || !serviceRoleKey) return new Response('Server misconfigured: missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY', { status: 500 });
+    if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey) return new Response('Server misconfigured: missing R2 credentials', { status: 500 });
 
     const form = await req.formData();
     // Resolve user from Authorization header if provided
@@ -35,36 +41,15 @@ export async function POST(req: NextRequest) {
     if (!file || !(file instanceof Blob)) return new Response('No file provided', { status: 400 });
 
     const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-    try {
-      let { data: bucketInfo } = await supabase.storage.getBucket(bucket);
-      if (!bucketInfo) {
-        // Attempt to create (requires service role). Ignore errors but verify existence after.
-        await supabase.storage.createBucket(bucket, { public: publicBucket }).catch(() => {});
-        const check = await supabase.storage.getBucket(bucket);
-        bucketInfo = check.data as any;
-        if (!bucketInfo) {
-          return new Response(
-            `Bucket missing: "${bucket}" does not exist and could not be created. ` +
-              `Create it in Supabase Storage or set SUPABASE_SERVICE_ROLE_KEY on the server.`,
-            { status: 500 },
-          );
-        }
-      }
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Unknown error';
-      return new Response(`Bucket check failed: ${message}`, { status: 500 });
-    }
+    const r2 = createR2Client({ accountId: r2AccountId, accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey, bucket, endpoint: r2Endpoint });
+    await ensureR2Bucket(r2, bucket);
 
     const safeName = (filename || (typeof (file as any).name === 'string' ? (file as any).name : 'upload.bin')).replace(/[^a-zA-Z0-9_.-]/g, '_');
     const path = `uploads/${Date.now()}-${safeName}`;
     const arrayBuffer = await file.arrayBuffer();
     const contentType = (file as any).type || 'application/octet-stream';
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(path, new Uint8Array(arrayBuffer), { upsert: false, cacheControl: '3600', contentType });
-    if (uploadError) return new Response(`Upload failed: ${uploadError.message}`, { status: 500 });
-
-    const publicUrl = publicBucket ? supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl : (await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60)).data?.signedUrl || '';
+    await r2PutObject({ client: r2, bucket, key: path, body: new Uint8Array(arrayBuffer), contentType, cacheControl: '3600' });
+    const publicUrl = r2PublicUrl({ publicBaseUrl, bucket, key: path }) || '';
     const type = detectTypeFromMime(contentType);
 
     // Create media_assets row
