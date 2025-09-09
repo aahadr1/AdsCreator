@@ -13,4 +13,6 @@ SYNC_API_KEY.code-search
 !**/.env.example
 
 # API keys
-*_API_KEY.*
+*_API_KEY.*node_modules/
+.next/
+out/
