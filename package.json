@@ -9,7 +9,7 @@
     "lint": "eslint . --ext js,jsx,ts,tsx --max-warnings=0 || true"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.884.0",
+    "@aws-sdk/client-s3": "^3.884.0",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/supabase-js": "^2.56.0",
     "@sync.so/sdk": "^0.2.3",

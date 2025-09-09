@@ -3,7 +3,7 @@
 import '../globals.css';
 import { useState, KeyboardEvent } from 'react';
 import Image from 'next/image';
-// Database functionality removed
+import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 type DownloadResponse = { url?: string | null; raw?: any };
 

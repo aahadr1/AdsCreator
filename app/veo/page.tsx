@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-// Database functionality removed
+import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 type VeoResponse = { url?: string | null; raw?: any };
 

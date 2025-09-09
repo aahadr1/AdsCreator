@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useState } from 'react';
-// Database functionality removed
+import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 type EnhanceResponse = { url?: string | null; raw?: any };
 

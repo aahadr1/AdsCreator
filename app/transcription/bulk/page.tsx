@@ -2,7 +2,7 @@
 
 import '../../globals.css';
 import { useCallback, useMemo, useRef, useState } from 'react';
-// Database functionality removed
+import { supabaseClient as supabase } from '../../../lib/supabaseClient';
 
 type BulkItem = {
   id: string;

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../lib/r2';
+import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '@/lib/r2';
 
 export const runtime = 'nodejs';
 

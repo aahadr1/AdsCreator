@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { spawn } from 'child_process';
-import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../lib/r2';
+import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '@/lib/r2';
 import path from 'path';
 import os from 'os';
 import fs from 'fs/promises';

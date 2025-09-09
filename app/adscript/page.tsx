@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useEffect, useRef, useState } from 'react';
-// Database functionality removed
+import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 export default function AdScriptPage() {
   const [systemPrompt, setSystemPrompt] = useState<string>(`You are a world-class direct-response copywriter specializing in high-converting ad scripts for short-form video ads. Create compelling, original scripts that drive action and engagement.

@@ -2,7 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useRef, useState, useEffect } from 'react';
-// Database functionality removed
+import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 type ReplicateStatus = 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'queued' | 'unknown';
 
