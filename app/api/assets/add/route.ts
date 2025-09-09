@@ -1,18 +1,21 @@
 import { NextRequest } from 'next/server';
+import Replicate from 'replicate';
 import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '@/lib/r2';
 
 export const runtime = 'nodejs';
+
+const replicate = new Replicate({
+  auth: process.env.REPLICATE_API_TOKEN as string,
+});
 
 type MediaKind = 'image' | 'video';
 
 async function labelAndEmbed({
   assetUrl,
   kind,
-  replicate,
 }: {
   assetUrl: string;
   kind: MediaKind;
-  replicate: Replicate;
 }): Promise<{
   title: string;
   description: string;
