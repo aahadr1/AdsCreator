@@ -40,9 +40,20 @@ type TtsInput = {
     | 'Finnish'
     | 'Hindi';
   english_normalization?: boolean;
-  provider?: 'replicate' | 'elevenlabs';
+  provider?: 'replicate' | 'elevenlabs' | 'dia';
   model_id?: string; // ElevenLabs
   output_format?: string; // ElevenLabs, e.g. mp3_44100_128
+  // Dia-specific inputs
+  audio_prompt?: string | null;
+  audio_prompt_text?: string | null;
+  max_new_tokens?: number;
+  max_audio_prompt_seconds?: number;
+  cfg_scale?: number;
+  temperature?: number;
+  top_p?: number;
+  cfg_filter_top_k?: number;
+  speed_factor?: number;
+  seed?: number | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -52,7 +63,7 @@ export async function POST(req: NextRequest) {
       return new Response('Missing required field: text', { status: 400 });
     }
 
-    const provider = (body.provider || 'replicate') as 'replicate' | 'elevenlabs';
+    const provider = (body.provider || 'replicate') as 'replicate' | 'elevenlabs' | 'dia';
 
     if (provider === 'elevenlabs') {
       const elKey = process.env.ELEVENLABS_API_KEY;
@@ -84,6 +95,37 @@ export async function POST(req: NextRequest) {
       const base64 = Buffer.from(arrayBuffer).toString('base64');
       const dataUrl = `data:${mime};base64,${base64}`;
       return Response.json({ url: dataUrl, contentType: mime });
+    }
+
+    if (provider === 'dia') {
+      const token = process.env.REPLICATE_API_TOKEN;
+      if (!token) return new Response('Server misconfigured: missing REPLICATE_API_TOKEN', { status: 500 });
+      const replicate = new Replicate({ auth: token });
+
+      const input: Record<string, unknown> = { text: body.text };
+      if (typeof body.audio_prompt === 'string' && body.audio_prompt.trim() !== '') input.audio_prompt = body.audio_prompt;
+      if (typeof body.audio_prompt_text === 'string' && body.audio_prompt_text.trim() !== '') input.audio_prompt_text = body.audio_prompt_text;
+      if (typeof body.max_new_tokens === 'number') input.max_new_tokens = body.max_new_tokens;
+      if (typeof body.max_audio_prompt_seconds === 'number') input.max_audio_prompt_seconds = body.max_audio_prompt_seconds;
+      if (typeof body.cfg_scale === 'number') input.cfg_scale = body.cfg_scale;
+      if (typeof body.temperature === 'number') input.temperature = body.temperature;
+      if (typeof body.top_p === 'number') input.top_p = body.top_p;
+      if (typeof body.cfg_filter_top_k === 'number') input.cfg_filter_top_k = body.cfg_filter_top_k;
+      if (typeof body.speed_factor === 'number') input.speed_factor = body.speed_factor;
+      if (typeof body.seed === 'number') input.seed = body.seed;
+
+      const output = (await replicate.run('zsxkib/dia', { input })) as unknown;
+      let url: string | null = null;
+      if (output && typeof output === 'object' && 'url' in (output as any) && typeof (output as any).url === 'function') {
+        try { url = (output as any).url(); } catch {}
+      }
+      if (!url && typeof output === 'string') {
+        url = output;
+      }
+      if (!url && output && typeof (output as any).url === 'string') {
+        url = (output as any).url;
+      }
+      return Response.json({ url, raw: output });
     }
 
     // Default provider: Replicate (minimax/speech-02-hd)
