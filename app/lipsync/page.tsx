@@ -82,8 +82,7 @@ export default function LipsyncPage() {
 
   async function startLipsync() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { pushLog('Please sign in at /auth before creating a task.'); return; }
+      // Auth removed - proceeding with task creation
 
       const urls = await uploadIfNeeded();
       if (!urls) return;
@@ -105,28 +104,9 @@ export default function LipsyncPage() {
         active_speaker: activeSpeaker,
       };
 
-      const { data: inserted, error: insertErr } = await supabase
-        .from('tasks')
-        .insert({
-          user_id: user.id,
-          status: 'queued',
-          type: 'lipsync',
-          provider: engine === 'sieve' ? 'sieve' : 'replicate',
-          backend: engine === 'sieve' ? backend : 'lipsync-2-pro',
-          options_json: options,
-          video_url: urls.videoUrl,
-          audio_url: urls.audioUrl,
-        })
-        .select('*')
-        .single();
-
-      if (insertErr || !inserted) {
-        pushLog('Failed to create task: ' + (insertErr?.message || 'unknown'));
-        setStatus('error');
-        return;
-      }
-
-      setTaskId(inserted.id);
+      // Database operations removed - proceeding directly to job creation
+      const taskId = Date.now().toString(); // Generate local task ID
+      setTaskId(taskId);
       pushLog(`Task created. Pushing lipsync job to ${engine === 'sieve' ? 'Sieve' : 'Sync'}...`);
 
       if (engine === 'sieve') {
@@ -144,14 +124,14 @@ export default function LipsyncPage() {
         const text = await res.text();
         pushLog('Push failed: ' + text);
         setStatus('error');
-        if (inserted?.id) await supabase.from('tasks').update({ status: 'error' }).eq('id', inserted.id);
+        // Database operations removed
         return;
       }
       const data = await res.json();
       setJobId(data.id);
       setStatus(data.status as JobStatus);
       pushLog(`Job created: ${data.id}, status=${data.status}`);
-      if (inserted?.id) await supabase.from('tasks').update({ job_id: data.id, status: data.status }).eq('id', inserted.id);
+      // Database operations removed
 
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = setInterval(async () => {
@@ -183,9 +163,9 @@ export default function LipsyncPage() {
             }
             return null;
           })();
-          if (inserted?.id) await supabase.from('tasks').update({ status: j.status, output_url: outUrl }).eq('id', inserted.id);
+          // Database operations removed
         } else {
-          if (inserted?.id) await supabase.from('tasks').update({ status: j.status }).eq('id', inserted.id);
+          // Database operations removed
         }
       }, 1800);
       } else {
@@ -209,7 +189,7 @@ export default function LipsyncPage() {
           const text = await res.text();
           pushLog('Push failed: ' + text);
           setStatus('error');
-          if (inserted?.id) await supabase.from('tasks').update({ status: 'error' }).eq('id', inserted.id);
+          // Database operations removed
           return;
         }
         const data = await res.json();
@@ -217,7 +197,7 @@ export default function LipsyncPage() {
         const initialStatus: JobStatus = 'queued';
         setStatus(initialStatus);
         pushLog(`Job created: ${data.id}, status=${data.status || initialStatus}`);
-        if (inserted?.id) await supabase.from('tasks').update({ job_id: data.id, status: initialStatus }).eq('id', inserted.id);
+        // Database operations removed
 
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = setInterval(async () => {
@@ -242,9 +222,9 @@ export default function LipsyncPage() {
           if ((j.outputUrl || j.upscaledUrl)) {
             (window as any).__SYNC_OUTPUT_URL__ = j.upscaledUrl || j.outputUrl;
             const outUrl = j.upscaledUrl || j.outputUrl || null;
-            if (inserted?.id) await supabase.from('tasks').update({ status: mapped, output_url: outUrl }).eq('id', inserted.id);
+            // Database operations removed
           } else {
-            if (inserted?.id) await supabase.from('tasks').update({ status: mapped }).eq('id', inserted.id);
+            // Database operations removed
           }
           if (j.error) {
             pushLog(`Error detail: ${typeof j.error === 'string' ? j.error : JSON.stringify(j.error)}`);

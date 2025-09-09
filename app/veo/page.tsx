@@ -106,8 +106,7 @@ export default function VeoPage() {
     setError(null);
     setVideoUrl(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Please sign in at /auth before creating a task.');
+      // Auth removed - proceeding with task creation
 
       const isGoogle = model.startsWith('google/veo');
       const dynamicInput: Record<string, any> = { ...inputValues };
@@ -140,21 +139,9 @@ export default function VeoPage() {
 
       const options = { model, ...dynamicInput } as Record<string, any>;
 
-      const { data: inserted, error: insertErr } = await supabase
-        .from('tasks')
-        .insert({
-          user_id: user.id,
-          type: 'lipsync',
-          status: 'queued',
-          provider: 'replicate',
-          model_id: model,
-          options_json: options,
-          text_input: prompt,
-        })
-        .select('*')
-        .single();
-      if (insertErr || !inserted) throw new Error(insertErr?.message || 'Failed to create task');
-      setTaskId(inserted.id);
+      // Database operations removed - proceeding directly to job creation
+      const taskId = Date.now().toString(); // Generate local task ID
+      setTaskId(taskId);
 
       const res = await fetch('/api/veo/run', {
         method: 'POST',
@@ -173,17 +160,10 @@ export default function VeoPage() {
       setRawVideoUrl(persisted);
       setVideoUrl(proxied);
 
-      if (inserted?.id) {
-        await supabase
-          .from('tasks')
-          .update({ status: 'finished', output_url: persisted })
-          .eq('id', inserted.id);
-      }
+      // Database operations removed
     } catch (e: any) {
       setError(e?.message || 'Failed to generate video');
-      if (taskId) {
-        await supabase.from('tasks').update({ status: 'error' }).eq('id', taskId);
-      }
+      // Database operations removed
     } finally {
       setIsLoading(false);
     }
