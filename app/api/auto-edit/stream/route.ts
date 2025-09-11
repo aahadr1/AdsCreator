@@ -17,6 +17,36 @@ function outputToText(out: unknown): string {
   return String(out);
 }
 
+function looksLikeUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s);
+}
+
+function firstUrlFromAny(obj: unknown): string | null {
+  if (!obj) return null;
+  if (typeof obj === 'string') return looksLikeUrl(obj) ? obj : null;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const u = firstUrlFromAny(item);
+      if (u) return u;
+    }
+    return null;
+  }
+  if (typeof obj === 'object') {
+    const maybeOutput = (obj as any).output ?? (obj as any).video ?? (obj as any).image ?? (obj as any).images ?? (obj as any).urls;
+    if (maybeOutput) {
+      const u = firstUrlFromAny(maybeOutput);
+      if (u) return u;
+    }
+    // Try common fields
+    for (const key of Object.keys(obj as Record<string, unknown>)) {
+      const val = (obj as any)[key];
+      const u = firstUrlFromAny(val);
+      if (u) return u;
+    }
+  }
+  return null;
+}
+
 function normalizeSegments(val: unknown): ScriptSegment[] {
   if (Array.isArray(val)) return val as ScriptSegment[];
   if (val && typeof val === 'object' && Array.isArray((val as any).segments)) return (val as any).segments as ScriptSegment[];
@@ -130,6 +160,8 @@ export async function GET(req: NextRequest) {
     const send = (event: Omit<ProgressEvent, 'jobId'>) => write({ jobId, ...event });
     try {
       const replicate = getReplicateClient();
+      const imageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-1.1-pro') as `${string}/${string}`;
+      const wanModel = (process.env.REPLICATE_WAN_I2V_MODEL || 'wan-video/wan-2.2-i2v-fast') as `${string}/${string}`;
 
       // STEP 1 — Segment & Ideate
       send({ step: 'STEP_1', label: 'Segmenting script & ideating b-roll', status: 'RUNNING' });
@@ -171,21 +203,26 @@ export async function GET(req: NextRequest) {
       // STEP 2B — Synthesize stills
       const needsSynth = plans.filter((p) => !p.selected_image);
       if (needsSynth.length > 0) {
-        send({ step: 'STEP_2B', label: `Synthesizing ${needsSynth.length} still(s)`, status: 'RUNNING' });
+        send({ step: 'STEP_2B', label: `Synthesizing ${needsSynth.length} still(s)`, status: 'RUNNING', payload: { model: imageModel } });
         await Promise.all(
           needsSynth.map(async (plan) => {
             try {
               const synth = await withRetries(
                 () =>
-                  replicate.run('black-forest-labs/flux-1.1-pro', {
+                  replicate.run(imageModel, {
                     input: { prompt: plan.prompt_text },
                   }) as Promise<unknown>,
                 `STEP_2B:${plan.segment_id}#${plan.variant_index}`,
               );
-              const synthUrl = outputToText(synth).trim();
+              const synthUrl = (firstUrlFromAny(synth) || outputToText(synth)).trim();
               plan.synth_image_url = synthUrl;
+              // server logs
+              // eslint-disable-next-line no-console
+              console.log('[STEP_2B] Still synthesized', { seg: plan.segment_id, var: plan.variant_index, url: synthUrl });
               send({ step: 'STEP_2B', label: 'Still synthesized', status: 'RUNNING', payload: { segment_id: plan.segment_id, variant: plan.variant_index } });
             } catch (e: unknown) {
+              // eslint-disable-next-line no-console
+              console.error('[STEP_2B] Synthesis failed', e);
               send({ step: 'STEP_2B', label: 'Still synthesis failed', status: 'FAILED', error: e instanceof Error ? e.message : 'Failed', payload: { segment_id: plan.segment_id, variant: plan.variant_index } });
             }
           }),
@@ -194,7 +231,7 @@ export async function GET(req: NextRequest) {
       }
 
       // STEP 3 — WAN I2V
-      send({ step: 'STEP_3', label: 'Generating videos', status: 'RUNNING' });
+      send({ step: 'STEP_3', label: 'Generating videos', status: 'RUNNING', payload: { model: wanModel } });
       const videoAssets = await Promise.all(
         plans.map(async (plan) => {
           const userImageUrl = plan.selected_image
@@ -209,7 +246,7 @@ export async function GET(req: NextRequest) {
           try {
             const wanOut = await withRetries(
               () =>
-                replicate.run('wan-video/wan-2.2-i2v-fast', {
+                replicate.run(wanModel, {
                   input: {
                     image: imageUrl,
                     prompt: plan.prompt_text,
@@ -223,7 +260,7 @@ export async function GET(req: NextRequest) {
                 }) as Promise<unknown>,
               `STEP_3:${plan.segment_id}#${plan.variant_index}`,
             );
-            const videoUrl = outputToText(wanOut).trim();
+            const videoUrl = (firstUrlFromAny(wanOut) || outputToText(wanOut)).trim();
             const asset: VariantVideoAsset = {
               segment_id: plan.segment_id,
               variant_index: plan.variant_index,
@@ -237,9 +274,13 @@ export async function GET(req: NextRequest) {
                 seed: plan.seed ?? null,
               },
             };
+            // eslint-disable-next-line no-console
+            console.log('[STEP_3] Video generated', { seg: plan.segment_id, var: plan.variant_index, url: videoUrl });
             send({ step: 'STEP_3', label: 'Video generated', status: 'RUNNING', payload: { segment_id: plan.segment_id, variant: plan.variant_index } });
             return asset;
           } catch (e: unknown) {
+            // eslint-disable-next-line no-console
+            console.error('[STEP_3] Video generation failed', e);
             send({ step: 'STEP_3', label: 'Video generation failed', status: 'FAILED', error: e instanceof Error ? e.message : 'Failed', payload: { segment_id: plan.segment_id, variant: plan.variant_index } });
             return null;
           }
@@ -251,9 +292,13 @@ export async function GET(req: NextRequest) {
       // STEP 4 — Assemble & return
       send({ step: 'STEP_4', label: 'Assembling results', status: 'RUNNING' });
       const result = assembleResults(segments, plans, videos);
+      // eslint-disable-next-line no-console
+      console.log('[STEP_4] Assembled result summary', { segments: segments.length, plans: plans.length, videos: videos.length });
       send({ step: 'STEP_4', label: 'Complete', status: 'DONE', payload: result });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Pipeline failed';
+      // eslint-disable-next-line no-console
+      console.error('[PIPELINE] Error', e);
       write({ jobId, step: 'ERROR', label: 'Error', status: 'FAILED', error: message });
     } finally {
       close();
