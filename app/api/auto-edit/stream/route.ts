@@ -1,4 +1,5 @@
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 import { NextRequest } from 'next/server';
 import { createSSEStream, sseHeaders } from '../../../../lib/sse';
