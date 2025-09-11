@@ -331,14 +331,15 @@ export async function GET(req: NextRequest) {
       } catch {}
 
       // End Phase 1 stream here. Client will open /api/auto-edit/poll to gather results progressively.
-      return new Response(stream, { headers: sseHeaders() });
+      close();
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Pipeline failed';
       // eslint-disable-next-line no-console
       console.error('[PIPELINE] Error', e);
       write({ jobId, step: 'ERROR', label: 'Error', status: 'FAILED', error: message });
     } finally {
-      close();
+      // Ensure the stream is closed (idempotent)
+      try { close(); } catch {}
     }
   })();
 
