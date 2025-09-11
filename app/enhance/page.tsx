@@ -42,6 +42,7 @@ export default function EnhancePage() {
   }
 
   async function runEnhance() {
+    let kvIdLocal: string | null = null;
     setIsLoading(true);
     setError(null);
     setOutputUrl(null);
@@ -59,6 +60,7 @@ export default function EnhancePage() {
       };
 
       // Create KV task (Cloudflare KV for /tasks page)
+      let kvIdLocal: string | null = null;
       try {
         const createRes = await fetch('/api/tasks/create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -75,7 +77,8 @@ export default function EnhancePage() {
         });
         if (createRes.ok) {
           const created = await createRes.json();
-          setKvTaskId(created?.id || null);
+          kvIdLocal = created?.id || null;
+          setKvTaskId(kvIdLocal);
         }
       } catch {}
 
@@ -112,9 +115,9 @@ export default function EnhancePage() {
           .update({ status: 'finished', output_url: persisted })
           .eq('id', inserted.id);
       }
-      if (kvTaskId) {
+      if (kvIdLocal) {
         try {
-          await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'finished', output_url: persisted }) });
+          await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvIdLocal, status: 'finished', output_url: persisted }) });
         } catch {}
       }
     } catch (e: any) {

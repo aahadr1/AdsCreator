@@ -97,6 +97,7 @@ export default function LipsyncNewPage() {
   }
 
   async function startGeneration() {
+    let kvIdLocal: string | null = null;
     try {
       setStatus('queued'); setLogLines([]); setOutputUrl(null); setPredictionId(null);
       const urls = await uploadIfNeeded();
@@ -130,6 +131,7 @@ export default function LipsyncNewPage() {
       }
       let createdTaskId: string | null = null;
       // Create KV task first for /tasks view
+      let kvIdLocal: string | null = null;
       if (user) {
         try {
           const createRes = await fetch('/api/tasks/create', {
@@ -148,7 +150,8 @@ export default function LipsyncNewPage() {
           });
           if (createRes.ok) {
             const created = await createRes.json();
-            setKvTaskId(created?.id || null);
+            kvIdLocal = created?.id || null;
+            setKvTaskId(kvIdLocal);
           }
         } catch {}
       }
@@ -191,8 +194,8 @@ export default function LipsyncNewPage() {
       if (createdTaskId) {
         try { await supabase.from('tasks').update({ status: (data.status as string) || 'queued', job_id: data.id }).eq('id', createdTaskId); } catch {}
       }
-      if (kvTaskId) {
-        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: (data.status as string) || 'queued', job_id: data.id }) }); } catch {}
+      if (kvIdLocal) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvIdLocal, status: (data.status as string) || 'queued', job_id: data.id }) }); } catch {}
       }
 
       if (pollRef.current) clearInterval(pollRef.current);
@@ -218,8 +221,8 @@ export default function LipsyncNewPage() {
             await supabase.from('tasks').update({ status: st as string, output_url: proxied }).eq('id', (taskId || createdTaskId) as string);
           } catch {}
         }
-        if (kvTaskId) {
-          try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: st as string, output_url: j.outputUrl || null }) }); } catch {}
+        if (kvIdLocal) {
+          try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvIdLocal, status: st as string, output_url: j.outputUrl || null }) }); } catch {}
         }
         if (st === 'succeeded' || st === 'failed' || st === 'canceled') {
           clearInterval(pollRef.current!); pollRef.current = null;
@@ -232,8 +235,8 @@ export default function LipsyncNewPage() {
       if (taskId) {
         try { await supabase.from('tasks').update({ status: 'failed' }).eq('id', taskId); } catch {}
       }
-      if (kvTaskId) {
-        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'failed' }) }); } catch {}
+      if (kvIdLocal || kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: (kvIdLocal || kvTaskId) as string, status: 'failed' }) }); } catch {}
       }
     }
   }

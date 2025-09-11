@@ -56,6 +56,7 @@ export default function ImagePage() {
   }
 
   async function runImage() {
+    let kvIdLocal: string | null = null;
     setIsLoading(true);
     setError(null);
     setImageUrl(null);
@@ -92,6 +93,7 @@ export default function ImagePage() {
       }
 
       // Create KV task (Cloudflare KV for /tasks page)
+      let kvIdLocal: string | null = null;
       try {
         const createRes = await fetch('/api/tasks/create', {
           method: 'POST',
@@ -109,7 +111,8 @@ export default function ImagePage() {
         });
         if (createRes.ok) {
           const created = await createRes.json();
-          setKvTaskId(created?.id || null);
+          kvIdLocal = created?.id || null;
+          setKvTaskId(kvIdLocal);
         }
       } catch {}
 
@@ -169,11 +172,11 @@ export default function ImagePage() {
           .eq('id', inserted.id);
       }
 
-      if (kvTaskId) {
+      if (kvIdLocal) {
         try {
           await fetch('/api/tasks/update', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: kvTaskId, status: 'finished', output_url: persisted })
+            body: JSON.stringify({ id: kvIdLocal, status: 'finished', output_url: persisted })
           });
         } catch {}
       }

@@ -140,8 +140,12 @@ export default function TasksPage() {
 
   const getTaskTypeIcon = (task: Task) => {
     if (task.type === 'tts') return <Volume2 size={16} />;
-    if (task.output_url && /\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(task.output_url)) return <ImageIcon size={16} />;
-    if (task.video_url || task.output_url) return <Video size={16} />;
+    const isImage = (url?: string | null) => !!url && /\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(url);
+    const isVideo = (url?: string | null) => !!url && /\.(mp4|mov|webm|m4v)(\?|$)/i.test(url);
+    const isAudio = (url?: string | null) => !!url && /\.(mp3|wav|flac|m4a|aac|ogg)(\?|$)/i.test(url);
+    if (isVideo(task.video_url) || isVideo(task.output_url)) return <Video size={16} />;
+    if (isAudio(task.audio_url)) return <Volume2 size={16} />;
+    if (isImage(task.output_url)) return <ImageIcon size={16} />;
     return <Activity size={16} />;
   };
 
@@ -333,6 +337,7 @@ export default function TasksPage() {
 
                   {/* Media Inputs */}
                   <div className="task-media-grid">
+                    {/* Video inputs */}
                     {task.video_url && (
                       <div className="task-media-section">
                         <h4>Input Video</h4>
@@ -355,6 +360,7 @@ export default function TasksPage() {
                       </div>
                     )}
 
+                    {/* Audio inputs */}
                     {task.audio_url && (
                       <div className="task-media-section">
                         <h4>Input Audio</h4>
@@ -377,18 +383,19 @@ export default function TasksPage() {
                       </div>
                     )}
 
-                    {task.options_json?.input_image && (
+                    {/* Image inputs from top-level and options */}
+                    {(task as any).image_url || (task.options_json as any)?.input_image ? (
                       <div className="task-media-section">
                         <h4>Input Image</h4>
                         <div className="task-media">
-                          <img src={task.options_json.input_image} alt="Input" className="task-image" />
+                          <img src={(task as any).image_url || (task.options_json as any).input_image} alt="Input" className="task-image" />
                           <div className="task-media-actions">
-                            <a href={task.options_json.input_image} target="_blank" rel="noreferrer" className="media-action">
+                            <a href={(task as any).image_url || (task.options_json as any).input_image} target="_blank" rel="noreferrer" className="media-action">
                               <ExternalLink size={14} />
                               Open
                             </a>
                             <a 
-                              href={`/api/proxy?download=true&url=${encodeURIComponent(task.options_json.input_image)}`}
+                              href={`/api/proxy?download=true&url=${encodeURIComponent(((task as any).image_url || (task.options_json as any).input_image) as string)}`}
                               className="media-action"
                             >
                               <Download size={14} />
@@ -397,7 +404,74 @@ export default function TasksPage() {
                           </div>
                         </div>
                       </div>
-                    )}
+                    ) : null}
+
+                    {/* Generic media discovery from options_json (URIs) */}
+                    {(() => {
+                      const urls: string[] = [];
+                      const pushUrl = (u: unknown) => { const s = typeof u === 'string' ? u : null; if (s && /^(https?:)?\/\//.test(s)) urls.push(s); };
+                      const walk = (v: unknown) => {
+                        if (!v) return;
+                        if (typeof v === 'string') { pushUrl(v); return; }
+                        if (Array.isArray(v)) { for (const it of v) walk(it); return; }
+                        if (typeof v === 'object') { for (const it of Object.values(v as Record<string, unknown>)) walk(it); }
+                      };
+                      walk(task.options_json as any);
+                      const uniq = Array.from(new Set(urls));
+                      const images = uniq.filter(u=>/\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(u));
+                      const videos = uniq.filter(u=>/\.(mp4|mov|webm|m4v)(\?|$)/i.test(u));
+                      const audios = uniq.filter(u=>/\.(mp3|wav|flac|m4a|aac|ogg)(\?|$)/i.test(u));
+                      const extras = [] as JSX.Element[];
+                      if (videos.length) extras.push(
+                        <div key="opt-videos" className="task-media-section">
+                          <h4>Reference Videos</h4>
+                          <div className="task-media">
+                            {videos.slice(0,3).map(v => (
+                              <div key={v} style={{marginBottom:8}}>
+                                <video src={v} controls className="task-video" />
+                                <div className="task-media-actions">
+                                  <a href={v} target="_blank" rel="noreferrer" className="media-action"><ExternalLink size={14} />Open</a>
+                                  <a href={`/api/proxy?type=video&download=true&url=${encodeURIComponent(v)}`} className="media-action"><Download size={14} />Download</a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                      if (images.length) extras.push(
+                        <div key="opt-images" className="task-media-section">
+                          <h4>Reference Images</h4>
+                          <div className="task-media">
+                            {images.slice(0,6).map(img => (
+                              <div key={img} style={{marginBottom:8}}>
+                                <img src={img} alt="reference" className="task-image" />
+                                <div className="task-media-actions">
+                                  <a href={img} target="_blank" rel="noreferrer" className="media-action"><ExternalLink size={14} />Open</a>
+                                  <a href={`/api/proxy?download=true&url=${encodeURIComponent(img)}`} className="media-action"><Download size={14} />Download</a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                      if (audios.length) extras.push(
+                        <div key="opt-audios" className="task-media-section">
+                          <h4>Reference Audios</h4>
+                          <div className="task-media">
+                            {audios.slice(0,3).map(a => (
+                              <div key={a} style={{marginBottom:8}}>
+                                <audio src={a} controls className="task-audio" />
+                                <div className="task-media-actions">
+                                  <a href={a} target="_blank" rel="noreferrer" className="media-action"><ExternalLink size={14} />Open</a>
+                                  <a href={`/api/proxy?download=true&url=${encodeURIComponent(a)}`} className="media-action"><Download size={14} />Download</a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                      return extras.length ? extras : null;
+                    })()}
                 </div>
 
                   {/* Output */}

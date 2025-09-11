@@ -46,6 +46,7 @@ export default function BackgroundRemovePage() {
   }
 
   async function runBackgroundRemoval() {
+    let kvIdLocal: string | null = null;
     setStatus('queued');
     setLogLines([]);
     setOutputUrl(null);
@@ -70,6 +71,7 @@ export default function BackgroundRemovePage() {
       } as any;
 
       // Create KV task
+      let kvIdLocal: string | null = null;
       try {
         const createRes = await fetch('/api/tasks/create', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -85,7 +87,8 @@ export default function BackgroundRemovePage() {
         });
         if (createRes.ok) {
           const created = await createRes.json();
-          setKvTaskId(created?.id || null);
+          kvIdLocal = created?.id || null;
+          setKvTaskId(kvIdLocal);
         }
       } catch {}
 
@@ -119,8 +122,8 @@ export default function BackgroundRemovePage() {
       setStatus(initialStatus);
       pushLog(`Prediction created: ${data.id}`);
       if (inserted?.id) await supabase.from('tasks').update({ job_id: data.id, status: initialStatus }).eq('id', inserted.id);
-      if (kvTaskId) {
-        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, job_id: data.id, status: initialStatus }) }); } catch {}
+      if (kvIdLocal) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvIdLocal, job_id: data.id, status: initialStatus }) }); } catch {}
       }
 
       if (pollRef.current) clearInterval(pollRef.current);
@@ -144,8 +147,8 @@ export default function BackgroundRemovePage() {
           const proxied = j.outputUrl ? `/api/proxy?url=${encodeURIComponent(j.outputUrl)}` : null;
           await supabase.from('tasks').update({ status: st as string, output_url: proxied }).eq('id', inserted.id);
         }
-        if (kvTaskId) {
-          try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: st as string, output_url: j.outputUrl || null }) }); } catch {}
+        if (kvIdLocal) {
+          try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvIdLocal, status: st as string, output_url: j.outputUrl || null }) }); } catch {}
         }
         if (st === 'succeeded' || st === 'failed' || st === 'canceled') {
           clearInterval(pollRef.current!); pollRef.current = null;

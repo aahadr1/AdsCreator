@@ -85,6 +85,7 @@ export default function TtsPage() {
   }, [provider]);
 
   async function runTts() {
+    let kvIdLocal: string | null = null;
     setIsLoading(true);
     setError(null);
     setAudioUrl(null);
@@ -117,6 +118,7 @@ export default function TtsPage() {
         seed: provider === 'dia' ? (diaSeed === '' ? undefined : Number(diaSeed)) : undefined,
       };
       // Also create KV task so it appears in /tasks
+      let kvIdLocal: string | null = null;
       try {
         const createRes = await fetch('/api/tasks/create', {
           method: 'POST',
@@ -133,7 +135,8 @@ export default function TtsPage() {
         });
         if (createRes.ok) {
           const created = await createRes.json();
-          setKvTaskId(created?.id || null);
+          kvIdLocal = created?.id || null;
+          setKvTaskId(kvIdLocal);
         }
       } catch {}
 
@@ -192,16 +195,16 @@ export default function TtsPage() {
           .update({ status: 'finished', output_url: json.url })
           .eq('id', inserted.id);
       }
-      if (kvTaskId) {
-        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'finished', output_url: json.url }) }); } catch {}
+      if (kvIdLocal) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvIdLocal, status: 'finished', output_url: json.url }) }); } catch {}
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to run TTS');
       if (taskId) {
         await supabase.from('tasks').update({ status: 'error' }).eq('id', taskId);
       }
-      if (kvTaskId) {
-        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'error' }) }); } catch {}
+      if (kvIdLocal || kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: (kvIdLocal || kvTaskId) as string, status: 'error' }) }); } catch {}
       }
     } finally {
       setIsLoading(false);

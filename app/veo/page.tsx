@@ -103,6 +103,7 @@ export default function VeoPage() {
   }
 
   async function runVeo() {
+    let kvIdLocal: string | null = null;
     setIsLoading(true);
     setError(null);
     setVideoUrl(null);
@@ -162,7 +163,8 @@ export default function VeoPage() {
         });
         if (createRes.ok) {
           const created = await createRes.json();
-          setKvTaskId(created?.id || null);
+          kvIdLocal = created?.id || null;
+          setKvTaskId(kvIdLocal);
         }
       } catch {}
 
@@ -184,12 +186,12 @@ export default function VeoPage() {
       setVideoUrl(proxied);
 
       // Update KV task
-      if (kvTaskId) {
+      if (kvIdLocal) {
         try {
           await fetch('/api/tasks/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: kvTaskId, status: 'finished', output_url: persisted })
+            body: JSON.stringify({ id: kvIdLocal, status: 'finished', output_url: persisted })
           });
         } catch {}
       }
