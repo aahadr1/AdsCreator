@@ -4,7 +4,7 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 import { createSSEStream, sseHeaders } from '../../../../lib/sse';
 import { getReplicateClient } from '../../../../lib/replicate';
-import { getJob } from '../../../../lib/autoEditStore';
+import { getJobAsync } from '../../../../lib/autoEditStore';
 import { STEP1_SYSTEM_PROMPT, STEP2_SYSTEM_PROMPT } from '../../../../lib/autoEditPrompts';
 import type {
   ProgressEvent,
@@ -171,7 +171,7 @@ export async function GET(req: NextRequest) {
   const jobId = searchParams.get('jobId') || '';
   if (!jobId) return new Response('Missing jobId', { status: 400 });
 
-  const job = getJob(jobId);
+  const job = await getJobAsync(jobId);
   if (!job) return new Response('Unknown jobId', { status: 404 });
 
   const { stream, write, close } = createSSEStream();
