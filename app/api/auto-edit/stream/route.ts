@@ -242,7 +242,9 @@ export async function GET(req: NextRequest) {
             send({ step: 'STEP_3', label: 'Missing image for plan', status: 'FAILED', error: `No image found for ${plan.segment_id}#${plan.variant_index}` });
             return null;
           }
-          const resolution = plan.aspect === '9:16' ? '480x832' : '832x480';
+          // WAN expects resolution enum ("480p" | "720p"), and aspect_ratio separately.
+          const desiredRes = plan.resolution === '720p' || plan.resolution === '1080p' ? '720p' : '480p';
+          const aspectRatio = plan.aspect === '16:9' ? '16:9' : '9:16';
           try {
             const wanOut = await withRetries(
               () =>
@@ -252,10 +254,11 @@ export async function GET(req: NextRequest) {
                     prompt: plan.prompt_text,
                     num_frames: plan.num_frames ?? 81,
                     frames_per_second: plan.frames_per_second ?? 16,
-                    resolution,
+                    resolution: desiredRes,
+                    aspect_ratio: aspectRatio,
                     go_fast: true,
                     sample_shift: 12,
-                    seed: plan.seed ?? null,
+                    ...(typeof plan.seed === 'number' ? { seed: plan.seed } : {}),
                   },
                 }) as Promise<unknown>,
               `STEP_3:${plan.segment_id}#${plan.variant_index}`,
@@ -270,18 +273,18 @@ export async function GET(req: NextRequest) {
               meta: {
                 fps: plan.frames_per_second ?? 16,
                 frames: plan.num_frames ?? 81,
-                resolution,
+                resolution: desiredRes,
                 seed: plan.seed ?? null,
               },
             };
             // eslint-disable-next-line no-console
-            console.log('[STEP_3] Video generated', { seg: plan.segment_id, var: plan.variant_index, url: videoUrl });
+            console.log('[STEP_3] Video generated', { seg: plan.segment_id, var: plan.variant_index, url: videoUrl, res: desiredRes, ar: aspectRatio });
             send({ step: 'STEP_3', label: 'Video generated', status: 'RUNNING', payload: { segment_id: plan.segment_id, variant: plan.variant_index } });
             return asset;
           } catch (e: unknown) {
             // eslint-disable-next-line no-console
-            console.error('[STEP_3] Video generation failed', e);
-            send({ step: 'STEP_3', label: 'Video generation failed', status: 'FAILED', error: e instanceof Error ? e.message : 'Failed', payload: { segment_id: plan.segment_id, variant: plan.variant_index } });
+            console.error('[STEP_3] Video generation failed', e, { imageUrl, res: desiredRes, ar: aspectRatio, frames: plan.num_frames ?? 81, fps: plan.frames_per_second ?? 16 });
+            send({ step: 'STEP_3', label: 'Video generation failed', status: 'FAILED', error: e instanceof Error ? e.message : 'Failed', payload: { segment_id: plan.segment_id, variant: plan.variant_index, imageUrl, resolution: desiredRes, aspect_ratio: aspectRatio } });
             return null;
           }
         }),
