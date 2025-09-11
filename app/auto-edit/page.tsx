@@ -24,10 +24,37 @@ export default function AutoEditPage() {
   });
   const [result, setResult] = useState<ResultBySegment | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
 
   const esRef = useRef<EventSource | null>(null);
 
   const pushLog = useCallback((line: string) => setLogLines((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${line}`]), []);
+
+  const uploadFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    for (const file of files) {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('filename', file.name);
+      // Avoid await-in-loop pattern for UI simplicity; small file counts expected here
+      // eslint-disable-next-line no-await-in-loop
+      const res = await fetch('/api/assets/upload', { method: 'POST', body: form });
+      if (!res.ok) {
+        // continue on error
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const j = (await res.json()) as { url: string };
+      setUploads((prev) => [
+        ...prev,
+        {
+          fileName: file.name,
+          url: j.url,
+        },
+      ]);
+    }
+  }, []);
 
   const onDropFiles = useCallback(async () => {
     const input = document.createElement('input');
@@ -36,29 +63,10 @@ export default function AutoEditPage() {
     input.multiple = true;
     input.onchange = async () => {
       const files = input.files ? Array.from(input.files) : [];
-      if (files.length === 0) return;
-      for (const file of files) {
-        const form = new FormData();
-        form.append('file', file);
-        form.append('filename', file.name);
-        const res = await fetch('/api/assets/upload', { method: 'POST', body: form });
-        if (!res.ok) {
-          // continue on error
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-        const j = (await res.json()) as { url: string };
-        setUploads((prev) => [
-          ...prev,
-          {
-            fileName: file.name,
-            url: j.url,
-          },
-        ]);
-      }
+      await uploadFiles(files);
     };
     input.click();
-  }, []);
+  }, [uploadFiles]);
 
   const onRun = useCallback(async () => {
     if (!script.trim()) {
@@ -168,6 +176,27 @@ export default function AutoEditPage() {
               <button className="btn" type="button" onClick={onDropFiles} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDropFiles(); }}>
                 Add images
               </button>
+              <div
+                className="panel"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDropFiles(); }}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragEnter={() => setIsDragging(true)}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => { e.preventDefault(); setIsDragging(false); const files = Array.from(e.dataTransfer.files || []); void uploadFiles(files); }}
+                style={{
+                  padding: 16,
+                  border: '2px dashed var(--border)',
+                  borderRadius: 8,
+                  background: isDragging ? 'rgba(100, 149, 237, 0.08)' : 'transparent',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                }}
+                title="Drop images here or press Enter to pick files"
+              >
+                <div className="small" style={{ opacity: .9 }}>{isDragging ? 'Drop to upload' : 'Drag & drop images here, or click to browse'}</div>
+              </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {uploads.map((u) => (
                   <div key={u.fileName} className="panel" style={{ width: 120, height: 80, backgroundSize: 'cover', backgroundPosition: 'center', backgroundImage: `url(${u.url})` }} title={u.fileName} />

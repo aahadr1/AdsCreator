@@ -99,6 +99,12 @@ const navigationItems: NavItem[] = [
     gradient: 'linear-gradient(90deg, #42d392, #a36bff)'
   },
   { 
+    href: '/auto-edit', 
+    label: '+ Auto Edit (New)', 
+    icon: <Cpu size={18} />,
+    gradient: 'linear-gradient(90deg, #1db954, #a36bff)'
+  },
+  { 
     href: '/auto-edit-beta', 
     label: '+ Auto Edit Beta', 
     icon: <Cpu size={18} />,
