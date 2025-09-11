@@ -34,7 +34,6 @@ async function withRetries<T>(fn: () => Promise<T>, label: string, maxAttempts =
       await new Promise((r) => setTimeout(r, delay));
     }
   }
-  // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
   throw new Error(`Failed after retries for ${label}: ${String((lastErr as Error)?.message || lastErr)}`);
 }
 
