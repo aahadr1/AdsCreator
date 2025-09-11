@@ -17,6 +17,18 @@ function outputToText(out: unknown): string {
   return String(out);
 }
 
+function normalizeSegments(val: unknown): ScriptSegment[] {
+  if (Array.isArray(val)) return val as ScriptSegment[];
+  if (val && typeof val === 'object' && Array.isArray((val as any).segments)) return (val as any).segments as ScriptSegment[];
+  throw new Error('STEP_1 returned invalid format for segments');
+}
+
+function normalizePlans(val: unknown): VariantGenerationPlan[] {
+  if (Array.isArray(val)) return val as VariantGenerationPlan[];
+  if (val && typeof val === 'object' && Array.isArray((val as any).plans)) return (val as any).plans as VariantGenerationPlan[];
+  throw new Error('STEP_2 returned invalid format for plans');
+}
+
 async function withRetries<T>(fn: () => Promise<T>, label: string, maxAttempts = 3): Promise<T> {
   let attempt = 0;
   let lastErr: unknown = null;
@@ -62,24 +74,44 @@ function assembleResults(
   videos: VariantVideoAsset[],
 ): Record<string, { segment_text: string; variants: Array<{ plan: VariantGenerationPlan | null; video: VariantVideoAsset | null } | null> }> {
   const bySeg: Record<string, { segment_text: string; variants: Array<{ plan: VariantGenerationPlan | null; video: VariantVideoAsset | null } | null> }> = {};
-  for (const s of segments) bySeg[s.segment_id] = { segment_text: s.segment_text, variants: [null, null, null] };
+  // Seed segments
+  for (const s of segments) {
+    bySeg[s.segment_id] = { segment_text: s.segment_text, variants: [null, null, null] };
+  }
+  // Determine max variant index per segment
+  const maxIndexBySeg = new Map<string, number>();
   for (const p of plans) {
-    if (!bySeg[p.segment_id]) continue;
-    if (!bySeg[p.segment_id].variants[p.variant_index]) {
-      bySeg[p.segment_id].variants[p.variant_index] = { plan: p, video: null };
-    } else {
-      const slot = bySeg[p.segment_id].variants[p.variant_index];
-      if (slot) slot.plan = p;
-    }
+    const cur = maxIndexBySeg.get(p.segment_id) || 2;
+    if (p.variant_index > cur) maxIndexBySeg.set(p.segment_id, p.variant_index);
   }
   for (const v of videos) {
-    if (!bySeg[v.segment_id]) continue;
-    if (!bySeg[v.segment_id].variants[v.variant_index]) {
-      bySeg[v.segment_id].variants[v.variant_index] = { plan: null, video: v };
-    } else {
-      const slot = bySeg[v.segment_id].variants[v.variant_index];
-      if (slot) slot.video = v;
+    const cur = maxIndexBySeg.get(v.segment_id) || 2;
+    if (v.variant_index > cur) maxIndexBySeg.set(v.segment_id, v.variant_index);
+  }
+  // Resize arrays to fit max indices
+  for (const [segId, maxIdx] of maxIndexBySeg.entries()) {
+    if (!bySeg[segId]) continue;
+    const needLen = Math.max(3, maxIdx + 1);
+    if (bySeg[segId].variants.length < needLen) {
+      bySeg[segId].variants.length = needLen;
+      for (let i = 0; i < needLen; i++) if (typeof bySeg[segId].variants[i] === 'undefined') bySeg[segId].variants[i] = null;
     }
+  }
+  // Fill plans
+  for (const p of plans) {
+    if (!bySeg[p.segment_id]) continue;
+    const idx = Math.max(0, Math.min(p.variant_index, bySeg[p.segment_id].variants.length - 1));
+    const slot = bySeg[p.segment_id].variants[idx];
+    if (!slot) bySeg[p.segment_id].variants[idx] = { plan: p, video: null };
+    else slot.plan = p;
+  }
+  // Fill videos
+  for (const v of videos) {
+    if (!bySeg[v.segment_id]) continue;
+    const idx = Math.max(0, Math.min(v.variant_index, bySeg[v.segment_id].variants.length - 1));
+    const slot = bySeg[v.segment_id].variants[idx];
+    if (!slot) bySeg[v.segment_id].variants[idx] = { plan: null, video: v };
+    else slot.video = v;
   }
   return bySeg;
 }
@@ -114,7 +146,7 @@ export async function GET(req: NextRequest) {
         'STEP_1',
       );
       const step1Text = outputToText(step1Out);
-      const segments = tryParseJSON<ScriptSegment[]>(step1Text);
+      const segments = normalizeSegments(tryParseJSON<any>(step1Text));
       send({ step: 'STEP_1', label: 'Segmented', status: 'DONE', payload: { count: segments.length } });
 
       // STEP 2 — Plan & Select Image
@@ -133,7 +165,7 @@ export async function GET(req: NextRequest) {
         'STEP_2',
       );
       const step2Text = outputToText(step2Out);
-      const plans = tryParseJSON<VariantGenerationPlan[]>(step2Text);
+      const plans = normalizePlans(tryParseJSON<any>(step2Text));
       send({ step: 'STEP_2', label: 'Planned prompts', status: 'DONE', payload: { count: plans.length } });
 
       // STEP 2B — Synthesize stills
