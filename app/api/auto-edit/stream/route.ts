@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 import { createSSEStream, sseHeaders } from '../../../../lib/sse';
 import { getReplicateClient } from '../../../../lib/replicate';
 import { appendVideos, getJobAsync, savePredictions } from '../../../../lib/autoEditStore';
-import { STEP1_SYSTEM_PROMPT, STEP2_SYSTEM_PROMPT } from '../../../../lib/autoEditPrompts';
+import { STEP1_SYSTEM_PROMPT, STEP2_SYSTEM_PROMPT, STEP_SELECT_SYSTEM_PROMPT } from '../../../../lib/autoEditPrompts';
 import type {
   ProgressEvent,
   ScriptSegment,
@@ -202,6 +202,26 @@ export async function GET(req: NextRequest) {
       const segments = normalizeSegments(tryParseJSON<any>(step1Text));
       send({ step: 'STEP_1', label: 'Segmented', status: 'DONE', payload: { count: segments.length } });
 
+      // SELECT — choose best variant per segment (UGC-first)
+      send({ step: 'STEP_2', label: 'Selecting best UGC variant per segment', status: 'RUNNING' });
+      const selectPrompt = JSON.stringify({ segments });
+      const selectOut = await withRetries(
+        () =>
+          replicate.run('anthropic/claude-3.5-sonnet', {
+            input: {
+              prompt: selectPrompt,
+              system_prompt: STEP_SELECT_SYSTEM_PROMPT,
+              max_tokens: 4000,
+            },
+          }) as Promise<unknown>,
+        'STEP_SELECT',
+      );
+      const selectText = outputToText(selectOut);
+      const selected: Array<{ segment_id: string; best_variant_index: number }> = tryParseJSON<any>(selectText);
+      const bestMap = new Map<string, number>();
+      for (const s of selected) bestMap.set(String(s.segment_id), Number.isFinite(s.best_variant_index) ? Math.floor(s.best_variant_index) : 0);
+      send({ step: 'STEP_2', label: 'Selection complete', status: 'DONE', payload: { count: bestMap.size } });
+
       // STEP 2 — Plan & Select Image
       send({ step: 'STEP_2', label: 'Planning prompts & selecting references', status: 'RUNNING' });
       const step2Payload = JSON.stringify({ segments, uploads: job.uploads });
@@ -219,7 +239,9 @@ export async function GET(req: NextRequest) {
       );
       const step2Text = outputToText(step2Out);
       const plansRaw = normalizePlans(tryParseJSON<any>(step2Text));
-      const plans = normalizePlanIndexes(plansRaw);
+      let plans = normalizePlanIndexes(plansRaw);
+      // Keep only the best variant per segment
+      plans = plans.filter((p) => bestMap.has(String(p.segment_id)) && p.variant_index === bestMap.get(String(p.segment_id)));
       send({ step: 'STEP_2', label: 'Planned prompts', status: 'DONE', payload: { count: plans.length } });
 
       // STEP 2B — Synthesize stills
@@ -270,7 +292,7 @@ export async function GET(req: NextRequest) {
           const userImageUrl = plan.selected_image ? (job.uploads.find((u) => u.fileName === plan.selected_image)?.url || '') : '';
           const imageUrl = userImageUrl || plan.synth_image_url || '';
           if (!imageUrl) return null;
-          const desiredRes = plan.resolution === '720p' || plan.resolution === '1080p' ? '720p' : '480p';
+          const desiredRes = '480p';
           const aspectRatio = plan.aspect === '16:9' ? '16:9' : '9:16';
           try {
             // Resolve latest version id for the model
