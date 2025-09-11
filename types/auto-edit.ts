@@ -57,11 +57,17 @@ export type JobStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
 
 export type ProgressEvent = {
   jobId: string;
-  step: 'STEP_1' | 'STEP_2' | 'STEP_2B' | 'STEP_3' | 'STEP_4' | 'ERROR';
+  step: 'STEP_1' | 'STEP_2' | 'STEP_2B' | 'STEP_3' | 'STEP_3_ENQUEUED' | 'STEP_4' | 'ERROR';
   label: string;
   status: JobStatus;
   payload?: unknown;
   error?: string;
+};
+
+export type PredictionRef = {
+  segment_id: string;
+  variant_index: number;
+  prediction_id: string;
 };
 
 export type StartJobRequest = {

@@ -1,4 +1,4 @@
-import type { StartJobRequest } from '../types/auto-edit';
+import type { PredictionRef, StartJobRequest, VariantVideoAsset } from '../types/auto-edit';
 import { getKvConfigFromEnv, kvGet, kvPut } from './cloudflareKv';
 
 type JobData = StartJobRequest & { createdAt: number };
@@ -34,6 +34,46 @@ export async function getJobAsync(jobId: string): Promise<JobData | null> {
     if (val) return val;
   }
   return getJob(jobId);
+}
+
+export async function savePredictions(jobId: string, preds: PredictionRef[]): Promise<void> {
+  const cfg = getKvConfigFromEnv();
+  if (cfg.accountId && cfg.namespaceId && cfg.apiToken) {
+    await kvPut({ key: `autoedit:preds:${jobId}`, value: preds, config: cfg });
+  } else {
+    // memory fallback
+    (store as any).set(`preds:${jobId}`, preds);
+  }
+}
+
+export async function loadPredictions(jobId: string): Promise<PredictionRef[] | null> {
+  const cfg = getKvConfigFromEnv();
+  if (cfg.accountId && cfg.namespaceId && cfg.apiToken) {
+    return (await kvGet<PredictionRef[]>({ key: `autoedit:preds:${jobId}`, config: cfg })) || null;
+  }
+  return ((store as any).get(`preds:${jobId}`) as PredictionRef[] | null) || null;
+}
+
+export async function appendVideos(jobId: string, videos: VariantVideoAsset[]): Promise<void> {
+  const cfg = getKvConfigFromEnv();
+  const key = `autoedit:videos:${jobId}`;
+  if (cfg.accountId && cfg.namespaceId && cfg.apiToken) {
+    const prev = (await kvGet<VariantVideoAsset[]>({ key, config: cfg })) || [];
+    await kvPut({ key, value: [...prev, ...videos], config: cfg });
+    return;
+  }
+  const k = `videos:${jobId}`;
+  const prev = ((store as any).get(k) as VariantVideoAsset[] | null) || [];
+  (store as any).set(k, [...prev, ...videos]);
+}
+
+export async function loadVideos(jobId: string): Promise<VariantVideoAsset[]> {
+  const cfg = getKvConfigFromEnv();
+  const key = `autoedit:videos:${jobId}`;
+  if (cfg.accountId && cfg.namespaceId && cfg.apiToken) {
+    return (await kvGet<VariantVideoAsset[]>({ key, config: cfg })) || [];
+  }
+  return ((store as any).get(`videos:${jobId}`) as VariantVideoAsset[] | null) || [];
 }
 
 

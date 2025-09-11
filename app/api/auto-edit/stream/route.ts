@@ -4,13 +4,14 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 import { createSSEStream, sseHeaders } from '../../../../lib/sse';
 import { getReplicateClient } from '../../../../lib/replicate';
-import { getJobAsync } from '../../../../lib/autoEditStore';
+import { appendVideos, getJobAsync, savePredictions } from '../../../../lib/autoEditStore';
 import { STEP1_SYSTEM_PROMPT, STEP2_SYSTEM_PROMPT } from '../../../../lib/autoEditPrompts';
 import type {
   ProgressEvent,
   ScriptSegment,
   VariantGenerationPlan,
   VariantVideoAsset,
+  PredictionRef,
 } from '../../../../types/auto-edit';
 
 function outputToText(out: unknown): string {
@@ -252,73 +253,85 @@ export async function GET(req: NextRequest) {
       }
 
       // STEP 3 — WAN I2V
-      send({ step: 'STEP_3', label: 'Generating videos', status: 'RUNNING', payload: { model: wanModel } });
-      const videoAssets = await Promise.all(
-        plans.map(async (plan) => {
-          const userImageUrl = plan.selected_image
-            ? (job.uploads.find((u) => u.fileName === plan.selected_image)?.url || '')
-            : '';
+      // PHASE 1: Enqueue WAN predictions in batches (no waiting)
+      send({ step: 'STEP_3', label: 'Enqueuing video generations', status: 'RUNNING', payload: { model: wanModel } });
+      const predictions: PredictionRef[] = [];
+      const token = process.env.REPLICATE_API_TOKEN as string;
+      const proxyKey = process.env.SYNC_API_KEY || process.env.SYNC_PROXY_API_KEY || undefined;
+      const REPLICATE_API = 'https://api.replicate.com/v1';
+
+      const plansCopy = [...plans];
+      const batchSize = 10;
+      while (plansCopy.length > 0) {
+        const batch = plansCopy.splice(0, batchSize);
+        // eslint-disable-next-line no-console
+        console.log('[STEP_3] Creating predictions batch', { count: batch.length });
+        const created = await Promise.all(batch.map(async (plan) => {
+          const userImageUrl = plan.selected_image ? (job.uploads.find((u) => u.fileName === plan.selected_image)?.url || '') : '';
           const imageUrl = userImageUrl || plan.synth_image_url || '';
-          if (!imageUrl) {
-            send({ step: 'STEP_3', label: 'Missing image for plan', status: 'FAILED', error: `No image found for ${plan.segment_id}#${plan.variant_index}` });
-            return null;
-          }
-          // WAN expects resolution enum ("480p" | "720p"), and aspect_ratio separately.
+          if (!imageUrl) return null;
           const desiredRes = plan.resolution === '720p' || plan.resolution === '1080p' ? '720p' : '480p';
           const aspectRatio = plan.aspect === '16:9' ? '16:9' : '9:16';
           try {
-            const wanOut = await withRetries(
-              () =>
-                replicate.run(wanModel, {
-                  input: {
-                    image: imageUrl,
-                    prompt: plan.prompt_text,
-                    num_frames: plan.num_frames ?? 81,
-                    frames_per_second: plan.frames_per_second ?? 16,
-                    resolution: desiredRes,
-                    aspect_ratio: aspectRatio,
-                    go_fast: true,
-                    sample_shift: 12,
-                    ...(typeof plan.seed === 'number' ? { seed: plan.seed } : {}),
-                  },
-                }) as Promise<unknown>,
-              `STEP_3:${plan.segment_id}#${plan.variant_index}`,
-            );
-            const videoUrl = (firstUrlFromAny(wanOut) || outputToText(wanOut)).trim();
-            const asset: VariantVideoAsset = {
-              segment_id: String(plan.segment_id),
-              variant_index: Number.isFinite(plan.variant_index) ? plan.variant_index : 0,
-              video_url: videoUrl,
-              used_image_url: imageUrl,
-              prompt_text: plan.prompt_text,
-              meta: {
-                fps: plan.frames_per_second ?? 16,
-                frames: plan.num_frames ?? 81,
-                resolution: desiredRes,
-                seed: plan.seed ?? null,
-              },
+            // Resolve latest version id for the model
+            const modelRes = await fetch(`${REPLICATE_API}/models/${wanModel}`, { headers: { Authorization: `Token ${token}` }, cache: 'no-store' });
+            if (!modelRes.ok) throw new Error(await modelRes.text());
+            const modelJson = await modelRes.json();
+            const versionId = modelJson?.latest_version?.id;
+            if (!versionId) throw new Error('No latest version found for model');
+
+            const inputPayload: Record<string, unknown> = {
+              image: imageUrl,
+              prompt: plan.prompt_text,
+              num_frames: plan.num_frames ?? 81,
+              frames_per_second: plan.frames_per_second ?? 16,
+              resolution: desiredRes,
+              aspect_ratio: aspectRatio,
+              go_fast: true,
+              sample_shift: 12,
             };
+            if (typeof plan.seed === 'number') inputPayload.seed = plan.seed;
+            if (proxyKey) inputPayload.proxy_api_key = proxyKey;
+
+            const res = await fetch(`${REPLICATE_API}/predictions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Token ${token}` },
+              body: JSON.stringify({ version: versionId, input: inputPayload }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const json = await res.json();
+            const ref: PredictionRef = { segment_id: String(plan.segment_id), variant_index: Number.isFinite(plan.variant_index) ? plan.variant_index : 0, prediction_id: json.id };
+            return ref;
+          } catch (e) {
             // eslint-disable-next-line no-console
-            console.log('[STEP_3] Video generated', { seg: plan.segment_id, var: plan.variant_index, url: videoUrl, res: desiredRes, ar: aspectRatio });
-            send({ step: 'STEP_3', label: 'Video generated', status: 'RUNNING', payload: { segment_id: plan.segment_id, variant: plan.variant_index } });
-            return asset;
-          } catch (e: unknown) {
-            // eslint-disable-next-line no-console
-            console.error('[STEP_3] Video generation failed', e, { imageUrl, res: desiredRes, ar: aspectRatio, frames: plan.num_frames ?? 81, fps: plan.frames_per_second ?? 16 });
-            send({ step: 'STEP_3', label: 'Video generation failed', status: 'FAILED', error: e instanceof Error ? e.message : 'Failed', payload: { segment_id: plan.segment_id, variant: plan.variant_index, imageUrl, resolution: desiredRes, aspect_ratio: aspectRatio } });
+            console.error('[STEP_3] Prediction create failed', e);
             return null;
           }
-        }),
-      );
-      const videos: VariantVideoAsset[] = videoAssets.filter((v): v is VariantVideoAsset => Boolean(v));
-      send({ step: 'STEP_3', label: 'All videos generated', status: 'DONE', payload: { count: videos.length } });
+        }));
+        for (const c of created) if (c) predictions.push(c);
+      }
 
-      // STEP 4 — Assemble & return
-      send({ step: 'STEP_4', label: 'Assembling results', status: 'RUNNING' });
-      const result = assembleResults(segments, plans, videos);
-      // eslint-disable-next-line no-console
-      console.log('[STEP_4] Assembled result summary', { segments: segments.length, plans: plans.length, videos: videos.length });
-      send({ step: 'STEP_4', label: 'Complete', status: 'DONE', payload: result });
+      await savePredictions(jobId, predictions);
+      send({ step: 'STEP_3_ENQUEUED', label: 'Videos enqueued', status: 'DONE', payload: { count: predictions.length, predictions } });
+
+      // Optionally flush any already finished predictions quickly (best-effort)
+      try {
+        const finished: VariantVideoAsset[] = [];
+        for (const p of predictions) {
+          const st = await fetch(`${REPLICATE_API}/predictions/${p.prediction_id}`, { headers: { Authorization: `Token ${token}` }, cache: 'no-store' });
+          if (st.ok) {
+            const j = await st.json();
+            if (j.status === 'succeeded') {
+              const url = (firstUrlFromAny(j.output) || '') as string;
+              if (url) finished.push({ segment_id: p.segment_id, variant_index: p.variant_index, video_url: url, used_image_url: '', prompt_text: '', meta: { fps: 0, frames: 0, resolution: '' } });
+            }
+          }
+        }
+        if (finished.length) await appendVideos(jobId, finished);
+      } catch {}
+
+      // End Phase 1 stream here. Client will open /api/auto-edit/poll to gather results progressively.
+      return new Response(stream, { headers: sseHeaders() });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Pipeline failed';
       // eslint-disable-next-line no-console

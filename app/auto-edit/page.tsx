@@ -27,6 +27,7 @@ export default function AutoEditPage() {
   const [isDragging, setIsDragging] = useState(false);
 
   const esRef = useRef<EventSource | null>(null);
+  const pollRef = useRef<EventSource | null>(null);
 
   const pushLog = useCallback((line: string) => setLogLines((prev) => [...prev, `${new Date().toLocaleTimeString()}  ${line}`]), []);
 
@@ -106,10 +107,28 @@ export default function AutoEditPage() {
             setProgress((prev) => ({ ...prev, STEP_1: prev.STEP_1, STEP_2: prev.STEP_2, STEP_2B: prev.STEP_2B, STEP_3: prev.STEP_3, STEP_4: { label: 'Assemble', status: 'FAILED' } }));
             return;
           }
-          const step = event.step as StepKey;
-          setProgress((prev) => ({ ...prev, [step]: { label: event.label, status: event.status } }));
-          if (step === 'STEP_4' && event.status === 'DONE' && event.payload) {
-            setResult(event.payload as ResultBySegment);
+          // Phase 1 updates
+          if (event.step === 'STEP_3_ENQUEUED' && event.status === 'DONE') {
+            pushLog(`Enqueued ${(event.payload as any)?.count || 0} videos. Starting polling…`);
+            // Start polling SSE to collect results progressively
+            if (pollRef.current) { try { pollRef.current.close(); } catch {} pollRef.current = null; }
+            const p = new EventSource(`/api/auto-edit/poll?jobId=${encodeURIComponent(id)}`);
+            p.onmessage = (e2) => {
+              try {
+                const ev2 = JSON.parse(e2.data) as ProgressEvent;
+                if (ev2.step === 'ERROR') { pushLog(ev2.error || 'Polling error'); return; }
+                if (ev2.step === 'STEP_3') {
+                  if (ev2.label === 'Video ready' && ev2.payload) {
+                    pushLog(`Ready: ${(ev2.payload as any).segment_id}#${(ev2.payload as any).variant}`);
+                  }
+                }
+              } catch {}
+            };
+            p.onerror = () => { try { p.close(); } catch {}; pollRef.current = null; };
+            pollRef.current = p;
+          } else {
+            const step = event.step as StepKey;
+            setProgress((prev) => ({ ...prev, [step]: { label: event.label, status: event.status } }));
           }
         } catch {}
       };
@@ -117,7 +136,7 @@ export default function AutoEditPage() {
         pushLog('Stream closed.');
         try { es.close(); } catch {}
         esRef.current = null;
-        setIsRunning(false);
+        // Keep running while polling
       };
       esRef.current = es;
     } catch (e: unknown) {
@@ -128,6 +147,7 @@ export default function AutoEditPage() {
 
   useEffect(() => () => {
     try { esRef.current?.close(); } catch {}
+    try { pollRef.current?.close(); } catch {}
   }, []);
 
   const completedPercent = useMemo(() => {
