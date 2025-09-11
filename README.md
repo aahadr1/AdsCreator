@@ -54,3 +54,13 @@ Deploy to Vercel, connect a Blob store, and add the two env vars to Production a
 
 # AdsCreator
 # ads-creatorv2
+
+## Auto Edit (beta)
+
+- Page: `/auto-edit`
+- Requires: `REPLICATE_API_TOKEN`
+- Endpoints:
+  - `POST /api/auto-edit/start` → `{ jobId }`
+  - `GET /api/auto-edit/stream?jobId=...` → SSE stream with progress events
+  - Uses Replicate models: `anthropic/claude-3.5-sonnet`, `black-forest-labs/flux-1.1-pro`, `wan-video/wan-2.2-i2v-fast`
+
