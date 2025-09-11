@@ -7,7 +7,8 @@ export async function GET(req: NextRequest) {
   try {
     const config = getKvConfigFromEnv();
     if (!config.accountId || !config.namespaceId || !config.apiToken) {
-      return new Response('Cloudflare KV not configured', { status: 500 });
+      // Gracefully degrade to empty list if KV is not configured
+      return Response.json({ tasks: [] });
     }
 
     const { searchParams } = new URL(req.url);
