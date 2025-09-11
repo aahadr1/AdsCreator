@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
       'google/veo-3-fast',
       'bytedance/seedance-1-pro',
       'bytedance/seedance-1-lite',
+      'wan-video/wan-2.2-i2v-fast',
     ]);
     const model = allowedModels.has((body.model as string) || '')
       ? (body.model as string)

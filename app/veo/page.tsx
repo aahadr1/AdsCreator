@@ -7,7 +7,7 @@ import { supabaseClient as supabase } from '../../lib/supabaseClient';
 type VeoResponse = { url?: string | null; raw?: any };
 
 export default function VeoPage() {
-  const [model, setModel] = useState<'google/veo-3' | 'google/veo-3-fast' | 'bytedance/seedance-1-pro' | 'bytedance/seedance-1-lite'>('google/veo-3-fast');
+  const [model, setModel] = useState<'google/veo-3' | 'google/veo-3-fast' | 'bytedance/seedance-1-pro' | 'bytedance/seedance-1-lite' | 'wan-video/wan-2.2-i2v-fast'>('google/veo-3-fast');
   const [prompt, setPrompt] = useState('A cinematic drone flyover of futuristic cityscapes at sunset.');
   const [imageUrl, setImageUrl] = useState('');
   const [negativePrompt, setNegativePrompt] = useState('');
@@ -216,6 +216,7 @@ export default function VeoPage() {
               <option value="google/veo-3">Google VEO 3 (Highest Quality)</option>
               <option value="bytedance/seedance-1-pro">ByteDance Seedance 1 Pro</option>
               <option value="bytedance/seedance-1-lite">ByteDance Seedance 1 Lite</option>
+              <option value="wan-video/wan-2.2-i2v-fast">Pruna WAN 2.2 i2v Fast (Image-to-Video)</option>
             </select>
           </div>
         </div>
