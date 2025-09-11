@@ -59,6 +59,21 @@ function normalizePlans(val: unknown): VariantGenerationPlan[] {
   throw new Error('STEP_2 returned invalid format for plans');
 }
 
+function normalizePlanIndexes(plans: VariantGenerationPlan[]): VariantGenerationPlan[] {
+  // Ensure segment_id is string and variant_index is finite integer per segment
+  const nextIndexBySeg = new Map<string, number>();
+  const result: VariantGenerationPlan[] = [];
+  for (const raw of plans) {
+    const segmentId = String(raw.segment_id);
+    const current = nextIndexBySeg.get(segmentId) ?? 0;
+    const vi = Number.isFinite(raw.variant_index) ? Math.max(0, Math.floor(Number(raw.variant_index))) : current;
+    const next = vi === current ? current + 1 : current;
+    nextIndexBySeg.set(segmentId, next);
+    result.push({ ...raw, segment_id: segmentId, variant_index: vi });
+  }
+  return result;
+}
+
 async function withRetries<T>(fn: () => Promise<T>, label: string, maxAttempts = 3): Promise<T> {
   let attempt = 0;
   let lastErr: unknown = null;
@@ -106,17 +121,19 @@ function assembleResults(
   const bySeg: Record<string, { segment_text: string; variants: Array<{ plan: VariantGenerationPlan | null; video: VariantVideoAsset | null } | null> }> = {};
   // Seed segments
   for (const s of segments) {
-    bySeg[s.segment_id] = { segment_text: s.segment_text, variants: [null, null, null] };
+    bySeg[String(s.segment_id)] = { segment_text: s.segment_text, variants: [null, null, null] };
   }
   // Determine max variant index per segment
   const maxIndexBySeg = new Map<string, number>();
   for (const p of plans) {
-    const cur = maxIndexBySeg.get(p.segment_id) || 2;
-    if (p.variant_index > cur) maxIndexBySeg.set(p.segment_id, p.variant_index);
+    const seg = String(p.segment_id);
+    const cur = maxIndexBySeg.get(seg) || 2;
+    if (p.variant_index > cur) maxIndexBySeg.set(seg, p.variant_index);
   }
   for (const v of videos) {
-    const cur = maxIndexBySeg.get(v.segment_id) || 2;
-    if (v.variant_index > cur) maxIndexBySeg.set(v.segment_id, v.variant_index);
+    const seg = String(v.segment_id);
+    const cur = maxIndexBySeg.get(seg) || 2;
+    if (v.variant_index > cur) maxIndexBySeg.set(seg, v.variant_index);
   }
   // Resize arrays to fit max indices
   for (const [segId, maxIdx] of maxIndexBySeg.entries()) {
@@ -129,18 +146,20 @@ function assembleResults(
   }
   // Fill plans
   for (const p of plans) {
-    if (!bySeg[p.segment_id]) continue;
-    const idx = Math.max(0, Math.min(p.variant_index, bySeg[p.segment_id].variants.length - 1));
-    const slot = bySeg[p.segment_id].variants[idx];
-    if (!slot) bySeg[p.segment_id].variants[idx] = { plan: p, video: null };
+    const seg = String(p.segment_id);
+    if (!bySeg[seg]) continue;
+    const safeIdx = Number.isFinite(p.variant_index) ? Math.max(0, Math.min(p.variant_index, bySeg[seg].variants.length - 1)) : 0;
+    const slot = bySeg[seg].variants[safeIdx];
+    if (!slot) bySeg[seg].variants[safeIdx] = { plan: p, video: null };
     else slot.plan = p;
   }
   // Fill videos
   for (const v of videos) {
-    if (!bySeg[v.segment_id]) continue;
-    const idx = Math.max(0, Math.min(v.variant_index, bySeg[v.segment_id].variants.length - 1));
-    const slot = bySeg[v.segment_id].variants[idx];
-    if (!slot) bySeg[v.segment_id].variants[idx] = { plan: null, video: v };
+    const seg = String(v.segment_id);
+    if (!bySeg[seg]) continue;
+    const safeIdx = Number.isFinite(v.variant_index) ? Math.max(0, Math.min(v.variant_index, bySeg[seg].variants.length - 1)) : 0;
+    const slot = bySeg[seg].variants[safeIdx];
+    if (!slot) bySeg[seg].variants[safeIdx] = { plan: null, video: v };
     else slot.video = v;
   }
   return bySeg;
@@ -197,7 +216,8 @@ export async function GET(req: NextRequest) {
         'STEP_2',
       );
       const step2Text = outputToText(step2Out);
-      const plans = normalizePlans(tryParseJSON<any>(step2Text));
+      const plansRaw = normalizePlans(tryParseJSON<any>(step2Text));
+      const plans = normalizePlanIndexes(plansRaw);
       send({ step: 'STEP_2', label: 'Planned prompts', status: 'DONE', payload: { count: plans.length } });
 
       // STEP 2B — Synthesize stills
@@ -265,8 +285,8 @@ export async function GET(req: NextRequest) {
             );
             const videoUrl = (firstUrlFromAny(wanOut) || outputToText(wanOut)).trim();
             const asset: VariantVideoAsset = {
-              segment_id: plan.segment_id,
-              variant_index: plan.variant_index,
+              segment_id: String(plan.segment_id),
+              variant_index: Number.isFinite(plan.variant_index) ? plan.variant_index : 0,
               video_url: videoUrl,
               used_image_url: imageUrl,
               prompt_text: plan.prompt_text,
