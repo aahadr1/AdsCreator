@@ -3,12 +3,14 @@ export const maxDuration = 300;
 
 import { NextRequest } from 'next/server';
 import { createSSEStream, sseHeaders } from '../../../../lib/sse';
-import { loadPredictions, loadVideos, appendVideos } from '../../../../lib/autoEditStore';
-import type { PredictionRef, VariantVideoAsset } from '../../../../types/auto-edit';
+import { dbAppendVideos, dbListPredictions, dbListVideos, dbUpdatePrediction, dbSetJobStatus } from '../../../../lib/autoEditDb';
+import type { VariantVideoAsset } from '../../../../types/auto-edit';
+
+type PredRef = { segment_id: string; variant_index: number; prediction_id: string };
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
-async function pollOnce(token: string, preds: PredictionRef[]): Promise<VariantVideoAsset[]> {
+async function pollOnce(token: string, preds: PredRef[]): Promise<VariantVideoAsset[]> {
   const results: VariantVideoAsset[] = [];
   await Promise.all(preds.map(async (p) => {
     try {
@@ -33,7 +35,7 @@ export async function GET(req: NextRequest) {
   const jobId = searchParams.get('jobId') || '';
   if (!jobId) return new Response('Missing jobId', { status: 400 });
 
-  const preds = (await loadPredictions(jobId)) || [];
+  const preds = await dbListPredictions(jobId);
   if (preds.length === 0) return new Response('No predictions for job', { status: 404 });
 
   const token = process.env.REPLICATE_API_TOKEN;
@@ -48,25 +50,33 @@ export async function GET(req: NextRequest) {
       const seen = new Set<string>();
 
       // Include any already saved videos (from best-effort quick pass)
-      const existing = await loadVideos(jobId);
+      const existing = await dbListVideos(jobId);
       for (const ex of existing) seen.add(`${ex.segment_id}#${ex.variant_index}`);
       if (existing.length) send({ step: 'STEP_3', label: 'Recovered existing videos', status: 'RUNNING', payload: { count: existing.length } });
 
       const started = Date.now();
       while (Date.now() - started < 290_000) {
-        const batch = await pollOnce(token, preds.filter((p) => !seen.has(`${p.segment_id}#${p.variant_index}`)));
+        const unfinished = preds.filter((p) => !seen.has(`${p.segment_id}#${p.variant_index}`));
+        const batch = await pollOnce(token, unfinished.map((p) => ({ segment_id: p.segment_id, variant_index: p.variant_index, prediction_id: p.prediction_id })) as any);
         if (batch.length) {
-          await appendVideos(jobId, batch);
+          await dbAppendVideos(jobId, batch);
           for (const v of batch) {
             seen.add(`${v.segment_id}#${v.variant_index}`);
             send({ step: 'STEP_3', label: 'Video ready', status: 'RUNNING', payload: { segment_id: v.segment_id, variant: v.variant_index, video_url: v.video_url } });
+          }
+          // mark predictions succeeded where matched
+          for (const pred of preds) {
+            if (seen.has(`${pred.segment_id}#${pred.variant_index}`) && pred.status !== 'succeeded') {
+              await dbUpdatePrediction(pred.id, { status: 'succeeded', output_url: existing.find((e) => e.segment_id === pred.segment_id && e.variant_index === pred.variant_index)?.video_url || null });
+            }
           }
         }
         if (seen.size >= preds.length) break;
         await new Promise((r) => setTimeout(r, 2500));
       }
 
-      const final = await loadVideos(jobId);
+      const final = await dbListVideos(jobId);
+      if (final.length >= preds.length) await dbSetJobStatus(jobId, 'DONE');
       send({ step: 'STEP_3', label: 'All videos collected (or window end)', status: 'DONE', payload: { count: final.length } });
     } catch (e: any) {
       write({ jobId, step: 'ERROR', label: 'Polling error', status: 'FAILED', error: e?.message || 'Failed' });

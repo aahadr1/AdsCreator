@@ -4,7 +4,7 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 import { createSSEStream, sseHeaders } from '../../../../lib/sse';
 import { getReplicateClient } from '../../../../lib/replicate';
-import { appendVideos, getJobAsync, savePredictions } from '../../../../lib/autoEditStore';
+import { dbAppendVideos, dbGetJob, dbSavePredictions, dbSetJobStatus } from '../../../../lib/autoEditDb';
 import { STEP1_SYSTEM_PROMPT, STEP2_SYSTEM_PROMPT, STEP_SELECT_SYSTEM_PROMPT } from '../../../../lib/autoEditPrompts';
 import type {
   ProgressEvent,
@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
   const jobId = searchParams.get('jobId') || '';
   if (!jobId) return new Response('Missing jobId', { status: 400 });
 
-  const job = await getJobAsync(jobId);
+  const job = await dbGetJob(jobId);
   if (!job) return new Response('Unknown jobId', { status: 404 });
 
   const { stream, write, close } = createSSEStream();
@@ -184,6 +184,7 @@ export async function GET(req: NextRequest) {
       const imageModel = (process.env.REPLICATE_IMAGE_MODEL || 'black-forest-labs/flux-1.1-pro') as `${string}/${string}`;
       const wanModel = (process.env.REPLICATE_WAN_I2V_MODEL || 'wan-video/wan-2.2-i2v-fast') as `${string}/${string}`;
 
+      await dbSetJobStatus(jobId, 'RUNNING');
       // STEP 1 — Segment & Ideate
       send({ step: 'STEP_1', label: 'Segmenting script & ideating b-roll', status: 'RUNNING' });
       const step1Out = await withRetries(
@@ -289,7 +290,7 @@ export async function GET(req: NextRequest) {
         // eslint-disable-next-line no-console
         console.log('[STEP_3] Creating predictions batch', { count: batch.length });
         const created = await Promise.all(batch.map(async (plan) => {
-          const userImageUrl = plan.selected_image ? (job.uploads.find((u) => u.fileName === plan.selected_image)?.url || '') : '';
+          const userImageUrl = plan.selected_image ? ((job.uploads as Array<{ fileName: string; url: string }> | null | undefined)?.find((u: { fileName: string; url: string }) => u.fileName === plan.selected_image)?.url || '') : '';
           const imageUrl = userImageUrl || plan.synth_image_url || '';
           if (!imageUrl) return null;
           const desiredRes = '480p';
@@ -333,7 +334,7 @@ export async function GET(req: NextRequest) {
         for (const c of created) if (c) predictions.push(c);
       }
 
-      await savePredictions(jobId, predictions);
+      await dbSavePredictions(jobId, predictions);
       send({ step: 'STEP_3_ENQUEUED', label: 'Videos enqueued', status: 'DONE', payload: { count: predictions.length, predictions } });
 
       // Optionally flush any already finished predictions quickly (best-effort)
@@ -349,7 +350,7 @@ export async function GET(req: NextRequest) {
             }
           }
         }
-        if (finished.length) await appendVideos(jobId, finished);
+        if (finished.length) await dbAppendVideos(jobId, finished);
       } catch {}
 
       // End Phase 1 stream here. Client will open /api/auto-edit/poll to gather results progressively.

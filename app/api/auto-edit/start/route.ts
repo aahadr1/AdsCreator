@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 import { NextRequest } from 'next/server';
 import { randomUUID } from 'crypto';
 import type { StartJobRequest, StartJobResponse } from '../../../../types/auto-edit';
-import { putJobAsync } from '../../../../lib/autoEditStore';
+import { dbInsertJob } from '../../../../lib/autoEditDb';
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     }
 
     const jobId = randomUUID();
-    await putJobAsync(jobId, {
+    await dbInsertJob(jobId, {
       script: body.script,
       uploads: body.uploads,
       settings: body.settings || {},
