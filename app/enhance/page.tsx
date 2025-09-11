@@ -20,6 +20,7 @@ export default function EnhancePage() {
   const [error, setError] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [kvTaskId, setKvTaskId] = useState<string | null>(null);
 
   const uploadImage = useCallback(async (file: File): Promise<string> => {
     const form = new FormData();
@@ -57,6 +58,27 @@ export default function EnhancePage() {
         face_enhancement_creativity: faceEnhancementCreativity,
       };
 
+      // Create KV task (Cloudflare KV for /tasks page)
+      try {
+        const createRes = await fetch('/api/tasks/create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            type: 'enhance',
+            status: 'queued',
+            provider: 'replicate',
+            backend: 'topazlabs/image-upscale',
+            options_json: options,
+            image_url: imageUrl,
+            text_input: 'enhance',
+          })
+        });
+        if (createRes.ok) {
+          const created = await createRes.json();
+          setKvTaskId(created?.id || null);
+        }
+      } catch {}
+
       const { data: inserted, error: insertErr } = await supabase
         .from('tasks')
         .insert({
@@ -90,10 +112,18 @@ export default function EnhancePage() {
           .update({ status: 'finished', output_url: persisted })
           .eq('id', inserted.id);
       }
+      if (kvTaskId) {
+        try {
+          await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'finished', output_url: persisted }) });
+        } catch {}
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to enhance image');
       if (taskId) {
         await supabase.from('tasks').update({ status: 'error' }).eq('id', taskId);
+      }
+      if (kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'error' }) }); } catch {}
       }
     } finally {
       setIsLoading(false);

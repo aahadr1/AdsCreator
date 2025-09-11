@@ -34,6 +34,7 @@ export default function TtsPage() {
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [kvTaskId, setKvTaskId] = useState<string | null>(null);
   // Dia model parameters
   const [diaAudioPromptUrl, setDiaAudioPromptUrl] = useState<string | null>(null);
   const [diaAudioPromptText, setDiaAudioPromptText] = useState<string>('');
@@ -115,6 +116,27 @@ export default function TtsPage() {
         speed_factor: provider === 'dia' ? diaSpeedFactor : undefined,
         seed: provider === 'dia' ? (diaSeed === '' ? undefined : Number(diaSeed)) : undefined,
       };
+      // Also create KV task so it appears in /tasks
+      try {
+        const createRes = await fetch('/api/tasks/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            type: 'tts',
+            status: 'queued',
+            provider,
+            model_id: provider === 'elevenlabs' ? elModelId : null,
+            options_json: options,
+            text_input: text,
+          })
+        });
+        if (createRes.ok) {
+          const created = await createRes.json();
+          setKvTaskId(created?.id || null);
+        }
+      } catch {}
+
       const { data: inserted, error: insertErr } = await supabase
         .from('tasks')
         .insert({
@@ -170,10 +192,16 @@ export default function TtsPage() {
           .update({ status: 'finished', output_url: json.url })
           .eq('id', inserted.id);
       }
+      if (kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'finished', output_url: json.url }) }); } catch {}
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to run TTS');
       if (taskId) {
         await supabase.from('tasks').update({ status: 'error' }).eq('id', taskId);
+      }
+      if (kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'error' }) }); } catch {}
       }
     } finally {
       setIsLoading(false);

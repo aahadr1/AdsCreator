@@ -25,6 +25,7 @@ export default function VeoPage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [rawVideoUrl, setRawVideoUrl] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [kvTaskId, setKvTaskId] = useState<string | null>(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [inputSchema, setInputSchema] = useState<any | null>(null);
@@ -106,7 +107,11 @@ export default function VeoPage() {
     setError(null);
     setVideoUrl(null);
     try {
-      // Auth removed - proceeding with task creation
+      // Create task records so it appears in /tasks (KV) and optionally Supabase if needed
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('Please sign in at /auth before creating a task.');
+      }
 
       const isGoogle = model.startsWith('google/veo');
       const dynamicInput: Record<string, any> = { ...inputValues };
@@ -139,9 +144,27 @@ export default function VeoPage() {
 
       const options = { model, ...dynamicInput } as Record<string, any>;
 
-      // Database operations removed - proceeding directly to job creation
-      const taskId = Date.now().toString(); // Generate local task ID
-      setTaskId(taskId);
+      // Create KV task
+      try {
+        const createRes = await fetch('/api/tasks/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            type: 'video',
+            status: 'queued',
+            provider: 'replicate',
+            model_id: model,
+            options_json: options,
+            text_input: prompt,
+            image_url: dynamicInput.image || null,
+          })
+        });
+        if (createRes.ok) {
+          const created = await createRes.json();
+          setKvTaskId(created?.id || null);
+        }
+      } catch {}
 
       const res = await fetch('/api/veo/run', {
         method: 'POST',
@@ -160,10 +183,21 @@ export default function VeoPage() {
       setRawVideoUrl(persisted);
       setVideoUrl(proxied);
 
-      // Database operations removed
+      // Update KV task
+      if (kvTaskId) {
+        try {
+          await fetch('/api/tasks/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: kvTaskId, status: 'finished', output_url: persisted })
+          });
+        } catch {}
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to generate video');
-      // Database operations removed
+      if (kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'error' }) }); } catch {}
+      }
     } finally {
       setIsLoading(false);
     }

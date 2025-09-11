@@ -14,6 +14,7 @@ export default function BackgroundRemovePage() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [predictionId, setPredictionId] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [kvTaskId, setKvTaskId] = useState<string | null>(null);
 
   const [mode, setMode] = useState<'Fast' | 'Normal'>('Normal');
   const [backgroundColor, setBackgroundColor] = useState<string>('#FFFFFF');
@@ -68,7 +69,27 @@ export default function BackgroundRemovePage() {
         background_color: backgroundColor,
       } as any;
 
-      // Create task entry
+      // Create KV task
+      try {
+        const createRes = await fetch('/api/tasks/create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            type: 'bgremove',
+            status: 'queued',
+            provider: 'replicate',
+            backend: 'lucataco/rembg-video',
+            options_json: input,
+            video_url: uploadedUrl,
+          })
+        });
+        if (createRes.ok) {
+          const created = await createRes.json();
+          setKvTaskId(created?.id || null);
+        }
+      } catch {}
+
+      // Create task entry in Supabase (legacy)
       const { data: inserted, error: insertErr } = await supabase
         .from('tasks')
         .insert({
@@ -98,6 +119,9 @@ export default function BackgroundRemovePage() {
       setStatus(initialStatus);
       pushLog(`Prediction created: ${data.id}`);
       if (inserted?.id) await supabase.from('tasks').update({ job_id: data.id, status: initialStatus }).eq('id', inserted.id);
+      if (kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, job_id: data.id, status: initialStatus }) }); } catch {}
+      }
 
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = setInterval(async () => {
@@ -119,6 +143,9 @@ export default function BackgroundRemovePage() {
         if (inserted?.id) {
           const proxied = j.outputUrl ? `/api/proxy?url=${encodeURIComponent(j.outputUrl)}` : null;
           await supabase.from('tasks').update({ status: st as string, output_url: proxied }).eq('id', inserted.id);
+        }
+        if (kvTaskId) {
+          try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: st as string, output_url: j.outputUrl || null }) }); } catch {}
         }
         if (st === 'succeeded' || st === 'failed' || st === 'canceled') {
           clearInterval(pollRef.current!); pollRef.current = null;

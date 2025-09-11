@@ -36,6 +36,7 @@ export default function LipsyncNewPage() {
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [kvTaskId, setKvTaskId] = useState<string | null>(null);
 
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const lastStatusRef = useRef<ReplicateStatus | null>(null);
@@ -128,6 +129,29 @@ export default function LipsyncNewPage() {
         pushLog('Please sign in at /auth to save this job in Tasks.');
       }
       let createdTaskId: string | null = null;
+      // Create KV task first for /tasks view
+      if (user) {
+        try {
+          const createRes = await fetch('/api/tasks/create', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: user.id,
+              status: 'queued',
+              type: 'lipsync',
+              provider: 'replicate',
+              backend: modelName,
+              options_json: input,
+              text_input: model === 'kling' && useText ? text : null,
+              video_url: urls.videoUrl,
+              audio_url: urls.audioUrl || null,
+            })
+          });
+          if (createRes.ok) {
+            const created = await createRes.json();
+            setKvTaskId(created?.id || null);
+          }
+        } catch {}
+      }
       if (user) {
         const { data: inserted, error: insertErr } = await supabase
           .from('tasks')
@@ -167,6 +191,9 @@ export default function LipsyncNewPage() {
       if (createdTaskId) {
         try { await supabase.from('tasks').update({ status: (data.status as string) || 'queued', job_id: data.id }).eq('id', createdTaskId); } catch {}
       }
+      if (kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: (data.status as string) || 'queued', job_id: data.id }) }); } catch {}
+      }
 
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = setInterval(async () => {
@@ -191,6 +218,9 @@ export default function LipsyncNewPage() {
             await supabase.from('tasks').update({ status: st as string, output_url: proxied }).eq('id', (taskId || createdTaskId) as string);
           } catch {}
         }
+        if (kvTaskId) {
+          try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: st as string, output_url: j.outputUrl || null }) }); } catch {}
+        }
         if (st === 'succeeded' || st === 'failed' || st === 'canceled') {
           clearInterval(pollRef.current!); pollRef.current = null;
           if (j.error) pushLog(`Error: ${typeof j.error === 'string' ? j.error : JSON.stringify(j.error)}`);
@@ -201,6 +231,9 @@ export default function LipsyncNewPage() {
       setStatus('failed');
       if (taskId) {
         try { await supabase.from('tasks').update({ status: 'failed' }).eq('id', taskId); } catch {}
+      }
+      if (kvTaskId) {
+        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'failed' }) }); } catch {}
       }
     }
   }
