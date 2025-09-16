@@ -1,6 +1,7 @@
 'use client';
 
 import './globals.css';
+import './landing.css';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseClient as supabase } from '../lib/supabaseClient';
@@ -38,7 +39,10 @@ import {
   Palette,
   Music,
   Monitor,
-  Lightbulb
+  Lightbulb,
+  Crown,
+  Shield,
+  ArrowRight
 } from 'lucide-react';
 import { LogIn, LogOut } from 'lucide-react';
 
@@ -392,69 +396,356 @@ export default function Dashboard() {
   if (!isAuthenticated) {
     return (
       <div className="landing">
-        <header className="landing-hero" role="banner">
-          <div className="hero-content">
-            <h1 className="hero-title">Create studio-quality lipsync videos in minutes</h1>
-            <p className="hero-subtitle">All-in-one AI toolkit for creators: lipsync, video generation, auto-edit, and more.</p>
-            <div className="hero-cta">
-              <a className="btn btn-primary" href="/auth" aria-label="Get started">Get started</a>
-              <a className="btn" href="#pricing" aria-label="View pricing">View pricing</a>
+        {/* Navigation */}
+        <nav className="landing-nav" role="navigation">
+          <div className="nav-container">
+            <div className="nav-brand">
+              <Activity size={28} />
+              <span>Lipsync Pro</span>
             </div>
-            <ul className="hero-highlights">
-              <li>Fast processing</li>
-              <li>Pro-grade quality</li>
-              <li>No learning curve</li>
-            </ul>
+            <div className="nav-actions">
+              <a href="/auth" className="nav-link">Sign In</a>
+              <a href="/auth" className="btn btn-primary">Get Started</a>
+            </div>
+          </div>
+        </nav>
+
+        {/* Hero Section */}
+        <header className="landing-hero" role="banner">
+          <div className="hero-container">
+            <div className="hero-content">
+              <div className="hero-badge">
+                <Zap size={16} />
+                <span>AI-Powered Content Creation</span>
+              </div>
+              <h1 className="hero-title">
+                Create <span className="gradient-text">studio-quality</span> content in minutes
+              </h1>
+              <p className="hero-subtitle">
+                Transform your ideas into professional videos with AI lipsync, video generation, 
+                auto-editing, and 15+ powerful tools. No experience required.
+              </p>
+              <div className="hero-cta">
+                <a className="btn btn-primary btn-large" href="/auth">
+                  <span>Start Creating Free</span>
+                  <ArrowRight size={20} />
+                </a>
+                <a className="btn btn-secondary btn-large" href="#demo">
+                  <Play size={20} />
+                  <span>Watch Demo</span>
+                </a>
+              </div>
+              <div className="hero-social-proof">
+                <div className="social-proof-item">
+                  <Star className="star-icon" size={16} />
+                  <span>4.9/5 from 2,000+ creators</span>
+                </div>
+                <div className="social-proof-item">
+                  <Users size={16} />
+                  <span>10,000+ videos created</span>
+                </div>
+              </div>
+            </div>
+            <div className="hero-visual">
+              <div className="hero-video-placeholder">
+                <Play size={64} />
+                <span>Demo Video</span>
+              </div>
+            </div>
           </div>
         </header>
 
         <main>
+          {/* Features Section */}
           <section className="landing-features" aria-labelledby="features-heading">
-            <h2 id="features-heading">Everything you need to ship content</h2>
-            <div className="features-grid marketing">
-              {features.slice(0, 6).map((feature, i) => (
-                <FeatureCard key={i} {...feature} />
-              ))}
+            <div className="container">
+              <div className="section-header">
+                <h2 id="features-heading">Everything you need to create viral content</h2>
+                <p>Professional tools that work together seamlessly</p>
+              </div>
+              <div className="features-grid-landing">
+                {features.slice(0, 8).map((feature, i) => (
+                  <div key={i} className="feature-card-landing">
+                    <div className="feature-icon" style={{ background: feature.gradient }}>
+                      {feature.icon}
+                    </div>
+                    <h3>{feature.title}</h3>
+                    <p>{feature.description}</p>
+                    {feature.isPopular && <span className="feature-badge">Most Popular</span>}
+                    {feature.badge && <span className="feature-badge">{feature.badge}</span>}
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
 
+          {/* Pricing Section */}
           <section id="pricing" className="landing-pricing" aria-labelledby="pricing-heading">
-            <h2 id="pricing-heading">Simple, predictable pricing</h2>
-            <div className="pricing-inline">
-              <div className="pricing-card">
-                <h3>Basic</h3>
-                <p>All essentials to get started.</p>
-                <a className="btn" href="/auth" aria-label="Choose Basic">Choose Basic</a>
+            <div className="container">
+              <div className="section-header">
+                <h2 id="pricing-heading">Simple, transparent pricing</h2>
+                <p>Choose the plan that fits your creative needs</p>
               </div>
-              <div className="pricing-card recommended">
-                <h3>Pro</h3>
-                <p>Advanced features for power users.</p>
-                <a className="btn btn-primary" href="/auth" aria-label="Choose Pro">Go Pro</a>
+              
+              <div className="pricing-carousel-container">
+                <div className="pricing-carousel" role="region" aria-label="Pricing plans">
+                  <div className="pricing-track">
+                    {/* Free Trial Card */}
+                    <div className="pricing-card trial-card">
+                      <div className="pricing-header">
+                        <div className="plan-badge trial">Free Trial</div>
+                        <h3>Try Everything</h3>
+                        <div className="price">
+                          <span className="currency">$</span>
+                          <span className="amount">0</span>
+                          <span className="period">/7 days</span>
+                        </div>
+                        <p className="plan-description">Perfect for testing our platform</p>
+                      </div>
+                      <ul className="features-list">
+                        <li><CheckCircle size={16} />Access to all features</li>
+                        <li><CheckCircle size={16} />5 video exports</li>
+                        <li><CheckCircle size={16} />Standard processing</li>
+                        <li><CheckCircle size={16} />Email support</li>
+                      </ul>
+                      <a href="/auth" className="btn btn-outline btn-full">Start Free Trial</a>
+                    </div>
+
+                    {/* Basic Card */}
+                    <div className="pricing-card">
+                      <div className="pricing-header">
+                        <h3>Basic</h3>
+                        <div className="price">
+                          <span className="currency">$</span>
+                          <span className="amount">29</span>
+                          <span className="period">/month</span>
+                        </div>
+                        <p className="plan-description">Essential tools for creators</p>
+                      </div>
+                      <ul className="features-list">
+                        <li><CheckCircle size={16} />AI Lipsync unlimited</li>
+                        <li><CheckCircle size={16} />Image generation</li>
+                        <li><CheckCircle size={16} />Text-to-speech</li>
+                        <li><CheckCircle size={16} />Background removal</li>
+                        <li><CheckCircle size={16} />50 exports/month</li>
+                        <li><CheckCircle size={16} />Standard support</li>
+                      </ul>
+                      <a href="/auth" className="btn btn-outline btn-full">Choose Basic</a>
+                    </div>
+
+                    {/* Pro Card - Featured */}
+                    <div className="pricing-card featured">
+                      <div className="pricing-header">
+                        <div className="plan-badge popular">Most Popular</div>
+                        <h3>Pro</h3>
+                        <div className="price">
+                          <span className="currency">$</span>
+                          <span className="amount">79</span>
+                          <span className="period">/month</span>
+                        </div>
+                        <p className="plan-description">Advanced features for professionals</p>
+                      </div>
+                      <ul className="features-list">
+                        <li><CheckCircle size={16} />Everything in Basic</li>
+                        <li><CheckCircle size={16} />Advanced video generation (Veo)</li>
+                        <li><CheckCircle size={16} />Auto-edit with AI</li>
+                        <li><CheckCircle size={16} />Priority processing (3x faster)</li>
+                        <li><CheckCircle size={16} />Unlimited exports</li>
+                        <li><CheckCircle size={16} />Premium support</li>
+                        <li><CheckCircle size={16} />Commercial license</li>
+                        <li><CheckCircle size={16} />API access</li>
+                      </ul>
+                      <a href="/auth" className="btn btn-primary btn-full">
+                        <span>Choose Pro</span>
+                        <Crown size={16} />
+                      </a>
+                    </div>
+
+                    {/* Enterprise Card */}
+                    <div className="pricing-card">
+                      <div className="pricing-header">
+                        <h3>Enterprise</h3>
+                        <div className="price">
+                          <span className="currency">$</span>
+                          <span className="amount">299</span>
+                          <span className="period">/month</span>
+                        </div>
+                        <p className="plan-description">For teams and agencies</p>
+                      </div>
+                      <ul className="features-list">
+                        <li><CheckCircle size={16} />Everything in Pro</li>
+                        <li><CheckCircle size={16} />Team collaboration</li>
+                        <li><CheckCircle size={16} />White-label options</li>
+                        <li><CheckCircle size={16} />Custom integrations</li>
+                        <li><CheckCircle size={16} />Dedicated support</li>
+                        <li><CheckCircle size={16} />SLA guarantee</li>
+                      </ul>
+                      <a href="/auth" className="btn btn-outline btn-full">Contact Sales</a>
+                    </div>
+                  </div>
+                  
+                  <div className="carousel-nav">
+                    <button 
+                      className="carousel-btn prev" 
+                      aria-label="Previous plan"
+                      onClick={() => {
+                        const track = document.querySelector('.pricing-track');
+                        if (track) track.scrollBy({ left: -340, behavior: 'smooth' });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          const track = document.querySelector('.pricing-track');
+                          if (track) track.scrollBy({ left: -340, behavior: 'smooth' });
+                        }
+                      }}
+                    >
+                      <ChevronRight size={20} style={{ transform: 'rotate(180deg)' }} />
+                    </button>
+                    <button 
+                      className="carousel-btn next" 
+                      aria-label="Next plan"
+                      onClick={() => {
+                        const track = document.querySelector('.pricing-track');
+                        if (track) track.scrollBy({ left: 340, behavior: 'smooth' });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          const track = document.querySelector('.pricing-track');
+                          if (track) track.scrollBy({ left: 340, behavior: 'smooth' });
+                        }
+                      }}
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="pricing-guarantee">
+                  <Shield size={20} />
+                  <span>30-day money-back guarantee • Cancel anytime</span>
+                </div>
               </div>
             </div>
           </section>
 
+          {/* Social Proof */}
+          <section className="landing-testimonials" aria-labelledby="testimonials-heading">
+            <div className="container">
+              <h2 id="testimonials-heading">Loved by creators worldwide</h2>
+              <div className="testimonials-grid">
+                <div className="testimonial-card">
+                  <div className="testimonial-rating">
+                    {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
+                  </div>
+                  <p>"Game changer for my content creation. What used to take hours now takes minutes."</p>
+                  <div className="testimonial-author">
+                    <div className="author-avatar">JD</div>
+                    <div>
+                      <strong>Jane Doe</strong>
+                      <span>YouTuber, 500K+ subs</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="testimonial-card">
+                  <div className="testimonial-rating">
+                    {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
+                  </div>
+                  <p>"The AI lipsync quality is incredible. My clients love the results."</p>
+                  <div className="testimonial-author">
+                    <div className="author-avatar">MS</div>
+                    <div>
+                      <strong>Mike Smith</strong>
+                      <span>Video Agency Owner</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="testimonial-card">
+                  <div className="testimonial-rating">
+                    {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
+                  </div>
+                  <p>"Finally, a tool that understands creators. The workflow is perfect."</p>
+                  <div className="testimonial-author">
+                    <div className="author-avatar">AL</div>
+                    <div>
+                      <strong>Alex Lee</strong>
+                      <span>TikTok Creator, 2M+ followers</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* FAQ */}
           <section className="landing-faq" aria-labelledby="faq-heading">
-            <h2 id="faq-heading">Frequently asked questions</h2>
-            <div className="faq-grid">
-              <details>
-                <summary>Do I need any editing experience?</summary>
-                <p>No. The UI is designed for speed and simplicity. Get pro results in minutes.</p>
-              </details>
-              <details>
-                <summary>Can I cancel anytime?</summary>
-                <p>Yes. Manage your subscription from the Billing page with one click.</p>
-              </details>
-              <details>
-                <summary>Is my data secure?</summary>
-                <p>We store only what is necessary and provide export/delete controls.</p>
-              </details>
+            <div className="container">
+              <div className="section-header">
+                <h2 id="faq-heading">Frequently asked questions</h2>
+                <p>Everything you need to know about our platform</p>
+              </div>
+              <div className="faq-grid">
+                <details className="faq-item">
+                  <summary>Do I need any editing experience?</summary>
+                  <p>No experience required! Our AI-powered tools are designed for creators of all skill levels. Simply upload your content and let our AI handle the technical work.</p>
+                </details>
+                <details className="faq-item">
+                  <summary>How fast is the processing?</summary>
+                  <p>Most videos process in under 2 minutes. Pro users get priority processing that's 3x faster than Basic plans.</p>
+                </details>
+                <details className="faq-item">
+                  <summary>Can I cancel anytime?</summary>
+                  <p>Yes! Cancel anytime from your billing dashboard. No long-term contracts or cancellation fees.</p>
+                </details>
+                <details className="faq-item">
+                  <summary>What file formats do you support?</summary>
+                  <p>We support all major video formats (MP4, MOV, AVI), audio formats (MP3, WAV, M4A), and image formats (JPG, PNG, WebP).</p>
+                </details>
+                <details className="faq-item">
+                  <summary>Is my data secure?</summary>
+                  <p>Yes. We use enterprise-grade security, encrypt all data in transit and at rest, and provide full export/delete controls.</p>
+                </details>
+                <details className="faq-item">
+                  <summary>Do you offer refunds?</summary>
+                  <p>We offer a 30-day money-back guarantee. If you're not satisfied, contact support for a full refund.</p>
+                </details>
+              </div>
+            </div>
+          </section>
+
+          {/* CTA Section */}
+          <section className="landing-cta">
+            <div className="container">
+              <div className="cta-content">
+                <h2>Ready to transform your content creation?</h2>
+                <p>Join thousands of creators who've already made the switch</p>
+                <a href="/auth" className="btn btn-primary btn-large">
+                  <span>Start Creating Today</span>
+                  <ArrowRight size={20} />
+                </a>
+              </div>
             </div>
           </section>
         </main>
 
         <footer className="landing-footer" role="contentinfo">
-          <p>© {new Date().getFullYear()} Lipsync. All rights reserved.</p>
+          <div className="container">
+            <div className="footer-content">
+              <div className="footer-brand">
+                <Activity size={24} />
+                <span>Lipsync Pro</span>
+              </div>
+              <div className="footer-links">
+                <a href="/privacy">Privacy</a>
+                <a href="/terms">Terms</a>
+                <a href="/support">Support</a>
+              </div>
+            </div>
+            <div className="footer-bottom">
+              <p>© {new Date().getFullYear()} Lipsync Pro. All rights reserved.</p>
+            </div>
+          </div>
         </footer>
       </div>
     );
