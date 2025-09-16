@@ -226,7 +226,7 @@ export function CreditManagement() {
         ) : (
           <div className="history-list">
             {history.history.slice(0, 20).map((item, index) => {
-              const isUsage = 'model_name' in item;
+              const isUsage = 'credits_used' in item;
               const date = new Date(item.created_at);
               
               return (
@@ -246,18 +246,18 @@ export function CreditManagement() {
                   <div className="history-content">
                     <div className="history-title">
                       {isUsage ? (
-                        `Used ${item.credits_used} credits for ${MODEL_COSTS[item.model_name]?.name || item.model_name}`
+                        `Used ${(item as CreditUsage).credits_used} credits for ${MODEL_COSTS[(item as CreditUsage).model_name]?.name || (item as CreditUsage).model_name}`
                       ) : (
-                        item.description
+                        (item as CreditTransaction).description
                       )}
                     </div>
                     <div className="history-meta">
                       <Clock size={12} />
                       <span>{date.toLocaleString()}</span>
-                      {isUsage && item.task_id && (
+                      {isUsage && (item as CreditUsage).task_id && (
                         <>
                           <span>•</span>
-                          <span>Task {item.task_id.slice(0, 8)}...</span>
+                          <span>Task {(item as CreditUsage).task_id!.slice(0, 8)}...</span>
                         </>
                       )}
                     </div>
@@ -265,13 +265,13 @@ export function CreditManagement() {
                   
                   <div className="history-credits">
                     {isUsage ? (
-                      <span className="credits-used">-{item.credits_used}</span>
-                    ) : item.type === 'reset' ? (
+                      <span className="credits-used">-{(item as CreditUsage).credits_used}</span>
+                    ) : (item as CreditTransaction).type === 'reset' ? (
                       <span className="credits-reset">Reset</span>
-                    ) : item.credits > 0 ? (
-                      <span className="credits-added">+{item.credits}</span>
+                    ) : (item as CreditTransaction).credits > 0 ? (
+                      <span className="credits-added">+{(item as CreditTransaction).credits}</span>
                     ) : (
-                      <span className="credits-used">{item.credits}</span>
+                      <span className="credits-used">{(item as CreditTransaction).credits}</span>
                     )}
                   </div>
                 </div>
