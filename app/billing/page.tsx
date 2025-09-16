@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import { CreditCard, Crown, ArrowRight } from 'lucide-react';
+import { CreditCard, Crown, ArrowRight, Zap, Check, Star } from 'lucide-react';
+import { useCredits } from '../../lib/creditContext';
 
 type SubInfo = {
   status?: string;
@@ -22,6 +23,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'checkout-basic' | 'checkout-pro' | 'portal' | null>(null);
+  const { credits } = useCredits();
 
   useEffect(() => {
     const init = async () => {
@@ -46,10 +48,10 @@ export default function BillingPage() {
   }, []);
 
   const planLabel = useMemo(() => {
-    if (!info?.plan_price_id) return 'No plan';
+    if (!info?.plan_price_id) return 'Free';
     if (info.plan_price_id === BASIC_PRICE) return 'Basic';
     if (info.plan_price_id === PRO_PRICE) return 'Pro';
-    return 'Unknown';
+    return 'Free';
   }, [info]);
 
   const handleCheckout = async (priceId: string, kind: 'checkout-basic' | 'checkout-pro') => {
@@ -88,149 +90,256 @@ export default function BillingPage() {
     return (
       <div className="billing-page">
         <div className="loading-spinner" />
-        <p>Loading billing...</p>
+        <p>Loading billing information...</p>
       </div>
     );
   }
 
+  const currentPlan = planLabel;
+  const isCurrentPlan = (plan: string) => currentPlan === plan;
+
   return (
     <div className="billing-page">
-      <header className="billing-header" role="banner">
-        <h1 className="billing-title">
-          <CreditCard size={24} />
-          Billing
-          <span className="billing-subtitle">Manage your subscription</span>
-        </h1>
-      </header>
-
-      {error ? (
-        <div className="billing-error" role="alert">{error}</div>
-      ) : null}
-
-      <section className="current-plan" aria-labelledby="current-plan-heading">
-        <h2 id="current-plan-heading">Current plan</h2>
-        <div className="current-plan-card">
-          <div className="current-plan-main">
-            <div className="plan-name">
-              <Crown size={18} />
-              <span>{planLabel}</span>
+      <div className="billing-container">
+        {/* Header */}
+        <header className="billing-header">
+          <div className="billing-header-content">
+            <div className="billing-title-section">
+              <CreditCard className="billing-icon" size={32} />
+              <div>
+                <h1 className="billing-title">Plans & Billing</h1>
+                <p className="billing-subtitle">Choose the perfect plan for your creative needs</p>
+              </div>
             </div>
-            <div className="plan-status">{info?.status || 'none'}</div>
-          </div>
-          <div className="current-plan-actions">
-            <button
-              className="btn"
-              type="button"
-              onClick={handlePortal}
-              onKeyDown={(e) => e.key === 'Enter' ? void handlePortal() : undefined}
-              aria-label="Manage subscription"
-              disabled={!info?.stripe_customer_id || busy === 'portal'}
-            >
-              Manage
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="plans" aria-labelledby="plans-heading">
-        <h2 id="plans-heading">Plans</h2>
-        <div
-          className="plans-carousel"
-          role="region"
-          aria-roledescription="carousel"
-          aria-label="Available plans"
-        >
-          <div className="carousel-track" tabIndex={0} aria-live="polite">
-            <article className="plan-card" aria-label="Basic plan" aria-roledescription="slide">
-              <header className="plan-card-header">
-                <h3>Basic</h3>
-                <span className="plan-price">$ —</span>
-              </header>
-              <ul className="plan-features">
-                <li>Core lipsync features</li>
-                <li>Standard processing speed</li>
-                <li>Access to image generator</li>
-                <li>Email support</li>
-              </ul>
-              <div className="plan-cta">
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => handleCheckout(String(BASIC_PRICE), 'checkout-basic')}
-                  onKeyDown={(e) => e.key === 'Enter' ? void handleCheckout(String(BASIC_PRICE), 'checkout-basic') : undefined}
-                  aria-label="Choose Basic plan"
-                  disabled={!BASIC_PRICE || busy === 'checkout-basic'}
-                >
-                  Select <ArrowRight size={14} />
-                </button>
+            {credits && (
+              <div className="current-credits">
+                <Zap size={16} />
+                <span>{credits.remaining_credits} credits remaining</span>
               </div>
-            </article>
+            )}
+          </div>
+        </header>
 
-            <article className="plan-card plan-pro" aria-label="Pro plan" aria-roledescription="slide">
-              <header className="plan-card-header">
-                <h3>Pro</h3>
-                <span className="plan-price">$ —</span>
-                <span className="plan-badge" aria-label="Recommended">Recommended</span>
-              </header>
-              <ul className="plan-features">
-                <li>Everything in Basic</li>
-                <li>Priority processing</li>
-                <li>Advanced video generation (Veo)</li>
-                <li>Auto Edit Beta access</li>
-                <li>Priority support</li>
-              </ul>
-              <div className="plan-cta">
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  onClick={() => handleCheckout(String(PRO_PRICE), 'checkout-pro')}
-                  onKeyDown={(e) => e.key === 'Enter' ? void handleCheckout(String(PRO_PRICE), 'checkout-pro') : undefined}
-                  aria-label="Choose Pro plan"
-                  disabled={!PRO_PRICE || busy === 'checkout-pro'}
-                >
-                  Upgrade <ArrowRight size={14} />
-                </button>
+        {error && (
+          <div className="billing-error" role="alert">
+            <strong>Error:</strong> {error}
+          </div>
+        )}
+
+        {/* Current Plan Status */}
+        <section className="current-plan-section">
+          <div className="current-plan-card">
+            <div className="current-plan-info">
+              <div className="current-plan-badge">
+                <Crown size={16} />
+                <span>Current Plan</span>
               </div>
-            </article>
+              <div className="current-plan-details">
+                <h3 className="current-plan-name">{currentPlan}</h3>
+                <p className="current-plan-status">
+                  Status: <span className={`status-${info?.status || 'active'}`}>{info?.status || 'Active'}</span>
+                </p>
+              </div>
+            </div>
+            {info?.stripe_customer_id && (
+              <button
+                className="btn btn-outline"
+                type="button"
+                onClick={handlePortal}
+                disabled={busy === 'portal'}
+              >
+                {busy === 'portal' ? 'Loading...' : 'Manage Subscription'}
+              </button>
+            )}
           </div>
-          <div className="carousel-controls">
-            <button
-              className="btn small"
-              type="button"
-              aria-label="Scroll left"
-              onClick={() => {
-                const el = document.querySelector('.carousel-track');
-                if (el) el.scrollBy({ left: -320, behavior: 'smooth' });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const el = document.querySelector('.carousel-track');
-                  if (el) el.scrollBy({ left: -320, behavior: 'smooth' });
-                }
-              }}
-            >
-              ←
-            </button>
-            <button
-              className="btn small"
-              type="button"
-              aria-label="Scroll right"
-              onClick={() => {
-                const el = document.querySelector('.carousel-track');
-                if (el) el.scrollBy({ left: 320, behavior: 'smooth' });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const el = document.querySelector('.carousel-track');
-                  if (el) el.scrollBy({ left: 320, behavior: 'smooth' });
-                }
-              }}
-            >
-              →
-            </button>
+        </section>
+
+        {/* Pricing Plans */}
+        <section className="pricing-section">
+          <div className="pricing-header">
+            <h2>Choose Your Plan</h2>
+            <p>Unlock powerful AI-driven content creation tools with our flexible pricing plans</p>
           </div>
-        </div>
-      </section>
+
+          <div className="pricing-grid">
+            {/* Free Plan */}
+            <div className={`pricing-card ${isCurrentPlan('Free') ? 'current-plan' : ''}`}>
+              <div className="pricing-card-header">
+                <div className="plan-icon">
+                  <Zap size={24} />
+                </div>
+                <h3 className="plan-name">Free</h3>
+                <div className="plan-price">
+                  <span className="price-amount">$0</span>
+                  <span className="price-period">/month</span>
+                </div>
+                <p className="plan-description">Perfect for getting started</p>
+              </div>
+
+              <div className="pricing-card-body">
+                <div className="credits-info">
+                  <div className="credits-badge">
+                    <Zap size={14} />
+                    <span>100 credits/month</span>
+                  </div>
+                </div>
+
+                <ul className="plan-features">
+                  <li><Check size={16} /> Core lipsync features</li>
+                  <li><Check size={16} /> Basic TTS (Text-to-Speech)</li>
+                  <li><Check size={16} /> Image generation</li>
+                  <li><Check size={16} /> Community support</li>
+                  <li><Check size={16} /> Standard processing</li>
+                </ul>
+              </div>
+
+              <div className="pricing-card-footer">
+                {isCurrentPlan('Free') ? (
+                  <div className="current-plan-indicator">
+                    <Check size={16} />
+                    <span>Current Plan</span>
+                  </div>
+                ) : (
+                  <p className="plan-note">You&apos;re already on the free plan!</p>
+                )}
+              </div>
+            </div>
+
+            {/* Basic Plan */}
+            <div className={`pricing-card ${isCurrentPlan('Basic') ? 'current-plan' : ''}`}>
+              <div className="pricing-card-header">
+                <div className="plan-icon">
+                  <Crown size={24} />
+                </div>
+                <h3 className="plan-name">Basic</h3>
+                <div className="plan-price">
+                  <span className="price-amount">$19</span>
+                  <span className="price-period">/month</span>
+                </div>
+                <p className="plan-description">Great for regular creators</p>
+              </div>
+
+              <div className="pricing-card-body">
+                <div className="credits-info">
+                  <div className="credits-badge credits-basic">
+                    <Zap size={14} />
+                    <span>500 credits/month</span>
+                  </div>
+                </div>
+
+                <ul className="plan-features">
+                  <li><Check size={16} /> Everything in Free</li>
+                  <li><Check size={16} /> 5x more credits</li>
+                  <li><Check size={16} /> Priority processing</li>
+                  <li><Check size={16} /> Advanced TTS models</li>
+                  <li><Check size={16} /> Email support</li>
+                  <li><Check size={16} /> Export in HD quality</li>
+                </ul>
+              </div>
+
+              <div className="pricing-card-footer">
+                {isCurrentPlan('Basic') ? (
+                  <div className="current-plan-indicator">
+                    <Check size={16} />
+                    <span>Current Plan</span>
+                  </div>
+                ) : (
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={() => handleCheckout(String(BASIC_PRICE), 'checkout-basic')}
+                    disabled={!BASIC_PRICE || busy === 'checkout-basic'}
+                  >
+                    {busy === 'checkout-basic' ? 'Loading...' : 'Upgrade to Basic'}
+                    <ArrowRight size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Pro Plan */}
+            <div className={`pricing-card pro-plan ${isCurrentPlan('Pro') ? 'current-plan' : ''}`}>
+              <div className="plan-badge-ribbon">
+                <Star size={14} />
+                <span>Most Popular</span>
+              </div>
+              
+              <div className="pricing-card-header">
+                <div className="plan-icon">
+                  <Star size={24} />
+                </div>
+                <h3 className="plan-name">Pro</h3>
+                <div className="plan-price">
+                  <span className="price-amount">$49</span>
+                  <span className="price-period">/month</span>
+                </div>
+                <p className="plan-description">For professional creators</p>
+              </div>
+
+              <div className="pricing-card-body">
+                <div className="credits-info">
+                  <div className="credits-badge credits-pro">
+                    <Zap size={14} />
+                    <span>1,000 credits/month</span>
+                  </div>
+                </div>
+
+                <ul className="plan-features">
+                  <li><Check size={16} /> Everything in Basic</li>
+                  <li><Check size={16} /> 10x more credits than Free</li>
+                  <li><Check size={16} /> Advanced video generation (Veo)</li>
+                  <li><Check size={16} /> Auto Edit Beta access</li>
+                  <li><Check size={16} /> Premium TTS voices</li>
+                  <li><Check size={16} /> Priority support</li>
+                  <li><Check size={16} /> Commercial usage rights</li>
+                  <li><Check size={16} /> API access</li>
+                </ul>
+              </div>
+
+              <div className="pricing-card-footer">
+                {isCurrentPlan('Pro') ? (
+                  <div className="current-plan-indicator">
+                    <Check size={16} />
+                    <span>Current Plan</span>
+                  </div>
+                ) : (
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={() => handleCheckout(String(PRO_PRICE), 'checkout-pro')}
+                    disabled={!PRO_PRICE || busy === 'checkout-pro'}
+                  >
+                    {busy === 'checkout-pro' ? 'Loading...' : 'Upgrade to Pro'}
+                    <ArrowRight size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Credit Information */}
+        <section className="credits-info-section">
+          <div className="credits-info-card">
+            <div className="credits-info-header">
+              <Zap size={24} />
+              <h3>How Credits Work</h3>
+            </div>
+            <div className="credits-info-content">
+              <p>Credits are consumed based on the AI model and features you use:</p>
+              <ul className="credits-pricing">
+                <li><strong>Text-to-Speech:</strong> 5-8 credits per generation</li>
+                <li><strong>Image Generation:</strong> 3-6 credits per image</li>
+                <li><strong>Video Generation:</strong> 15-25 credits per video</li>
+                <li><strong>Lipsync Processing:</strong> 10-20 credits per video</li>
+              </ul>
+              <p className="credits-note">
+                <strong>Note:</strong> Credits reset monthly and don&apos;t roll over. Upgrade anytime for more credits!
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

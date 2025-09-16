@@ -3125,3 +3125,469 @@ button.credit-insufficient:hover,
     flex-wrap: wrap;
   }
 }
+
+/* Billing Page Styles - Start */
+.billing-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%);
+  padding: var(--space-6) var(--space-4);
+}
+
+.billing-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+/* Header */
+.billing-header {
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+.billing-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.billing-title-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.billing-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.billing-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.billing-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  margin: var(--space-1) 0 0 0;
+  font-weight: 400;
+}
+
+.current-credits {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-secondary);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.current-credits svg {
+  color: var(--primary);
+}
+
+/* Error */
+.billing-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-6);
+}
+
+/* Current Plan Section */
+.current-plan-section {
+  margin-bottom: var(--space-6);
+}
+
+.current-plan-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.current-plan-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.current-plan-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+.current-plan-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.current-plan-status {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.status-active, .status-trialing {
+  color: #059669;
+  font-weight: 600;
+}
+
+.status-past_due {
+  color: #d97706;
+  font-weight: 600;
+}
+
+.status-canceled, .status-incomplete {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* Pricing Section */
+.pricing-section {
+  margin-bottom: var(--space-8);
+}
+
+.pricing-header {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.pricing-header h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.pricing-header p {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-6);
+  align-items: start;
+}
+
+/* Pricing Cards */
+.pricing-card {
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.pricing-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+}
+
+.pricing-card.current-plan {
+  border-color: var(--primary);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%);
+}
+
+.pricing-card.pro-plan {
+  border-color: #8b5cf6;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.05) 0%, rgba(168, 85, 247, 0.1) 100%);
+}
+
+.plan-badge-ribbon {
+  position: absolute;
+  top: -1px;
+  right: var(--space-6);
+  background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
+  color: white;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 0 0 var(--radius) var(--radius);
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Pricing Card Header */
+.pricing-card-header {
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+.plan-icon {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--space-4) auto;
+  color: white;
+}
+
+.pro-plan .plan-icon {
+  background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
+}
+
+.plan-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.plan-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.price-amount {
+  font-size: 3rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.price-period {
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.plan-description {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Pricing Card Body */
+.pricing-card-body {
+  flex: 1;
+  margin-bottom: var(--space-6);
+}
+
+.credits-info {
+  margin-bottom: var(--space-4);
+}
+
+.credits-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.credits-badge.credits-basic {
+  background: rgba(34, 197, 94, 0.1);
+  color: #059669;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.credits-badge.credits-pro {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+.plan-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plan-features li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.plan-features li svg {
+  color: #059669;
+  flex-shrink: 0;
+}
+
+/* Pricing Card Footer */
+.pricing-card-footer {
+  margin-top: auto;
+}
+
+.current-plan-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: rgba(34, 197, 94, 0.1);
+  color: #059669;
+  border-radius: var(--radius);
+  font-weight: 600;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.plan-note {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0;
+  padding: var(--space-3);
+}
+
+/* Credits Info Section */
+.credits-info-section {
+  margin-top: var(--space-8);
+}
+
+.credits-info-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.credits-info-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.credits-info-header svg {
+  color: var(--primary);
+}
+
+.credits-info-header h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.credits-info-content p {
+  color: var(--text-muted);
+  margin: 0 0 var(--space-4) 0;
+  line-height: 1.6;
+}
+
+.credits-pricing {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4) 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-3);
+}
+
+.credits-pricing li {
+  background: var(--bg-secondary);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.credits-note {
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .billing-title {
+    font-size: 2rem;
+  }
+  
+  .billing-header-content {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .current-plan-card {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .price-amount {
+    font-size: 2.5rem;
+  }
+  
+  .credits-pricing {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .billing-page {
+    padding: var(--space-4) var(--space-2);
+  }
+  
+  .billing-container {
+    gap: var(--space-4);
+  }
+  
+  .pricing-card {
+    padding: var(--space-4);
+  }
+  
+  .plan-badge-ribbon {
+    right: var(--space-4);
+  }
+}
+/* Billing Page Styles - End */
