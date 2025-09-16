@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
 import { Buffer } from 'node:buffer';
-import { createSupabaseServer } from '../../../lib/supabaseServer';
 
 type TtsInput = {
   text: string;
