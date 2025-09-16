@@ -1,9 +1,11 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
 import { Buffer } from 'node:buffer';
+import { createSupabaseServer } from '../../../lib/supabaseServer';
 
 type TtsInput = {
   text: string;
+  user_id: string; // Required for credit tracking
   voice_id?: string;
   speed?: number;
   pitch?: number;
@@ -63,7 +65,48 @@ export async function POST(req: NextRequest) {
       return new Response('Missing required field: text', { status: 400 });
     }
 
+    if (!body.user_id || typeof body.user_id !== 'string') {
+      return new Response('Missing required field: user_id', { status: 400 });
+    }
+
     const provider = (body.provider || 'replicate') as 'replicate' | 'elevenlabs' | 'dia';
+    
+    // Determine model name for credit tracking
+    let modelName: string;
+    if (provider === 'elevenlabs') {
+      modelName = 'elevenlabs-tts';
+    } else if (provider === 'dia') {
+      modelName = 'dia-tts';
+    } else {
+      modelName = 'minimax-speech-02-hd';
+    }
+
+    // Check and use credits before processing
+    const creditResponse = await fetch(`${req.nextUrl.origin}/api/credits/use`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: body.user_id,
+        model_name: modelName,
+        metadata: {
+          provider,
+          text_length: body.text.length,
+          voice_id: body.voice_id,
+        },
+      }),
+    });
+
+    if (!creditResponse.ok) {
+      const errorText = await creditResponse.text();
+      return new Response(`Credit error: ${errorText}`, { status: 402 }); // Payment Required
+    }
+
+    const creditResult = await creditResponse.json();
+    if (!creditResult.success) {
+      return new Response(`Insufficient credits: ${creditResult.error}`, { status: 402 });
+    }
 
     if (provider === 'elevenlabs') {
       const elKey = process.env.ELEVENLABS_API_KEY;

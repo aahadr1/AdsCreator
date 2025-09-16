@@ -2,6 +2,7 @@ import './globals.css'
 import { LayoutWrapper } from '../components/LayoutWrapper';
 import { AuthGate } from '../components/AuthGate';
 import { SubscriptionGate } from '../components/SubscriptionGate';
+import { CreditProvider } from '../lib/creditContext';
 
 export const metadata = {
   title: "AdzCreator - AI-Powered Content Creation Platform",
@@ -19,9 +20,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         <AuthGate>
           <SubscriptionGate>
-            <LayoutWrapper>
-              {children}
-            </LayoutWrapper>
+            <CreditProvider>
+              <LayoutWrapper>
+                {children}
+              </LayoutWrapper>
+            </CreditProvider>
           </SubscriptionGate>
         </AuthGate>
       </body>

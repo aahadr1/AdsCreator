@@ -3,6 +3,8 @@
 import '../globals.css';
 import { useEffect, useMemo, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
+import { CreditGuard, CreditCostDisplay, CreditBanner } from '../../components/CreditGuard';
+import { useCredits } from '../../lib/creditContext';
 
 type TtsResponse = { url?: string | null; raw?: any };
 
@@ -46,11 +48,26 @@ export default function TtsPage() {
   const [diaCfgFilterTopK, setDiaCfgFilterTopK] = useState<number>(45);
   const [diaSpeedFactor, setDiaSpeedFactor] = useState<number>(1.0);
   const [diaSeed, setDiaSeed] = useState<number | ''>('');
+  
+  // Credit system
+  const { credits, hasEnoughCredits, formatProgress } = useCredits();
+  
   const providerLabel = useMemo(() => {
     if (provider === 'dia') return 'Replicate (zsxkib/dia · Dialogue)';
     if (provider === 'elevenlabs') return 'ElevenLabs (Premium Quality)';
     return 'Replicate (minimax/speech-02-hd)';
   }, [provider]);
+
+  // Get model name for credit tracking
+  const modelName = useMemo(() => {
+    if (provider === 'elevenlabs') return 'elevenlabs-tts';
+    if (provider === 'dia') return 'dia-tts';
+    return 'minimax-speech-02-hd';
+  }, [provider]);
+
+  const canGenerate = useMemo(() => {
+    return text.trim() && !isLoading && hasEnoughCredits(modelName);
+  }, [text, isLoading, hasEnoughCredits, modelName]);
 
   useEffect(() => {
     async function fetchVoices() {
@@ -161,6 +178,7 @@ export default function TtsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
+          user_id: user.id, // Add user_id for credit tracking
           provider,
           voice_id: provider === 'replicate' ? voiceId : elVoiceId,
           model_id: provider === 'elevenlabs' ? elModelId : undefined,
@@ -213,6 +231,14 @@ export default function TtsPage() {
 
   return (
     <div className="container">
+      {/* Credit status banners */}
+      {credits && formatProgress().status === 'warning' && (
+        <CreditBanner type="warning" />
+      )}
+      {credits && formatProgress().status === 'critical' && (
+        <CreditBanner type="critical" />
+      )}
+      
       <div className="panel output">
         <div className="header">
           <h2 style={{margin:0}}>Output</h2>
@@ -244,10 +270,15 @@ export default function TtsPage() {
         <div className="options">
           <div style={{gridColumn: 'span 2'}}>
             <div className="small">Provider</div>
+            <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-2)' }}>
+              <CreditCostDisplay modelName="minimax-speech-02-hd" variant="detailed" showProvider />
+              <CreditCostDisplay modelName="elevenlabs-tts" variant="detailed" showProvider />
+              <CreditCostDisplay modelName="dia-tts" variant="detailed" showProvider />
+            </div>
             <select className="select" value={provider} onChange={(e)=>setProvider(e.target.value as any)}>
-              <option value="replicate">Replicate (minimax/speech-02-hd)</option>
-              <option value="elevenlabs">ElevenLabs (Premium Quality)</option>
-              <option value="dia">Replicate (zsxkib/dia · Dialogue)</option>
+              <option value="replicate">Replicate (minimax/speech-02-hd) - 5 credits</option>
+              <option value="elevenlabs">ElevenLabs (Premium Quality) - 8 credits</option>
+              <option value="dia">Replicate (zsxkib/dia · Dialogue) - 6 credits</option>
             </select>
           </div>
         </div>
@@ -506,9 +537,19 @@ export default function TtsPage() {
           </label>
         )}
 
-        <button className="btn" style={{ marginTop: 12 }} disabled={!text.trim() || isLoading} onClick={runTts}>
-          {isLoading ? 'Generating…' : 'Generate speech'}
-        </button>
+        <CreditGuard
+          modelName={modelName}
+          onInsufficientCredits={() => setError('Insufficient credits. Please upgrade your plan to continue.')}
+        >
+          <button 
+            className="btn" 
+            style={{ marginTop: 12 }} 
+            disabled={!canGenerate} 
+            onClick={runTts}
+          >
+            {isLoading ? 'Generating…' : 'Generate speech'}
+          </button>
+        </CreditGuard>
       </div>
     </div>
   );
