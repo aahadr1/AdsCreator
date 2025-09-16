@@ -160,7 +160,9 @@ export default function InfiniteTalkPage() {
           pushLog(`Logs: ${JSON.stringify(j.logs.slice(-3))}`);
         }
         setStatus(j.status as JobStatus);
-        if (j.status === 'finished' || j.status === 'error' || j.status === 'cancelled') {
+        // Keep polling a bit after finished until outputs contain a playable URL
+        const shouldStop = (j.status === 'error' || j.status === 'cancelled') || (j.status === 'finished' && Array.isArray(j.outputs) && j.outputs.length > 0);
+        if (shouldStop) {
           clearInterval(pollRef.current!);
           pollRef.current = null;
         }
