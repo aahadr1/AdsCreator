@@ -140,7 +140,7 @@ export default function TasksPage() {
 
   const getTaskTypeIcon = (task: Task) => {
     if (task.type === 'tts') return <Volume2 size={16} />;
-    const isImage = (url?: string | null) => !!url && /\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(url);
+ple    const isImage = (url?: string | null) => !!url && /\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(url);
     const isVideo = (url?: string | null) => !!url && /\.(mp4|mov|webm|m4v)(\?|$)/i.test(url);
     const isAudio = (url?: string | null) => !!url && /\.(mp3|wav|flac|m4a|aac|ogg)(\?|$)/i.test(url);
     if (isVideo(task.video_url) || isVideo(task.output_url)) return <Video size={16} />;

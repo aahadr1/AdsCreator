@@ -117,6 +117,7 @@ const navigationItems: NavItem[] = [
     gradient: 'linear-gradient(90deg, #1db954, #6aa4ff)'
   },
   { href: '/tasks', label: 'Tasks', icon: <Activity size={18} /> },
+  { href: '/billing', label: 'Plan & Billing', icon: <Settings size={18} /> },
   { href: '/auth', label: 'Sign in / Up', icon: <LogIn size={18} /> },
   { href: '#', label: 'Settings (soon)', icon: <Settings size={18} />, disabled: true }
 ];

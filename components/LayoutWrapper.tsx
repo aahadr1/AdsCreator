@@ -26,6 +26,9 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
             <div className="app-user">
               <div className="user-email" id="user-email"></div>
               <div className="user-avatar-small"></div>
+              <a href="/billing" className="btn small" title="View your plan" aria-label="View your plan">
+                Plan
+              </a>
             </div>
           </div>
         </div>
