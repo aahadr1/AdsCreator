@@ -8,9 +8,7 @@ if (!secretKey) {
 }
 
 export const stripe = secretKey
-  ? new Stripe(secretKey, {
-      apiVersion: '2024-06-20',
-    })
+  ? new Stripe(secretKey)
   : (null as unknown as Stripe);
 
 export function isStripeEnabled(): boolean {

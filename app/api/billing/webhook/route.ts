@@ -15,9 +15,9 @@ export async function POST(req: NextRequest) {
 
   let event: Stripe.Event;
   try {
-    // Dynamically import to keep type
+    // Dynamically import to keep type; use default version
     const { default: Stripe } = await import('stripe');
-    event = (new Stripe('unused', { apiVersion: '2024-06-20' })).webhooks.constructEvent(buf, sig, secret);
+    event = (new Stripe('unused')).webhooks.constructEvent(buf, sig, secret);
   } catch (err) {
     return new NextResponse('Invalid signature', { status: 400 });
   }
