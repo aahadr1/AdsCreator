@@ -639,7 +639,7 @@ export default function Dashboard() {
                   <div className="testimonial-rating">
                     {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
                   </div>
-                  <p>"Game changer for my content creation. What used to take hours now takes minutes."</p>
+                  <p>&ldquo;Game changer for my content creation. What used to take hours now takes minutes.&rdquo;</p>
                   <div className="testimonial-author">
                     <div className="author-avatar">JD</div>
                     <div>
@@ -652,7 +652,7 @@ export default function Dashboard() {
                   <div className="testimonial-rating">
                     {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
                   </div>
-                  <p>"The AI lipsync quality is incredible. My clients love the results."</p>
+                  <p>&ldquo;The AI lipsync quality is incredible. My clients love the results.&rdquo;</p>
                   <div className="testimonial-author">
                     <div className="author-avatar">MS</div>
                     <div>
@@ -665,7 +665,7 @@ export default function Dashboard() {
                   <div className="testimonial-rating">
                     {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
                   </div>
-                  <p>"Finally, a tool that understands creators. The workflow is perfect."</p>
+                  <p>&ldquo;Finally, a tool that understands creators. The workflow is perfect.&rdquo;</p>
                   <div className="testimonial-author">
                     <div className="author-avatar">AL</div>
                     <div>
@@ -692,7 +692,7 @@ export default function Dashboard() {
                 </details>
                 <details className="faq-item">
                   <summary>How fast is the processing?</summary>
-                  <p>Most videos process in under 2 minutes. Pro users get priority processing that's 3x faster than Basic plans.</p>
+                  <p>Most videos process in under 2 minutes. Pro users get priority processing that&rsquo;s 3x faster than Basic plans.</p>
                 </details>
                 <details className="faq-item">
                   <summary>Can I cancel anytime?</summary>
@@ -708,7 +708,7 @@ export default function Dashboard() {
                 </details>
                 <details className="faq-item">
                   <summary>Do you offer refunds?</summary>
-                  <p>We offer a 30-day money-back guarantee. If you're not satisfied, contact support for a full refund.</p>
+                  <p>We offer a 30-day money-back guarantee. If you&rsquo;re not satisfied, contact support for a full refund.</p>
                 </details>
               </div>
             </div>
@@ -719,7 +719,7 @@ export default function Dashboard() {
             <div className="container">
               <div className="cta-content">
                 <h2>Ready to transform your content creation?</h2>
-                <p>Join thousands of creators who've already made the switch</p>
+                <p>Join thousands of creators who&rsquo;ve already made the switch</p>
                 <a href="/auth" className="btn btn-primary btn-large">
                   <span>Start Creating Today</span>
                   <ArrowRight size={20} />
