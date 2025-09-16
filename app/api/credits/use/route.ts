@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServer } from '../../../../lib/supabaseServer';
 import { getCreditCost, MODEL_COSTS } from '../../../../types/credits';
 
+export const dynamic = 'force-dynamic';
+
 interface UseCreditsRequest {
   user_id: string;
   model_name: string;
