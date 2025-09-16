@@ -170,6 +170,7 @@ export default function InfiniteTalkPage() {
           (window as any).__INFINITE_TALK_OUTPUTS__ = j.outputs;
           const outUrl = (() => {
             for (const o of j.outputs) {
+              if (typeof o === 'string') return o;
               if (o?.data?.url && typeof o.data.url === 'string') return o.data.url;
               if (o?.url && typeof o.url === 'string') return o.url;
             }
@@ -188,6 +189,7 @@ export default function InfiniteTalkPage() {
     const outputs = w && w.__INFINITE_TALK_OUTPUTS__ || null;
     if (!outputs) return null;
     for (const o of outputs) {
+      if (typeof o === 'string') return o;
       if (o?.data?.url && typeof o.data.url === 'string') return o.data.url;
       if (o?.url && typeof o.url === 'string') return o.url;
     }
