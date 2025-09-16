@@ -157,7 +157,7 @@ export function useCredits(): CreditContextType {
 
 // Hook for getting subscription tier from billing info
 export function useSubscriptionTier(): { tier: SubscriptionTier; loading: boolean } {
-  const [tier, setTier] = useState<SubscriptionTier>('basic');
+  const [tier, setTier] = useState<SubscriptionTier>('free');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -165,14 +165,14 @@ export function useSubscriptionTier(): { tier: SubscriptionTier; loading: boolea
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          setTier('basic');
+          setTier('free');
           setLoading(false);
           return;
         }
 
         const response = await fetch(`/api/me/subscription?user_id=${encodeURIComponent(user.id)}`);
         if (!response.ok) {
-          setTier('basic');
+          setTier('free');
           setLoading(false);
           return;
         }
@@ -183,12 +183,14 @@ export function useSubscriptionTier(): { tier: SubscriptionTier; loading: boolea
         // Map price ID to tier
         if (priceId === process.env.NEXT_PUBLIC_PRICE_PRO) {
           setTier('pro');
-        } else {
+        } else if (priceId === process.env.NEXT_PUBLIC_PRICE_BASIC) {
           setTier('basic');
+        } else {
+          setTier('free');
         }
       } catch (err) {
         console.error('Failed to fetch subscription tier:', err);
-        setTier('basic');
+        setTier('free');
       } finally {
         setLoading(false);
       }

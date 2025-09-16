@@ -1,8 +1,9 @@
 // Credit system types and interfaces
 
-export type SubscriptionTier = 'basic' | 'pro';
+export type SubscriptionTier = 'free' | 'basic' | 'pro';
 
 export interface CreditLimits {
+  free: number;
   basic: number;
   pro: number;
 }
@@ -54,6 +55,7 @@ export interface CreditTransaction {
 
 // Credit pricing configuration
 export const CREDIT_LIMITS: CreditLimits = {
+  free: 100,
   basic: 500,
   pro: 1000,
 };

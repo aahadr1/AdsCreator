@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     if (!existingCredits) {
       // Initialize credits for new user
       // First, get their subscription tier
-      let subscriptionTier: SubscriptionTier = 'basic';
+      let subscriptionTier: SubscriptionTier = 'free';
       
       try {
         const { data: subscription } = await supabase
@@ -42,9 +42,11 @@ export async function GET(req: NextRequest) {
 
         if (subscription?.price_id === process.env.NEXT_PUBLIC_PRICE_PRO) {
           subscriptionTier = 'pro';
+        } else if (subscription?.price_id === process.env.NEXT_PUBLIC_PRICE_BASIC) {
+          subscriptionTier = 'basic';
         }
       } catch (err) {
-        console.warn('Could not fetch subscription info, defaulting to basic:', err);
+        console.warn('Could not fetch subscription info, defaulting to free:', err);
       }
 
       // Initialize user credits

@@ -2410,6 +2410,12 @@ input[type="range"]::-moz-range-thumb:hover {
   border: 1px solid rgba(102, 126, 234, 0.3);
 }
 
+.tier-badge.free {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
 .tier-badge.pro {
   background: linear-gradient(90deg, rgba(167, 107, 255, 0.15), rgba(255, 159, 67, 0.15));
   color: #a36bff;
