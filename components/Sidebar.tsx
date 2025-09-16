@@ -20,7 +20,8 @@ import {
   Activity,
   LogIn,
   Settings,
-  Zap
+  Zap,
+  MessageCircle
 } from 'lucide-react';
 import { CreditCounter } from './CreditCounter';
 
@@ -39,6 +40,12 @@ const navigationItems: NavItem[] = [
     label: '+ New Lipsync', 
     icon: <Mic size={18} />,
     gradient: 'linear-gradient(90deg, #6aa4ff, #ff9f43)'
+  },
+  { 
+    href: '/infinite-talk', 
+    label: '+ New Infinite Talk', 
+    icon: <MessageCircle size={18} />,
+    gradient: 'linear-gradient(90deg, #ff6b6b, #4ecdc4)'
   },
   { 
     href: '/transcription/bulk', 
