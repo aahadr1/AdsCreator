@@ -34,8 +34,9 @@ export function SubscriptionGate({ children }: { children: React.ReactNode }) {
         const res = await fetch(`/api/me/subscription?user_id=${encodeURIComponent(user.id)}`);
         const json = (await res.json()) as SubState | { error?: string };
         const status = (json as SubState).status || 'unknown';
-        const isActive = status === 'active' || status === 'trialing' || status === 'past_due';
-        if (!isActive) {
+        // Allow free users (no active subscription) to access tools
+        const isAllowed = status === 'active' || status === 'trialing' || status === 'past_due' || status === 'none' || status === 'unknown';
+        if (!isAllowed) {
           router.replace('/billing');
           return;
         }
