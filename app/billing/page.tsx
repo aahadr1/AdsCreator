@@ -134,33 +134,99 @@ export default function BillingPage() {
 
       <section className="plans" aria-labelledby="plans-heading">
         <h2 id="plans-heading">Plans</h2>
-        <div className="plans-grid">
-          <div className="plan-card" role="region" aria-label="Basic plan">
-            <h3>Basic</h3>
-            <p>All essentials to get started.</p>
-            <button
-              className="btn"
-              type="button"
-              onClick={() => handleCheckout(String(BASIC_PRICE), 'checkout-basic')}
-              onKeyDown={(e) => e.key === 'Enter' ? void handleCheckout(String(BASIC_PRICE), 'checkout-basic') : undefined}
-              aria-label="Choose Basic plan"
-              disabled={!BASIC_PRICE || busy === 'checkout-basic'}
-            >
-              Select <ArrowRight size={14} />
-            </button>
+        <div
+          className="plans-carousel"
+          role="region"
+          aria-roledescription="carousel"
+          aria-label="Available plans"
+        >
+          <div className="carousel-track" tabIndex={0} aria-live="polite">
+            <article className="plan-card" aria-label="Basic plan" aria-roledescription="slide">
+              <header className="plan-card-header">
+                <h3>Basic</h3>
+                <span className="plan-price">$ —</span>
+              </header>
+              <ul className="plan-features">
+                <li>Core lipsync features</li>
+                <li>Standard processing speed</li>
+                <li>Access to image generator</li>
+                <li>Email support</li>
+              </ul>
+              <div className="plan-cta">
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => handleCheckout(String(BASIC_PRICE), 'checkout-basic')}
+                  onKeyDown={(e) => e.key === 'Enter' ? void handleCheckout(String(BASIC_PRICE), 'checkout-basic') : undefined}
+                  aria-label="Choose Basic plan"
+                  disabled={!BASIC_PRICE || busy === 'checkout-basic'}
+                >
+                  Select <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+
+            <article className="plan-card plan-pro" aria-label="Pro plan" aria-roledescription="slide">
+              <header className="plan-card-header">
+                <h3>Pro</h3>
+                <span className="plan-price">$ —</span>
+                <span className="plan-badge" aria-label="Recommended">Recommended</span>
+              </header>
+              <ul className="plan-features">
+                <li>Everything in Basic</li>
+                <li>Priority processing</li>
+                <li>Advanced video generation (Veo)</li>
+                <li>Auto Edit Beta access</li>
+                <li>Priority support</li>
+              </ul>
+              <div className="plan-cta">
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => handleCheckout(String(PRO_PRICE), 'checkout-pro')}
+                  onKeyDown={(e) => e.key === 'Enter' ? void handleCheckout(String(PRO_PRICE), 'checkout-pro') : undefined}
+                  aria-label="Choose Pro plan"
+                  disabled={!PRO_PRICE || busy === 'checkout-pro'}
+                >
+                  Upgrade <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
           </div>
-          <div className="plan-card plan-pro" role="region" aria-label="Pro plan">
-            <h3>Pro</h3>
-            <p>Advanced features for power users.</p>
+          <div className="carousel-controls">
             <button
-              className="btn btn-primary"
+              className="btn small"
               type="button"
-              onClick={() => handleCheckout(String(PRO_PRICE), 'checkout-pro')}
-              onKeyDown={(e) => e.key === 'Enter' ? void handleCheckout(String(PRO_PRICE), 'checkout-pro') : undefined}
-              aria-label="Choose Pro plan"
-              disabled={!PRO_PRICE || busy === 'checkout-pro'}
+              aria-label="Scroll left"
+              onClick={() => {
+                const el = document.querySelector('.carousel-track');
+                if (el) el.scrollBy({ left: -320, behavior: 'smooth' });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const el = document.querySelector('.carousel-track');
+                  if (el) el.scrollBy({ left: -320, behavior: 'smooth' });
+                }
+              }}
             >
-              Upgrade <ArrowRight size={14} />
+              ←
+            </button>
+            <button
+              className="btn small"
+              type="button"
+              aria-label="Scroll right"
+              onClick={() => {
+                const el = document.querySelector('.carousel-track');
+                if (el) el.scrollBy({ left: 320, behavior: 'smooth' });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const el = document.querySelector('.carousel-track');
+                  if (el) el.scrollBy({ left: 320, behavior: 'smooth' });
+                }
+              }}
+            >
+              →
             </button>
           </div>
         </div>

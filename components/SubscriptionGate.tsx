@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabaseClient as supabase } from '../lib/supabaseClient';
 
-const PUBLIC_PATHS = new Set<string>(['/auth', '/billing']);
+const PUBLIC_PATHS = new Set<string>(['/auth', '/billing', '/']);
 
 type SubState = {
   status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete' | 'incomplete_expired' | 'paused' | 'unpaid' | 'none' | 'unknown';

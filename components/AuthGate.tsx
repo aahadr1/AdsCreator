@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabaseClient } from '../lib/supabaseClient';
 
-const PUBLIC_PATHS: ReadonlySet<string> = new Set(['/auth']);
+const PUBLIC_PATHS: ReadonlySet<string> = new Set(['/auth', '/']);
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();

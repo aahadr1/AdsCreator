@@ -389,6 +389,77 @@ export default function Dashboard() {
     );
   }
 
+  if (!isAuthenticated) {
+    return (
+      <div className="landing">
+        <header className="landing-hero" role="banner">
+          <div className="hero-content">
+            <h1 className="hero-title">Create studio-quality lipsync videos in minutes</h1>
+            <p className="hero-subtitle">All-in-one AI toolkit for creators: lipsync, video generation, auto-edit, and more.</p>
+            <div className="hero-cta">
+              <a className="btn btn-primary" href="/auth" aria-label="Get started">Get started</a>
+              <a className="btn" href="#pricing" aria-label="View pricing">View pricing</a>
+            </div>
+            <ul className="hero-highlights">
+              <li>Fast processing</li>
+              <li>Pro-grade quality</li>
+              <li>No learning curve</li>
+            </ul>
+          </div>
+        </header>
+
+        <main>
+          <section className="landing-features" aria-labelledby="features-heading">
+            <h2 id="features-heading">Everything you need to ship content</h2>
+            <div className="features-grid marketing">
+              {features.slice(0, 6).map((feature, i) => (
+                <FeatureCard key={i} {...feature} />
+              ))}
+            </div>
+          </section>
+
+          <section id="pricing" className="landing-pricing" aria-labelledby="pricing-heading">
+            <h2 id="pricing-heading">Simple, predictable pricing</h2>
+            <div className="pricing-inline">
+              <div className="pricing-card">
+                <h3>Basic</h3>
+                <p>All essentials to get started.</p>
+                <a className="btn" href="/auth" aria-label="Choose Basic">Choose Basic</a>
+              </div>
+              <div className="pricing-card recommended">
+                <h3>Pro</h3>
+                <p>Advanced features for power users.</p>
+                <a className="btn btn-primary" href="/auth" aria-label="Choose Pro">Go Pro</a>
+              </div>
+            </div>
+          </section>
+
+          <section className="landing-faq" aria-labelledby="faq-heading">
+            <h2 id="faq-heading">Frequently asked questions</h2>
+            <div className="faq-grid">
+              <details>
+                <summary>Do I need any editing experience?</summary>
+                <p>No. The UI is designed for speed and simplicity. Get pro results in minutes.</p>
+              </details>
+              <details>
+                <summary>Can I cancel anytime?</summary>
+                <p>Yes. Manage your subscription from the Billing page with one click.</p>
+              </details>
+              <details>
+                <summary>Is my data secure?</summary>
+                <p>We store only what is necessary and provide export/delete controls.</p>
+              </details>
+            </div>
+          </section>
+        </main>
+
+        <footer className="landing-footer" role="contentinfo">
+          <p>© {new Date().getFullYear()} Lipsync. All rights reserved.</p>
+        </footer>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard">
       {/* Header */}
