@@ -4,8 +4,8 @@ import { AuthGate } from '../components/AuthGate';
 import { SubscriptionGate } from '../components/SubscriptionGate';
 
 export const metadata = {
-  title: "Lipsync App",
-  description: "Upload a video + audio and get back a lipsynced video using Sieve",
+  title: "AdzCreator - AI-Powered Content Creation Platform",
+  description: "Create studio-quality ads and content with AI lipsync, video generation, auto-editing, and 15+ powerful tools. No experience required.",
 };
 
 export const viewport = {

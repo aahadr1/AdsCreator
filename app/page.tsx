@@ -176,7 +176,7 @@ export default function Dashboard() {
           return; 
         }
 
-        // Load tasks from Cloudflare KV via API
+        // Load user tasks
         const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}`);
         if (res.ok) {
           const json = (await res.json()) as { tasks?: Task[] };
@@ -249,7 +249,7 @@ export default function Dashboard() {
   const features = [
     {
       title: "AI Lipsync",
-      description: "Sync any audio to video with multiple AI models",
+      description: "Perfect lipsync for spokesperson ads and product videos",
       href: "/lipsync-new",
       icon: <Mic size={24} />,
       gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
@@ -258,7 +258,7 @@ export default function Dashboard() {
     },
     {
       title: "Video Generation",
-      description: "Create videos from text prompts using Veo",
+      description: "Create advertising videos from text prompts with AI",
       href: "/veo",
       icon: <Video size={24} />,
       gradient: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
@@ -274,7 +274,7 @@ export default function Dashboard() {
     },
     {
       title: "Text to Speech",
-      description: "Convert text to natural speech with ElevenLabs",
+      description: "Convert scripts to natural voiceovers for ads",
       href: "/tts",
       icon: <Music size={24} />,
       gradient: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
@@ -401,7 +401,7 @@ export default function Dashboard() {
           <div className="nav-container">
             <div className="nav-brand">
               <Activity size={28} />
-              <span>Lipsync Pro</span>
+              <span>AdzCreator</span>
             </div>
             <div className="nav-actions">
               <a href="/auth" className="nav-link">Sign In</a>
@@ -419,11 +419,11 @@ export default function Dashboard() {
                 <span>AI-Powered Content Creation</span>
               </div>
               <h1 className="hero-title">
-                Create <span className="gradient-text">studio-quality</span> content in minutes
+                Create <span className="gradient-text">viral ads</span> that convert
               </h1>
               <p className="hero-subtitle">
-                Transform your ideas into professional videos with AI lipsync, video generation, 
-                auto-editing, and 15+ powerful tools. No experience required.
+                Transform your marketing with AI-powered ad creation. Generate professional videos, 
+                perfect lipsync, auto-editing, and 15+ tools designed for advertisers and agencies.
               </p>
               <div className="hero-cta">
                 <a className="btn btn-primary btn-large" href="/auth">
@@ -438,11 +438,11 @@ export default function Dashboard() {
               <div className="hero-social-proof">
                 <div className="social-proof-item">
                   <Star className="star-icon" size={16} />
-                  <span>4.9/5 from 2,000+ creators</span>
+                  <span>4.9/5 from 5,000+ marketers</span>
                 </div>
                 <div className="social-proof-item">
                   <Users size={16} />
-                  <span>10,000+ videos created</span>
+                  <span>50,000+ ads created</span>
                 </div>
               </div>
             </div>
@@ -460,8 +460,8 @@ export default function Dashboard() {
           <section className="landing-features" aria-labelledby="features-heading">
             <div className="container">
               <div className="section-header">
-                <h2 id="features-heading">Everything you need to create viral content</h2>
-                <p>Professional tools that work together seamlessly</p>
+                <h2 id="features-heading">Everything you need to create viral ads</h2>
+                <p>Professional tools designed for marketers and agencies</p>
               </div>
               <div className="features-grid-landing">
                 {features.slice(0, 8).map((feature, i) => (
@@ -633,18 +633,18 @@ export default function Dashboard() {
           {/* Social Proof */}
           <section className="landing-testimonials" aria-labelledby="testimonials-heading">
             <div className="container">
-              <h2 id="testimonials-heading">Loved by creators worldwide</h2>
+              <h2 id="testimonials-heading">Trusted by marketers worldwide</h2>
               <div className="testimonials-grid">
                 <div className="testimonial-card">
                   <div className="testimonial-rating">
                     {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
                   </div>
-                  <p>&ldquo;Game changer for my content creation. What used to take hours now takes minutes.&rdquo;</p>
+                  <p>&ldquo;Game changer for our ad campaigns. What used to take hours now takes minutes.&rdquo;</p>
                   <div className="testimonial-author">
                     <div className="author-avatar">JD</div>
                     <div>
                       <strong>Jane Doe</strong>
-                      <span>YouTuber, 500K+ subs</span>
+                      <span>Marketing Director, E-commerce</span>
                     </div>
                   </div>
                 </div>
@@ -652,12 +652,12 @@ export default function Dashboard() {
                   <div className="testimonial-rating">
                     {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
                   </div>
-                  <p>&ldquo;The AI lipsync quality is incredible. My clients love the results.&rdquo;</p>
+                  <p>&ldquo;The AI lipsync quality is incredible. Our clients see 3x better conversion rates.&rdquo;</p>
                   <div className="testimonial-author">
                     <div className="author-avatar">MS</div>
                     <div>
                       <strong>Mike Smith</strong>
-                      <span>Video Agency Owner</span>
+                      <span>Digital Agency Owner</span>
                     </div>
                   </div>
                 </div>
@@ -665,12 +665,12 @@ export default function Dashboard() {
                   <div className="testimonial-rating">
                     {[...Array(5)].map((_, i) => <Star key={i} size={16} className="star-filled" />)}
                   </div>
-                  <p>&ldquo;Finally, a tool that understands creators. The workflow is perfect.&rdquo;</p>
+                  <p>&ldquo;Finally, a tool that understands marketers. The workflow is perfect for scaling campaigns.&rdquo;</p>
                   <div className="testimonial-author">
                     <div className="author-avatar">AL</div>
                     <div>
                       <strong>Alex Lee</strong>
-                      <span>TikTok Creator, 2M+ followers</span>
+                      <span>Performance Marketing Manager</span>
                     </div>
                   </div>
                 </div>
@@ -719,7 +719,7 @@ export default function Dashboard() {
             <div className="container">
               <div className="cta-content">
                 <h2>Ready to transform your content creation?</h2>
-                <p>Join thousands of creators who&rsquo;ve already made the switch</p>
+                <p>Join thousands of marketers who&rsquo;ve already made the switch</p>
                 <a href="/auth" className="btn btn-primary btn-large">
                   <span>Start Creating Today</span>
                   <ArrowRight size={20} />
@@ -734,7 +734,7 @@ export default function Dashboard() {
             <div className="footer-content">
               <div className="footer-brand">
                 <Activity size={24} />
-                <span>Lipsync Pro</span>
+                <span>AdzCreator</span>
               </div>
               <div className="footer-links">
                 <a href="/privacy">Privacy</a>
@@ -743,7 +743,7 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="footer-bottom">
-              <p>© {new Date().getFullYear()} Lipsync Pro. All rights reserved.</p>
+              <p>© {new Date().getFullYear()} AdzCreator. All rights reserved.</p>
             </div>
           </div>
         </footer>

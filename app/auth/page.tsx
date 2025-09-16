@@ -74,7 +74,7 @@ export default function AuthPage() {
       <div className="panel" style={{maxWidth:520, margin:'0 auto'}}>
         <div className="header">
           <h2 style={{margin:0}}>{mode === 'signin' ? 'Sign in' : 'Sign up'}</h2>
-          <span className="badge">Supabase Auth + R2 Storage</span>
+          <span className="badge">Secure Authentication</span>
         </div>
         <div style={{display:'grid', gap:8}}>
           <input className="select" placeholder="email" value={email} onChange={(e)=>setEmail(e.target.value)} />

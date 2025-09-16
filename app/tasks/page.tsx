@@ -181,7 +181,7 @@ export default function TasksPage() {
         <AlertCircle size={48} />
         <h3>Failed to load tasks</h3>
         <p>{error}</p>
-        <p className="small">Check /auth for sign-in and /api/debug/env for env setup.</p>
+        <p className="small">Please check your connection and try again, or contact support if the issue persists.</p>
         <button className="btn" onClick={loadTasks}>
           <RefreshCw size={16} />
           Try Again

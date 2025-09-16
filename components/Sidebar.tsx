@@ -128,7 +128,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="sidebar-title">Lipsync</h1>
+        <h1 className="sidebar-title">AdzCreator</h1>
       </div>
       
       <nav className="sidebar-nav">
@@ -156,7 +156,7 @@ export function Sidebar() {
       
       <div className="sidebar-footer">
         <div className="sidebar-copyright">
-          © {new Date().getFullYear()} Lipsync
+          © {new Date().getFullYear()} AdzCreator
         </div>
       </div>
     </aside>

@@ -22,7 +22,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
       <main className="app-main">
         <div className="app-header">
           <div className="app-header-content">
-            <div className="app-tagline">Build great lipsyncs.</div>
+            <div className="app-tagline">Create viral ads with AI.</div>
             <div className="app-user">
               <div className="user-email" id="user-email"></div>
               <div className="user-avatar-small"></div>
