@@ -22,7 +22,7 @@ export function CreditGuard({
   showCost = true,
   className = '',
 }: CreditGuardProps) {
-  const { hasEnoughCredits, useCredits, credits } = useCredits();
+  const { hasEnoughCredits, useCredits: consumeCredits, credits } = useCredits();
   const creditCost = getCreditCost(modelName);
   const modelInfo = MODEL_COSTS[modelName];
   const hasCredits = hasEnoughCredits(modelName);
