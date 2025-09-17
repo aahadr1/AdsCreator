@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       
       const { data: newCredits, error: initError } = await supabase
         .from('user_credits')
-        .insert({
+        .upsert({
           user_id: userId,
           subscription_tier: subscriptionTier,
           monthly_limit: monthlyLimit,
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
           current_period_start: new Date().toISOString(),
           current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
           last_reset_date: new Date().toISOString(),
-        })
+        }, { onConflict: 'user_id' })
         .select()
         .single();
 
