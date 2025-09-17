@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
       if (!elKey) return new Response('Server misconfigured: missing ELEVENLABS_API_KEY', { status: 500 });
 
       const voiceId = body.voice_id || 'JBFqnCBsd6RMkjVDRZzb';
-      const modelId = body.model_id || 'eleven_multilingual_v2';
+      const modelId = body.model_id || 'eleven_v3';
       const outputFormat = body.output_format || 'mp3_44100_128';
 
       const voiceSettings: Record<string, unknown> = {};

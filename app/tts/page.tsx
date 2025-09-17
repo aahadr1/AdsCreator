@@ -13,7 +13,7 @@ export default function TtsPage() {
   const [provider, setProvider] = useState<'replicate' | 'elevenlabs' | 'dia'>('replicate');
   const [voiceId, setVoiceId] = useState('Friendly_Person');
   const [elVoiceId, setElVoiceId] = useState('JBFqnCBsd6RMkjVDRZzb');
-  const [elModelId, setElModelId] = useState('eleven_multilingual_v3');
+  const [elModelId, setElModelId] = useState('eleven_v3');
   const [elOutputFormat, setElOutputFormat] = useState('mp3_44100_128');
   const [emotion, setEmotion] = useState<'auto' | 'neutral' | 'happy' | 'sad' | 'angry' | 'fearful' | 'disgusted' | 'surprised'>('auto');
   const [speed, setSpeed] = useState(1);
@@ -363,7 +363,7 @@ export default function TtsPage() {
               <div>
                 <div className="small">Model</div>
                 <select className="select" value={elModelId} onChange={(e)=>setElModelId(e.target.value)}>
-                  <option value="eleven_multilingual_v3">Multilingual V3 (New)</option>
+                  <option value="eleven_v3">Multilingual V3 (New)</option>
                   <option value="eleven_multilingual_v2">Multilingual V2</option>
                   <option value="eleven_monolingual_v1">Monolingual V1</option>
                   <option value="eleven_turbo_v2">Turbo V2 (Fast)</option>
