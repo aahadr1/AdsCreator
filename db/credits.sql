@@ -3,7 +3,7 @@
 -- User credits table
 CREATE TABLE IF NOT EXISTS public.user_credits (
   user_id uuid PRIMARY KEY,
-  subscription_tier text NOT NULL DEFAULT 'basic' CHECK (subscription_tier IN ('basic', 'pro')),
+  subscription_tier text NOT NULL DEFAULT 'basic' CHECK (subscription_tier IN ('free','basic','pro')),
   monthly_limit integer NOT NULL DEFAULT 500,
   used_credits integer NOT NULL DEFAULT 0,
   current_period_start timestamptz NOT NULL DEFAULT now(),

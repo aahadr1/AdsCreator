@@ -15,15 +15,14 @@ export async function GET(req: NextRequest) {
 
     const supabase = createSupabaseServer();
     
-    // Check if user credits record exists
+    // Check if user credits record exists (maybeSingle: returns null when not found)
     const { data: existingCredits, error: fetchError } = await supabase
       .from('user_credits')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      // Error other than "not found"
+    if (fetchError) {
       console.error('Error fetching user credits:', fetchError);
       return NextResponse.json({ error: 'Failed to fetch credits' }, { status: 500 });
     }
@@ -31,7 +30,8 @@ export async function GET(req: NextRequest) {
     if (!existingCredits) {
       // Initialize credits for new user
       // First, get their subscription tier
-      let subscriptionTier: SubscriptionTier = 'free';
+      // Default to 'basic' to satisfy DB constraint in credits.sql (basic|pro)
+      let subscriptionTier: SubscriptionTier = 'basic';
       
       try {
         const { data: subscription } = await supabase
