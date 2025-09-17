@@ -156,18 +156,41 @@ export async function POST(req: NextRequest) {
       if (typeof body.speed_factor === 'number') input.speed_factor = body.speed_factor;
       if (typeof body.seed === 'number') input.seed = body.seed;
 
-      const output = (await replicate.run('zsxkib/dia', { input })) as unknown;
-      let url: string | null = null;
-      if (output && typeof output === 'object' && 'url' in (output as any) && typeof (output as any).url === 'function') {
-        try { url = (output as any).url(); } catch {}
+      const slug = (process.env.REPLICATE_DIA_MODEL_SLUG || 'zsxkib/dia') as `${string}/${string}`;
+      const version = process.env.REPLICATE_DIA_MODEL_VERSION; // optional
+      const modelRef: `${string}/${string}` | `${string}/${string}:${string}` = version
+        ? (`${slug}:${version}` as `${string}/${string}:${string}`)
+        : slug;
+
+      try {
+        const output = (await replicate.run(modelRef, { input })) as unknown;
+        let url: string | null = null;
+        // Handle common output shapes: string, array of strings, or object with url
+        if (typeof output === 'string') {
+          url = output;
+        } else if (Array.isArray(output)) {
+          const firstUrl = (output as unknown[]).find((v) => typeof v === 'string') as string | undefined;
+          url = firstUrl || null;
+        } else if (output && typeof output === 'object') {
+          if ('url' in (output as any) && typeof (output as any).url === 'string') {
+            url = (output as any).url as string;
+          } else if ('audio' in (output as any) && typeof (output as any).audio === 'string') {
+            url = (output as any).audio as string;
+          } else if ('output' in (output as any) && typeof (output as any).output === 'string') {
+            url = (output as any).output as string;
+          }
+        }
+        return Response.json({ url, raw: output });
+      } catch (err: any) {
+        const message = typeof err?.message === 'string' ? err.message : 'Unknown error';
+        if (/404/.test(message) || /not found/i.test(message)) {
+          return new Response(
+            'Dia model not found on Replicate. Set REPLICATE_DIA_MODEL_SLUG (and optional REPLICATE_DIA_MODEL_VERSION) to a valid public model.',
+            { status: 502 }
+          );
+        }
+        return new Response(`Dia TTS error: ${message}`, { status: 500 });
       }
-      if (!url && typeof output === 'string') {
-        url = output;
-      }
-      if (!url && output && typeof (output as any).url === 'string') {
-        url = (output as any).url;
-      }
-      return Response.json({ url, raw: output });
     }
 
     // Default provider: Replicate (minimax/speech-02-hd)
