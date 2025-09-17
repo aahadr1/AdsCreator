@@ -2,6 +2,7 @@
 
 import '../globals.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import NextImage from 'next/image';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 import { 
   ChevronLeft, 
@@ -12,7 +13,7 @@ import {
   Eye,
   Sparkles,
   Mic,
-  Image,
+  Image as ImageIcon,
   Video,
   Scissors,
   Settings,
@@ -108,7 +109,7 @@ const STEPS: { key: CreativeStep; label: string; icon: React.ReactNode }[] = [
   { key: 'concept', label: 'Concept', icon: <Sparkles size={18} /> },
   { key: 'avatar-voice', label: 'Avatar & Voice', icon: <Mic size={18} /> },
   { key: 'base-video', label: 'Base Video', icon: <Video size={18} /> },
-  { key: 'broll', label: 'B-roll', icon: <Image size={18} /> },
+  { key: 'broll', label: 'B-roll', icon: <ImageIcon size={18} /> },
   { key: 'summary', label: 'Summary', icon: <CheckCircle size={18} /> }
 ];
 
@@ -149,23 +150,6 @@ export default function AdCreativePage() {
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
-  // Auto-save effect
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (saveStatus === 'unsaved' && (creative.name || creative.hook)) {
-        handleSave();
-      }
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [creative, saveStatus, handleSave]);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (streamRef.current) streamRef.current.cancel();
-    };
-  }, []);
-
   const handleSave = useCallback(async () => {
     try {
       setSaveStatus('saving');
@@ -205,6 +189,25 @@ export default function AdCreativePage() {
       setSaveStatus('unsaved');
     }
   }, [creative, currentStep]);
+
+  // Auto-save effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (saveStatus === 'unsaved' && (creative.name || creative.hook)) {
+        handleSave();
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [creative, saveStatus, handleSave]);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (streamRef.current) streamRef.current.cancel();
+    };
+  }, []);
+
+  
 
   const updateCreative = (updates: Partial<Creative>) => {
     setCreative(prev => ({ ...prev, ...updates }));
@@ -380,7 +383,14 @@ export default function AdCreativePage() {
         >
           {avatarUrl || avatarFile ? (
             <div className="avatar-preview">
-              <img src={avatarUrl || URL.createObjectURL(avatarFile!)} alt="Selected avatar" />
+              <NextImage 
+                src={avatarUrl || URL.createObjectURL(avatarFile!)} 
+                alt="Selected avatar"
+                width={160}
+                height={160}
+                unoptimized
+                style={{ borderRadius: 8, objectFit: 'cover' }}
+              />
               <div className="small">Avatar uploaded</div>
             </div>
           ) : (
@@ -399,6 +409,7 @@ export default function AdCreativePage() {
         </div>
         <button 
           className="btn"
+          type="button"
           disabled={!creative.name || scriptGenerating}
           onClick={async () => {
             setScriptGenerating(true);
@@ -489,6 +500,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
         
         <button 
           className="btn"
+          type="button"
           disabled={!creative.script || isLoading}
           onClick={async () => {
             setIsLoading(true);
@@ -544,6 +556,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
         
         <button 
           className="btn"
+          type="button"
           disabled={!avatarUrl || !creative.audio_url || baseVideoStatus === 'running'}
           onClick={async () => {
             setBaseVideoStatus('running');
@@ -624,6 +637,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
           {backgroundRemovalEnabled && (
             <button 
               className="btn"
+              type="button"
               onClick={async () => {
                 try {
                   const res = await fetch('/api/background/remove', {
@@ -668,6 +682,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
         
         <button 
           className="btn"
+          type="button"
           disabled={!creative.script}
           onClick={async () => {
             try {
@@ -719,7 +734,14 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
                           item.type === 'video' ? (
                             <video src={item.url} style={{width: 40, height: 40, borderRadius: 4}} />
                           ) : (
-                            <img src={item.url} alt="B-roll content" style={{width: 40, height: 40, borderRadius: 4, objectFit: 'cover'}} />
+                            <NextImage 
+                              src={item.url}
+                              alt="B-roll content"
+                              width={40}
+                              height={40}
+                              unoptimized
+                              style={{ borderRadius: 4, objectFit: 'cover' }}
+                            />
                           )
                         ) : (
                           <div className="broll-placeholder">
@@ -730,6 +752,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
                     ))}
                   <button 
                     className="add-broll-btn"
+                    type="button"
                     onClick={() => {
                       const newItem: BrollItem = {
                         id: `broll-${Date.now()}`,
@@ -759,6 +782,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
           <div className="broll-options">
             <button 
               className="btn"
+              type="button"
               onClick={async () => {
                 const segment = scriptSegments.find(s => s.id === selectedSegment);
                 if (!segment) return;
@@ -796,6 +820,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
             
             <button 
               className="btn"
+              type="button"
               onClick={async () => {
                 const segment = scriptSegments.find(s => s.id === selectedSegment);
                 if (!segment) return;
@@ -868,7 +893,7 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
             {creative.base_video_url && (
               <div className="summary-section">
                 <h4>Base Video</h4>
-                <video 
+              <video 
                   src={creative.base_video_url} 
                   controls 
                   style={{width: '100%', maxHeight: '300px', borderRadius: '8px'}} 
@@ -886,7 +911,14 @@ Make it conversational, engaging, and perfect for a spokesperson video. Include 
                         item.type === 'video' ? (
                           <video src={item.url} style={{width: '100%', height: 60, borderRadius: 4}} />
                         ) : (
-                          <img src={item.url} alt="B-roll summary" style={{width: '100%', height: 60, borderRadius: 4, objectFit: 'cover'}} />
+                          <NextImage 
+                            src={item.url}
+                            alt="B-roll summary"
+                            width={120}
+                            height={60}
+                            unoptimized
+                            style={{ borderRadius: 4, objectFit: 'cover', width: '100%', height: 60 }}
+                          />
                         )
                       )}
                     </div>
