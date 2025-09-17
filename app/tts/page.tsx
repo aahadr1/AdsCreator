@@ -13,7 +13,7 @@ export default function TtsPage() {
   const [provider, setProvider] = useState<'replicate' | 'elevenlabs' | 'dia'>('replicate');
   const [voiceId, setVoiceId] = useState('Friendly_Person');
   const [elVoiceId, setElVoiceId] = useState('JBFqnCBsd6RMkjVDRZzb');
-  const [elModelId, setElModelId] = useState('eleven_multilingual_v2');
+  const [elModelId, setElModelId] = useState('eleven_multilingual_v3');
   const [elOutputFormat, setElOutputFormat] = useState('mp3_44100_128');
   const [emotion, setEmotion] = useState<'auto' | 'neutral' | 'happy' | 'sad' | 'angry' | 'fearful' | 'disgusted' | 'surprised'>('auto');
   const [speed, setSpeed] = useState(1);
@@ -31,6 +31,12 @@ export default function TtsPage() {
   const [elVoices, setElVoices] = useState<Array<{ voice_id: string; name: string }>>([]);
   const [elVoicesLoading, setElVoicesLoading] = useState(false);
   const [elVoicesError, setElVoicesError] = useState<string | null>(null);
+
+  // ElevenLabs V3 voice settings
+  const [elStability, setElStability] = useState<number>(0.5);
+  const [elSimilarityBoost, setElSimilarityBoost] = useState<number>(0.5);
+  const [elStyle, setElStyle] = useState<number>(0.0);
+  const [elSpeakerBoost, setElSpeakerBoost] = useState<boolean>(true);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +60,7 @@ export default function TtsPage() {
   
   const providerLabel = useMemo(() => {
     if (provider === 'dia') return 'Replicate (zsxkib/dia · Dialogue)';
-    if (provider === 'elevenlabs') return 'ElevenLabs (Premium Quality)';
+    if (provider === 'elevenlabs') return 'ElevenLabs (Multilingual V3)';
     return 'Replicate (minimax/speech-02-hd)';
   }, [provider]);
 
@@ -122,6 +128,11 @@ export default function TtsPage() {
         model_id: provider === 'elevenlabs' ? elModelId : undefined,
         output_format: provider === 'elevenlabs' ? elOutputFormat : undefined,
         voice_id: provider === 'replicate' ? voiceId : elVoiceId,
+        // ElevenLabs V3
+        el_stability: provider === 'elevenlabs' ? elStability : undefined,
+        el_similarity_boost: provider === 'elevenlabs' ? elSimilarityBoost : undefined,
+        el_style: provider === 'elevenlabs' ? elStyle : undefined,
+        el_use_speaker_boost: provider === 'elevenlabs' ? elSpeakerBoost : undefined,
         // Dia specific
         audio_prompt: provider === 'dia' ? diaAudioPromptUrl : undefined,
         audio_prompt_text: provider === 'dia' ? (diaAudioPromptText || undefined) : undefined,
@@ -133,9 +144,9 @@ export default function TtsPage() {
         cfg_filter_top_k: provider === 'dia' ? diaCfgFilterTopK : undefined,
         speed_factor: provider === 'dia' ? diaSpeedFactor : undefined,
         seed: provider === 'dia' ? (diaSeed === '' ? undefined : Number(diaSeed)) : undefined,
-      };
+      } as const;
       // Also create KV task so it appears in /tasks
-      let kvIdLocal: string | null = null;
+      let kvIdLocal2: string | null = null;
       try {
         const createRes = await fetch('/api/tasks/create', {
           method: 'POST',
@@ -152,8 +163,9 @@ export default function TtsPage() {
         });
         if (createRes.ok) {
           const created = await createRes.json();
-          kvIdLocal = created?.id || null;
-          setKvTaskId(kvIdLocal);
+          kvIdLocal2 = created?.id || null;
+          kvIdLocal = kvIdLocal2;
+          setKvTaskId(kvIdLocal2);
         }
       } catch {}
 
@@ -189,6 +201,11 @@ export default function TtsPage() {
           volume,
           language_boost: languageBoost,
           english_normalization: englishNormalization,
+          // ElevenLabs V3
+          el_stability: provider === 'elevenlabs' ? elStability : undefined,
+          el_similarity_boost: provider === 'elevenlabs' ? elSimilarityBoost : undefined,
+          el_style: provider === 'elevenlabs' ? elStyle : undefined,
+          el_use_speaker_boost: provider === 'elevenlabs' ? elSpeakerBoost : undefined,
           // Dia specific
           audio_prompt: provider === 'dia' ? diaAudioPromptUrl : undefined,
           audio_prompt_text: provider === 'dia' ? (diaAudioPromptText || undefined) : undefined,
@@ -277,7 +294,7 @@ export default function TtsPage() {
             </div>
             <select className="select" value={provider} onChange={(e)=>setProvider(e.target.value as any)}>
               <option value="replicate">Replicate (minimax/speech-02-hd) - 5 credits</option>
-              <option value="elevenlabs">ElevenLabs (Premium Quality) - 8 credits</option>
+              <option value="elevenlabs">ElevenLabs (Multilingual V3) - 8 credits</option>
               <option value="dia">Replicate (zsxkib/dia · Dialogue) - 6 credits</option>
             </select>
           </div>
@@ -346,6 +363,7 @@ export default function TtsPage() {
               <div>
                 <div className="small">Model</div>
                 <select className="select" value={elModelId} onChange={(e)=>setElModelId(e.target.value)}>
+                  <option value="eleven_multilingual_v3">Multilingual V3 (New)</option>
                   <option value="eleven_multilingual_v2">Multilingual V2</option>
                   <option value="eleven_monolingual_v1">Monolingual V1</option>
                   <option value="eleven_turbo_v2">Turbo V2 (Fast)</option>
@@ -360,6 +378,25 @@ export default function TtsPage() {
                   <option value="wav_44100">WAV 44.1kHz</option>
                 </select>
               </div>
+              <div style={{gridColumn: 'span 2'}}>
+                <div className="small">Voice Settings (V3)</div>
+                <div className="small" style={{ color: 'var(--text-muted)' }}>Tune stability, similarity, style, and speaker boost for the Multilingual V3 model.</div>
+              </div>
+              <div>
+                <div className="small">Stability: {elStability.toFixed(2)}</div>
+                <input className="input" type="range" min={0} max={1} step={0.01} value={elStability} onChange={(e)=>setElStability(parseFloat(e.target.value))} />
+              </div>
+              <div>
+                <div className="small">Similarity Boost: {elSimilarityBoost.toFixed(2)}</div>
+                <input className="input" type="range" min={0} max={1} step={0.01} value={elSimilarityBoost} onChange={(e)=>setElSimilarityBoost(parseFloat(e.target.value))} />
+              </div>
+              <div>
+                <div className="small">Style: {elStyle.toFixed(2)}</div>
+                <input className="input" type="range" min={0} max={1} step={0.01} value={elStyle} onChange={(e)=>setElStyle(parseFloat(e.target.value))} />
+              </div>
+              <label className="small" style={{display:'flex', gap:8, alignItems:'center', marginTop:8}}>
+                <input type="checkbox" checked={elSpeakerBoost} onChange={(e)=>setElSpeakerBoost(e.target.checked)} /> Speaker Boost
+              </label>
             </>
           ) : (
             <>
@@ -546,6 +583,7 @@ export default function TtsPage() {
             style={{ marginTop: 12 }} 
             disabled={!canGenerate} 
             onClick={runTts}
+            type="button"
           >
             {isLoading ? 'Generating…' : 'Generate speech'}
           </button>

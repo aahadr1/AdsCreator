@@ -44,6 +44,11 @@ type TtsInput = {
   provider?: 'replicate' | 'elevenlabs' | 'dia';
   model_id?: string; // ElevenLabs
   output_format?: string; // ElevenLabs, e.g. mp3_44100_128
+  // ElevenLabs v3 voice settings
+  el_stability?: number;
+  el_similarity_boost?: number;
+  el_style?: number;
+  el_use_speaker_boost?: boolean;
   // Dia-specific inputs
   audio_prompt?: string | null;
   audio_prompt_text?: string | null;
@@ -115,6 +120,12 @@ export async function POST(req: NextRequest) {
       const modelId = body.model_id || 'eleven_multilingual_v2';
       const outputFormat = body.output_format || 'mp3_44100_128';
 
+      const voiceSettings: Record<string, unknown> = {};
+      if (typeof body.el_stability === 'number') voiceSettings.stability = body.el_stability;
+      if (typeof body.el_similarity_boost === 'number') voiceSettings.similarity_boost = body.el_similarity_boost;
+      if (typeof body.el_style === 'number') voiceSettings.style = body.el_style;
+      if (typeof body.el_use_speaker_boost === 'boolean') voiceSettings.use_speaker_boost = body.el_use_speaker_boost;
+
       const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         method: 'POST',
         headers: {
@@ -126,6 +137,7 @@ export async function POST(req: NextRequest) {
           text: body.text,
           model_id: modelId,
           output_format: outputFormat,
+          voice_settings: Object.keys(voiceSettings).length ? voiceSettings : undefined,
         }),
       });
       if (!res.ok) {
