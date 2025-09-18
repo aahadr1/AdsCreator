@@ -122,6 +122,15 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
     description: 'Natural voice generation with customization',
   },
 
+  // New: Resemble AI Chatterbox
+  'chatterbox-tts': {
+    name: 'Chatterbox TTS',
+    category: 'tts',
+    credits: 6,
+    provider: 'Replicate',
+    description: 'Expressive TTS with emotion exaggeration and voice cloning',
+  },
+
   // Editing and Enhancement
   'auto-edit': {
     name: 'Auto Edit',

@@ -10,7 +10,7 @@ type TtsResponse = { url?: string | null; raw?: any };
 
 export default function TtsPage() {
   const [text, setText] = useState('Hello from Text to Speech!');
-  const [provider, setProvider] = useState<'replicate' | 'elevenlabs' | 'dia'>('replicate');
+  const [provider, setProvider] = useState<'replicate' | 'elevenlabs' | 'dia' | 'chatterbox'>('replicate');
   const [voiceId, setVoiceId] = useState('Friendly_Person');
   const [elVoiceId, setElVoiceId] = useState('JBFqnCBsd6RMkjVDRZzb');
   const [elModelId, setElModelId] = useState('eleven_v3');
@@ -55,12 +55,20 @@ export default function TtsPage() {
   const [diaSpeedFactor, setDiaSpeedFactor] = useState<number>(1.0);
   const [diaSeed, setDiaSeed] = useState<number | ''>('');
   
+  // Chatterbox (Resemble AI) parameters
+  const [cbAudioPromptUrl, setCbAudioPromptUrl] = useState<string | null>(null);
+  const [cbExaggeration, setCbExaggeration] = useState<number>(0.5);
+  const [cbCfgWeight, setCbCfgWeight] = useState<number>(0.5);
+  const [cbTemperature, setCbTemperature] = useState<number>(0.8);
+  const [cbSeed, setCbSeed] = useState<number | ''>('');
+  
   // Credit system
   const { credits, hasEnoughCredits, formatProgress } = useCredits();
   
   const providerLabel = useMemo(() => {
     if (provider === 'dia') return 'Replicate (zsxkib/dia · Dialogue)';
     if (provider === 'elevenlabs') return 'ElevenLabs (Multilingual V3)';
+    if (provider === 'chatterbox') return 'Replicate (resemble-ai/chatterbox)';
     return 'Replicate (minimax/speech-02-hd)';
   }, [provider]);
 
@@ -68,6 +76,7 @@ export default function TtsPage() {
   const modelName = useMemo(() => {
     if (provider === 'elevenlabs') return 'elevenlabs-tts';
     if (provider === 'dia') return 'dia-tts';
+    if (provider === 'chatterbox') return 'chatterbox-tts';
     return 'minimax-speech-02-hd';
   }, [provider]);
 
@@ -144,6 +153,12 @@ export default function TtsPage() {
         cfg_filter_top_k: provider === 'dia' ? diaCfgFilterTopK : undefined,
         speed_factor: provider === 'dia' ? diaSpeedFactor : undefined,
         seed: provider === 'dia' ? (diaSeed === '' ? undefined : Number(diaSeed)) : undefined,
+        // Chatterbox specific
+        cb_audio_prompt: provider === 'chatterbox' ? cbAudioPromptUrl || undefined : undefined,
+        cb_exaggeration: provider === 'chatterbox' ? cbExaggeration : undefined,
+        cb_cfg_weight: provider === 'chatterbox' ? cbCfgWeight : undefined,
+        cb_temperature: provider === 'chatterbox' ? cbTemperature : undefined,
+        cb_seed: provider === 'chatterbox' ? (cbSeed === '' ? undefined : Number(cbSeed)) : undefined,
       } as const;
       // Also create KV task so it appears in /tasks
       let kvIdLocal2: string | null = null;
@@ -185,38 +200,56 @@ export default function TtsPage() {
       if (insertErr || !inserted) throw new Error(insertErr?.message || 'Failed to create task');
       setTaskId(inserted.id);
 
+      const commonBody = {
+        text,
+        user_id: user.id,
+        provider,
+        voice_id: provider === 'replicate' ? voiceId : elVoiceId,
+        model_id: provider === 'elevenlabs' ? elModelId : undefined,
+        output_format: provider === 'elevenlabs' ? elOutputFormat : undefined,
+        emotion,
+        speed,
+        pitch,
+        volume,
+        language_boost: languageBoost,
+        english_normalization: englishNormalization,
+        // ElevenLabs V3
+        el_stability: provider === 'elevenlabs' ? elStability : undefined,
+        el_similarity_boost: provider === 'elevenlabs' ? elSimilarityBoost : undefined,
+        el_style: provider === 'elevenlabs' ? elStyle : undefined,
+        el_use_speaker_boost: provider === 'elevenlabs' ? elSpeakerBoost : undefined,
+      } as const;
+
+      let providerBody: Record<string, unknown> = {};
+      if (provider === 'dia') {
+        providerBody = {
+          audio_prompt: diaAudioPromptUrl || undefined,
+          audio_prompt_text: diaAudioPromptText || undefined,
+          max_new_tokens: diaMaxNewTokens,
+          max_audio_prompt_seconds: diaMaxAudioPromptSeconds,
+          cfg_scale: diaCfgScale,
+          temperature: diaTemperature,
+          top_p: diaTopP,
+          cfg_filter_top_k: diaCfgFilterTopK,
+          speed_factor: diaSpeedFactor,
+          seed: diaSeed === '' ? undefined : Number(diaSeed),
+        };
+      } else if (provider === 'chatterbox') {
+        providerBody = {
+          audio_prompt: cbAudioPromptUrl || undefined,
+          exaggeration: cbExaggeration,
+          cfg_weight: cbCfgWeight,
+          temperature: cbTemperature,
+          seed: cbSeed === '' ? undefined : Number(cbSeed),
+        };
+      }
+
       const res = await fetch('/api/tts/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text,
-          user_id: user.id, // Add user_id for credit tracking
-          provider,
-          voice_id: provider === 'replicate' ? voiceId : elVoiceId,
-          model_id: provider === 'elevenlabs' ? elModelId : undefined,
-          output_format: provider === 'elevenlabs' ? elOutputFormat : undefined,
-          emotion,
-          speed,
-          pitch,
-          volume,
-          language_boost: languageBoost,
-          english_normalization: englishNormalization,
-          // ElevenLabs V3
-          el_stability: provider === 'elevenlabs' ? elStability : undefined,
-          el_similarity_boost: provider === 'elevenlabs' ? elSimilarityBoost : undefined,
-          el_style: provider === 'elevenlabs' ? elStyle : undefined,
-          el_use_speaker_boost: provider === 'elevenlabs' ? elSpeakerBoost : undefined,
-          // Dia specific
-          audio_prompt: provider === 'dia' ? diaAudioPromptUrl : undefined,
-          audio_prompt_text: provider === 'dia' ? (diaAudioPromptText || undefined) : undefined,
-          max_new_tokens: provider === 'dia' ? diaMaxNewTokens : undefined,
-          max_audio_prompt_seconds: provider === 'dia' ? diaMaxAudioPromptSeconds : undefined,
-          cfg_scale: provider === 'dia' ? diaCfgScale : undefined,
-          temperature: provider === 'dia' ? diaTemperature : undefined,
-          top_p: provider === 'dia' ? diaTopP : undefined,
-          cfg_filter_top_k: provider === 'dia' ? diaCfgFilterTopK : undefined,
-          speed_factor: provider === 'dia' ? diaSpeedFactor : undefined,
-          seed: provider === 'dia' ? (diaSeed === '' ? undefined : Number(diaSeed)) : undefined,
+          ...commonBody,
+          ...providerBody,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -291,11 +324,13 @@ export default function TtsPage() {
               <CreditCostDisplay modelName="minimax-speech-02-hd" variant="detailed" showProvider />
               <CreditCostDisplay modelName="elevenlabs-tts" variant="detailed" showProvider />
               <CreditCostDisplay modelName="dia-tts" variant="detailed" showProvider />
+              <CreditCostDisplay modelName="chatterbox-tts" variant="detailed" showProvider />
             </div>
             <select className="select" value={provider} onChange={(e)=>setProvider(e.target.value as any)}>
               <option value="replicate">Replicate (minimax/speech-02-hd) - 5 credits</option>
               <option value="elevenlabs">ElevenLabs (Multilingual V3) - 8 credits</option>
               <option value="dia">Replicate (zsxkib/dia · Dialogue) - 6 credits</option>
+              <option value="chatterbox">Replicate (resemble-ai/chatterbox) - 6 credits</option>
             </select>
           </div>
         </div>
@@ -398,13 +433,23 @@ export default function TtsPage() {
                 <input type="checkbox" checked={elSpeakerBoost} onChange={(e)=>setElSpeakerBoost(e.target.checked)} /> Speaker Boost
               </label>
             </>
-          ) : (
+          ) : provider === 'dia' ? (
             <>
               <div style={{gridColumn: 'span 2'}}>
                 <div className="small">Dia Model</div>
                 <div className="small" style={{ color: 'var(--text-muted)' }}>Dia 1.6B by Nari Labs — realistic dialogue from text, supports voice cloning and non-verbal cues. Use [S1], [S2] for speakers and (whispers) etc. for non-verbal cues.</div>
                 <select className="select" value="zsxkib/dia" onChange={()=>{}}>
                   <option value="zsxkib/dia">zsxkib/dia (Text-to-Dialogue)</option>
+                </select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{gridColumn: 'span 2'}}>
+                <div className="small">Chatterbox Model</div>
+                <div className="small" style={{ color: 'var(--text-muted)' }}>Resemble AI Chatterbox — expressive, natural speech with emotion exaggeration and instant voice cloning.</div>
+                <select className="select" value="resemble-ai/chatterbox" onChange={()=>{}}>
+                  <option value="resemble-ai/chatterbox">resemble-ai/chatterbox (Text-to-Speech)</option>
                 </select>
               </div>
             </>
@@ -511,6 +556,54 @@ export default function TtsPage() {
               <div>
                 <div className="small">Seed</div>
                 <input className="input" type="number" placeholder="Leave blank for random" value={diaSeed} onChange={(e)=>setDiaSeed(e.target.value === '' ? '' : parseInt(e.target.value))} />
+              </div>
+            </>
+          ) : provider === 'chatterbox' ? (
+            <>
+              <div style={{gridColumn: 'span 2'}}>
+                <div className="small">Reference Audio (optional)</div>
+                <div className="small" style={{ color: 'var(--text-muted)' }}>Upload a short voice sample to guide tone and timbre.</div>
+                <input
+                  className="input"
+                  type="file"
+                  accept="audio/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const form = new FormData();
+                      form.append('file', file);
+                      form.append('filename', file.name);
+                      const res = await fetch('/api/assets/upload', { method: 'POST', body: form });
+                      if (!res.ok) throw new Error(await res.text());
+                      const data = await res.json();
+                      setCbAudioPromptUrl(data?.url || null);
+                    } catch (err: any) {
+                      setError(err?.message || 'Failed to upload reference audio');
+                    }
+                  }}
+                />
+                {cbAudioPromptUrl && (
+                  <div className="small" style={{ marginTop: 6 }}>
+                    Uploaded: <a href={cbAudioPromptUrl} target="_blank" rel="noreferrer">reference audio</a>
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="small">Exaggeration: {cbExaggeration.toFixed(2)}</div>
+                <input className="input" type="range" min={0} max={1} step={0.01} value={cbExaggeration} onChange={(e)=>setCbExaggeration(parseFloat(e.target.value))} />
+              </div>
+              <div>
+                <div className="small">CFG Weight: {cbCfgWeight.toFixed(2)}</div>
+                <input className="input" type="range" min={0} max={1} step={0.01} value={cbCfgWeight} onChange={(e)=>setCbCfgWeight(parseFloat(e.target.value))} />
+              </div>
+              <div>
+                <div className="small">Temperature</div>
+                <input className="input" type="number" step={0.01} min={0} max={1.5} value={cbTemperature} onChange={(e)=>setCbTemperature(parseFloat(e.target.value))} />
+              </div>
+              <div>
+                <div className="small">Seed</div>
+                <input className="input" type="number" placeholder="Leave blank for random" value={cbSeed} onChange={(e)=>setCbSeed(e.target.value === '' ? '' : parseInt(e.target.value))} />
               </div>
             </>
           ) : (

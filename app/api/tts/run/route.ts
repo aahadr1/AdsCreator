@@ -41,7 +41,7 @@ type TtsInput = {
     | 'Finnish'
     | 'Hindi';
   english_normalization?: boolean;
-  provider?: 'replicate' | 'elevenlabs' | 'dia';
+  provider?: 'replicate' | 'elevenlabs' | 'dia' | 'chatterbox';
   model_id?: string; // ElevenLabs
   output_format?: string; // ElevenLabs, e.g. mp3_44100_128
   // ElevenLabs v3 voice settings
@@ -60,6 +60,9 @@ type TtsInput = {
   cfg_filter_top_k?: number;
   speed_factor?: number;
   seed?: number | null;
+  // Chatterbox-specific
+  exaggeration?: number;
+  cfg_weight?: number;
 };
 
 export async function POST(req: NextRequest) {
@@ -73,7 +76,7 @@ export async function POST(req: NextRequest) {
       return new Response('Missing required field: user_id', { status: 400 });
     }
 
-    const provider = (body.provider || 'replicate') as 'replicate' | 'elevenlabs' | 'dia';
+    const provider = (body.provider || 'replicate') as 'replicate' | 'elevenlabs' | 'dia' | 'chatterbox';
     
     // Determine model name for credit tracking
     let modelName: string;
@@ -81,6 +84,8 @@ export async function POST(req: NextRequest) {
       modelName = 'elevenlabs-tts';
     } else if (provider === 'dia') {
       modelName = 'dia-tts';
+    } else if (provider === 'chatterbox') {
+      modelName = 'chatterbox-tts';
     } else {
       modelName = 'minimax-speech-02-hd';
     }
@@ -202,6 +207,54 @@ export async function POST(req: NextRequest) {
           );
         }
         return new Response(`Dia TTS error: ${message}`, { status: 500 });
+      }
+    }
+
+    if (provider === 'chatterbox') {
+      const token = process.env.REPLICATE_API_TOKEN;
+      if (!token) return new Response('Server misconfigured: missing REPLICATE_API_TOKEN', { status: 500 });
+      const replicate = new Replicate({ auth: token });
+
+      const input: Record<string, unknown> = { prompt: body.text };
+      if (typeof body.audio_prompt === 'string' && body.audio_prompt.trim() !== '') input.audio_prompt = body.audio_prompt;
+      if (typeof body.exaggeration === 'number') input.exaggeration = body.exaggeration;
+      if (typeof body.cfg_weight === 'number') input.cfg_weight = body.cfg_weight;
+      if (typeof body.temperature === 'number') input.temperature = body.temperature;
+      if (typeof body.seed === 'number') input.seed = body.seed;
+
+      const slug = (process.env.REPLICATE_CHATTERBOX_MODEL_SLUG || 'resemble-ai/chatterbox') as `${string}/${string}`;
+      const version = process.env.REPLICATE_CHATTERBOX_MODEL_VERSION; // optional
+      const modelRef: `${string}/${string}` | `${string}/${string}:${string}` = version
+        ? (`${slug}:${version}` as `${string}/${string}:${string}`)
+        : slug;
+
+      try {
+        const output = (await replicate.run(modelRef, { input })) as unknown;
+        let url: string | null = null;
+        if (typeof output === 'string') {
+          url = output;
+        } else if (Array.isArray(output)) {
+          const firstUrl = (output as unknown[]).find((v) => typeof v === 'string') as string | undefined;
+          url = firstUrl || null;
+        } else if (output && typeof output === 'object') {
+          if ('url' in (output as any) && typeof (output as any).url === 'string') {
+            url = (output as any).url as string;
+          } else if ('audio' in (output as any) && typeof (output as any).audio === 'string') {
+            url = (output as any).audio as string;
+          } else if ('output' in (output as any) && typeof (output as any).output === 'string') {
+            url = (output as any).output as string;
+          }
+        }
+        return Response.json({ url, raw: output });
+      } catch (err: any) {
+        const message = typeof err?.message === 'string' ? err.message : 'Unknown error';
+        if (/404/.test(message) || /not found/i.test(message)) {
+          return new Response(
+            'Chatterbox model not found on Replicate. Set REPLICATE_CHATTERBOX_MODEL_SLUG (and optional REPLICATE_CHATTERBOX_MODEL_VERSION) to a valid public model.',
+            { status: 502 }
+          );
+        }
+        return new Response(`Chatterbox TTS error: ${message}`, { status: 500 });
       }
     }
 
