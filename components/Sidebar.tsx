@@ -36,6 +36,12 @@ type NavItem = {
 const navigationItems: NavItem[] = [
   { href: '/', label: 'Home', icon: <Home size={18} /> },
   { 
+    href: '/ad-creative', 
+    label: '+ New Ad Creative', 
+    icon: <Sparkles size={18} />,
+    gradient: 'linear-gradient(90deg, #ff6b6b, #4ecdc4, #45b7d1)'
+  },
+  { 
     href: '/lipsync-new', 
     label: '+ New Lipsync', 
     icon: <Mic size={18} />,

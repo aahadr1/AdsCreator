@@ -248,6 +248,16 @@ export default function Dashboard() {
 
   const features = [
     {
+      title: "Ad Creative Studio",
+      description: "Complete ad creation workflow from concept to final video",
+      href: "/ad-creative",
+      icon: <Sparkles size={24} />,
+      gradient: "linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)",
+      category: "Creative Suite",
+      isPopular: true,
+      badge: "New"
+    },
+    {
       title: "AI Lipsync",
       description: "Perfect lipsync for spokesperson ads and product videos",
       href: "/lipsync-new",
@@ -350,6 +360,14 @@ export default function Dashboard() {
   ];
 
   const quickActions = [
+    {
+      title: "New Ad Creative",
+      subtitle: "Complete campaign flow",
+      href: "/ad-creative",
+      icon: <Sparkles size={20} />,
+      gradient: "linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)",
+      shortcut: "⌘A"
+    },
     {
       title: "New Lipsync",
       subtitle: "Sync audio to video",

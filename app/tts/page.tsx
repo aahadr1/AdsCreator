@@ -3,7 +3,7 @@
 import '../globals.css';
 import { useEffect, useMemo, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import { CreditGuard, CreditCostDisplay, CreditBanner } from '../../components/CreditGuard';
+import { CreditCostDisplay, CreditBanner } from '../../components/CreditGuard';
 import { useCredits } from '../../lib/creditContext';
 
 type TtsResponse = { url?: string | null; raw?: any };
@@ -65,24 +65,9 @@ export default function TtsPage() {
   // Credit system
   const { credits, hasEnoughCredits, formatProgress } = useCredits();
   
-  const providerLabel = useMemo(() => {
-    if (provider === 'dia') return 'Replicate (zsxkib/dia · Dialogue)';
-    if (provider === 'elevenlabs') return 'ElevenLabs (Multilingual V3)';
-    if (provider === 'chatterbox') return 'Replicate (resemble-ai/chatterbox)';
-    return 'Replicate (minimax/speech-02-hd)';
-  }, [provider]);
-
-  // Get model name for credit tracking
-  const modelName = useMemo(() => {
-    if (provider === 'elevenlabs') return 'elevenlabs-tts';
-    if (provider === 'dia') return 'dia-tts';
-    if (provider === 'chatterbox') return 'chatterbox-tts';
-    return 'minimax-speech-02-hd';
-  }, [provider]);
-
   const canGenerate = useMemo(() => {
-    return text.trim() && !isLoading && hasEnoughCredits(modelName);
-  }, [text, isLoading, hasEnoughCredits, modelName]);
+    return Boolean(text.trim()) && !isLoading; // Ignore credit availability for TTS
+  }, [text, isLoading]);
 
   useEffect(() => {
     async function fetchVoices() {
@@ -667,20 +652,16 @@ export default function TtsPage() {
           </label>
         )}
 
-        <CreditGuard
-          modelName={modelName}
-          onInsufficientCredits={() => setError('Insufficient credits. Please upgrade your plan to continue.')}
+        <button 
+          className="btn" 
+          style={{ marginTop: 12 }} 
+          disabled={!canGenerate} 
+          onClick={runTts}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); runTts(); } }}
+          type="button"
         >
-          <button 
-            className="btn" 
-            style={{ marginTop: 12 }} 
-            disabled={!canGenerate} 
-            onClick={runTts}
-            type="button"
-          >
-            {isLoading ? 'Generating…' : 'Generate speech'}
-          </button>
-        </CreditGuard>
+          {isLoading ? 'Generating…' : 'Generate speech'}
+        </button>
       </div>
     </div>
   );

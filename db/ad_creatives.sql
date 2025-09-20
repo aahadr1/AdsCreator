@@ -181,3 +181,5 @@ SELECT
         ELSE 0
     END as broll_count
 FROM ad_creatives ac;
+
+

@@ -33,3 +33,5 @@ for select using (auth.uid() = user_id);
 -- Optional: allow upsert from service role only; keep writes denied to clients
 
 
+
+

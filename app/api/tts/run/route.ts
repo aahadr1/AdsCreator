@@ -90,32 +90,7 @@ export async function POST(req: NextRequest) {
       modelName = 'minimax-speech-02-hd';
     }
 
-    // Check and use credits before processing
-    const creditResponse = await fetch(`${req.nextUrl.origin}/api/credits/use`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        user_id: body.user_id,
-        model_name: modelName,
-        metadata: {
-          provider,
-          text_length: body.text.length,
-          voice_id: body.voice_id,
-        },
-      }),
-    });
-
-    if (!creditResponse.ok) {
-      const errorText = await creditResponse.text();
-      return new Response(`Credit error: ${errorText}`, { status: 402 }); // Payment Required
-    }
-
-    const creditResult = await creditResponse.json();
-    if (!creditResult.success) {
-      return new Response(`Insufficient credits: ${creditResult.error}`, { status: 402 });
-    }
+    // For now, bypass credit checks for TTS: do not call credits API and proceed regardless
 
     if (provider === 'elevenlabs') {
       const elKey = process.env.ELEVENLABS_API_KEY;
