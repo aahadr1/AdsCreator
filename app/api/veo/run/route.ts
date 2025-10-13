@@ -3,7 +3,14 @@ import Replicate from 'replicate';
 
 type VeoInput = {
   prompt: string;
-  model?: 'google/veo-3' | 'google/veo-3-fast' | 'bytedance/seedance-1-pro' | 'bytedance/seedance-1-lite';
+  model?:
+    | 'google/veo-3'
+    | 'google/veo-3-fast'
+    | 'bytedance/seedance-1-pro'
+    | 'bytedance/seedance-1-lite'
+    | 'wan-video/wan-2.2-i2v-fast'
+    | 'openai/sora-2'
+    | 'openai/sora-2-pro';
   image?: string | null;
   negative_prompt?: string | null;
   resolution?: '720p' | '1080p';
@@ -30,6 +37,8 @@ export async function POST(req: NextRequest) {
       'bytedance/seedance-1-pro',
       'bytedance/seedance-1-lite',
       'wan-video/wan-2.2-i2v-fast',
+      'openai/sora-2',
+      'openai/sora-2-pro',
     ]);
     const model = allowedModels.has((body.model as string) || '')
       ? (body.model as string)
