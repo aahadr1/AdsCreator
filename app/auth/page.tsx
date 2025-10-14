@@ -1,13 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
-  { auth: { persistSession: true, autoRefreshToken: true } }
-);
+export const dynamic = 'force-dynamic';
+
 
 export default function AuthPage() {
   const [email, setEmail] = useState('');
