@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getKvConfigFromEnv, kvGet, kvPut, TaskRecord, taskKey } from '@/lib/cloudflareKv';
+import { getKvConfigFromEnv, kvGet, kvPut, TaskRecord, taskKey, taskKeyUser } from '@/lib/cloudflareKv';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +24,9 @@ export async function POST(req: NextRequest) {
     };
 
     await kvPut({ key: taskKey(id), value: updated, config });
+    if (updated.user_id) {
+      await kvPut({ key: taskKeyUser(updated.user_id, id), value: updated, config, metadata: { user_id: updated.user_id } });
+    }
     return Response.json(updated);
   } catch (e: any) {
     return new Response(`Error: ${e.message}`, { status: 500 });

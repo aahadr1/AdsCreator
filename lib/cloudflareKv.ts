@@ -91,4 +91,63 @@ export type TaskRecord = {
 export const taskKey = (id: string) => `tasks:${id}`;
 export const taskListPrefix = 'tasks:';
 
+// New: user-scoped task key prefix to avoid global scans
+export const taskKeyUser = (userId: string, id: string) => `tasks:${userId}:${id}`;
+
+// New: single-page key listing with cursor support (no full scan)
+export async function kvListKeysPage({
+  prefix,
+  config,
+  limit = 50,
+  cursor,
+}: {
+  prefix: string;
+  config: KvConfig;
+  limit?: number;
+  cursor?: string | null;
+}): Promise<{ keys: string[]; cursor: string | null }> {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  if (prefix) params.set('prefix', prefix);
+  if (cursor) params.set('cursor', cursor);
+  const url = `${apiBase(config)}/keys?${params.toString()}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${config.apiToken}` } });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`KV list failed: ${res.status} ${res.statusText} ${text}`);
+  }
+  const json = (await res.json()) as { result: Array<{ name: string }>; result_info?: { cursor?: string | null } };
+  const keys = (json.result || []).map(k => k.name);
+  const next = json.result_info?.cursor || null;
+  return { keys, cursor: next };
+}
+
+// New: fetch many KV values with bounded concurrency
+export async function kvGetMany<T>({
+  keys,
+  config,
+  concurrency = 8,
+}: {
+  keys: string[];
+  config: KvConfig;
+  concurrency?: number;
+}): Promise<Array<T | null>> {
+  const results: Array<T | null> = new Array(keys.length).fill(null);
+  let index = 0;
+  const worker = async () => {
+    while (index < keys.length) {
+      const current = index++;
+      const key = keys[current];
+      try {
+        results[current] = await kvGet<T>({ key, config });
+      } catch {
+        results[current] = null;
+      }
+    }
+  };
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(1, concurrency)) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 

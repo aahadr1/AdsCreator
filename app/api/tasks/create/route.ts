@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getKvConfigFromEnv, kvPut, TaskRecord, taskKey } from '@/lib/cloudflareKv';
+import { getKvConfigFromEnv, kvPut, TaskRecord, taskKey, taskKeyUser } from '@/lib/cloudflareKv';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +32,12 @@ export async function POST(req: NextRequest) {
       updated_at: now,
     };
 
+    // Write legacy key for backward compatibility
     await kvPut({ key: taskKey(id), value: record, config });
+    // Also write user-prefixed key for fast user-scoped listings
+    if (record.user_id) {
+      await kvPut({ key: taskKeyUser(record.user_id, id), value: record, config, metadata: { user_id: record.user_id } });
+    }
     return Response.json(record);
   } catch (e: any) {
     return new Response(`Error: ${e.message}`, { status: 500 });

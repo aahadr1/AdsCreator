@@ -170,19 +170,30 @@ export default function Dashboard() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         setUserEmail(user?.email || '');
+        // Do not block the UI on slow network/API; render immediately after auth check
+        if (user) {
+          setLoading(false);
+        }
         
         if (!user) { 
           setLoading(false); 
           return; 
         }
 
-        // Load user tasks
-        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}`);
-        if (res.ok) {
-          const json = (await res.json()) as { tasks?: Task[] };
-          setTasks(Array.isArray(json.tasks) ? json.tasks : []);
-        } else {
-          setTasks([]);
+        // Load user tasks in the background with a short timeout
+        {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 2500);
+          fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}&limit=50`, { signal: controller.signal })
+            .then(async (res) => {
+              if (!res?.ok) return;
+              const json = (await res.json()) as { tasks?: Task[] };
+              setTasks(Array.isArray(json.tasks) ? json.tasks : []);
+            })
+            .catch(() => {
+              console.warn('Tasks fetch timed out or failed; rendering without tasks');
+            })
+            .finally(() => clearTimeout(timeout));
         }
         
         // Simulate loading recent activity
@@ -193,6 +204,7 @@ export default function Dashboard() {
           { id: 4, type: 'transcription', title: 'Transcription completed', time: '15 minutes ago', status: 'success' },
         ]);
         
+        // loading already false above; keep false in case prior branch missed
         setLoading(false);
       } catch (error) {
         console.error('Dashboard loading error:', error);

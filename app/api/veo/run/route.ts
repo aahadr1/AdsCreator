@@ -9,6 +9,7 @@ type VeoInput = {
     | 'bytedance/seedance-1-pro'
     | 'bytedance/seedance-1-lite'
     | 'wan-video/wan-2.2-i2v-fast'
+    | 'wan-video/wan-2.2-animate-replace'
     | 'openai/sora-2'
     | 'openai/sora-2-pro';
   image?: string | null;
@@ -22,9 +23,7 @@ type VeoInput = {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as (Partial<VeoInput> & { input?: Record<string, any> | null }) | null;
-    if (!body || !body.prompt || typeof body.prompt !== 'string') {
-      return new Response('Missing required field: prompt', { status: 400 });
-    }
+    if (!body) return new Response('Missing body', { status: 400 });
 
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return new Response('Server misconfigured: missing REPLICATE_API_TOKEN', { status: 500 });
@@ -37,6 +36,7 @@ export async function POST(req: NextRequest) {
       'bytedance/seedance-1-pro',
       'bytedance/seedance-1-lite',
       'wan-video/wan-2.2-i2v-fast',
+      'wan-video/wan-2.2-animate-replace',
       'openai/sora-2',
       'openai/sora-2-pro',
     ]);
@@ -51,12 +51,39 @@ export async function POST(req: NextRequest) {
       for (const [k, v] of Object.entries(body.input)) {
         if (v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '')) cleaned[k] = v;
       }
-      // Ensure prompt is included
-      cleaned.prompt = body.prompt;
+      // Include prompt only when provided
+      if (typeof body.prompt === 'string' && body.prompt.trim() !== '') cleaned.prompt = body.prompt;
+      // Server-side validation for wan animate-replace
+      if (model === 'wan-video/wan-2.2-animate-replace') {
+        // Required fields
+        if (typeof cleaned.video !== 'string' || !cleaned.video) {
+          return new Response('Missing required field: video (uri)', { status: 400 });
+        }
+        if (typeof cleaned.character_image !== 'string' || !cleaned.character_image) {
+          return new Response('Missing required field: character_image (uri)', { status: 400 });
+        }
+        // refert_num must be 1 or 5 if provided
+        if (cleaned.refert_num !== undefined) {
+          const rn = Number(cleaned.refert_num);
+          if (!(rn === 1 || rn === 5)) {
+            return new Response('Invalid refert_num: must be 1 or 5', { status: 400 });
+          }
+          cleaned.refert_num = rn;
+        }
+        // Coerce frames_per_second to integer when present
+        if (cleaned.frames_per_second !== undefined) {
+          const fps = parseInt(String(cleaned.frames_per_second), 10);
+          if (!Number.isFinite(fps) || fps <= 0) {
+            return new Response('Invalid frames_per_second', { status: 400 });
+          }
+          cleaned.frames_per_second = fps;
+        }
+      }
       input = cleaned;
     } else {
       // Back-compat: construct minimal input based on known fields
-      const base: Record<string, any> = { prompt: body.prompt };
+      const base: Record<string, any> = {};
+      if (typeof body.prompt === 'string' && body.prompt.trim() !== '') base.prompt = body.prompt;
       if (model.startsWith('google/veo')) {
         base.resolution = body.resolution || '720p';
         if (body.image) base.image = body.image;
@@ -64,6 +91,9 @@ export async function POST(req: NextRequest) {
         if (typeof body.seed === 'number') base.seed = body.seed;
         if (body.start_frame) base.start_image = body.start_frame;
         if (body.end_frame) base.end_image = body.end_frame;
+      } else if (model === 'wan-video/wan-2.2-animate-replace') {
+        // Without explicit input block, this model requires explicit URIs — reject to avoid ambiguous requests
+        return new Response('Missing input for wan-video/wan-2.2-animate-replace', { status: 400 });
       }
       input = base;
     }

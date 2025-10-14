@@ -7,7 +7,7 @@ import { supabaseClient as supabase } from '../../lib/supabaseClient';
 type VeoResponse = { url?: string | null; raw?: any };
 
 export default function VeoPage() {
-  const [model, setModel] = useState<'google/veo-3' | 'google/veo-3-fast' | 'bytedance/seedance-1-pro' | 'bytedance/seedance-1-lite' | 'wan-video/wan-2.2-i2v-fast' | 'openai/sora-2' | 'openai/sora-2-pro'>('google/veo-3-fast');
+  const [model, setModel] = useState<'google/veo-3' | 'google/veo-3-fast' | 'bytedance/seedance-1-pro' | 'bytedance/seedance-1-lite' | 'wan-video/wan-2.2-i2v-fast' | 'wan-video/wan-2.2-animate-replace' | 'openai/sora-2' | 'openai/sora-2-pro'>('google/veo-3-fast');
   const [prompt, setPrompt] = useState('A cinematic drone flyover of futuristic cityscapes at sunset.');
   const [imageUrl, setImageUrl] = useState('');
   const [negativePrompt, setNegativePrompt] = useState('');
@@ -124,6 +124,27 @@ export default function VeoPage() {
         if (startFrameUrl) dynamicInput.start_frame = startFrameUrl;
         if (endFrameUrl) dynamicInput.end_frame = endFrameUrl;
       }
+      // Client-side validation for Wan Animate Replace
+      if (model === 'wan-video/wan-2.2-animate-replace') {
+        const v = dynamicInput.video;
+        const ci = dynamicInput.character_image;
+        if (!v || typeof v !== 'string' || !ci || typeof ci !== 'string') {
+          throw new Error('Please provide both video and character_image files.');
+        }
+        if (dynamicInput.refert_num !== undefined) {
+          const rn = Number(dynamicInput.refert_num);
+          if (!(rn === 1 || rn === 5)) {
+            throw new Error('refert_num must be 1 or 5.');
+          }
+        }
+        if (dynamicInput.frames_per_second !== undefined) {
+          const fps = parseInt(String(dynamicInput.frames_per_second), 10);
+          if (!Number.isFinite(fps) || fps <= 0) {
+            throw new Error('frames_per_second must be a positive integer.');
+          }
+        }
+      }
+
       // Coerce types based on loaded schema to avoid string values for numbers/integers
       if (inputSchema?.properties && typeof inputSchema.properties === 'object') {
         for (const [key, prop] of Object.entries<any>(inputSchema.properties)) {
@@ -205,6 +226,9 @@ export default function VeoPage() {
     }
   }
 
+  const isAnimateReplace = model === 'wan-video/wan-2.2-animate-replace';
+  const animateMissingRequired = isAnimateReplace && (!inputValues.video || !inputValues.character_image);
+
   return (
     <div className="container">
       <div className="panel output">
@@ -255,13 +279,14 @@ export default function VeoPage() {
               <option value="bytedance/seedance-1-pro">ByteDance Seedance 1 Pro</option>
               <option value="bytedance/seedance-1-lite">ByteDance Seedance 1 Lite</option>
               <option value="wan-video/wan-2.2-i2v-fast">Pruna WAN 2.2 i2v Fast (Image-to-Video)</option>
+              <option value="wan-video/wan-2.2-animate-replace">Wan 2.2 Animate Replace (Character Replacement)</option>
             </select>
           </div>
         </div>
 
         <div className="options">
           <div style={{gridColumn: 'span 2'}}>
-            <div className="small">Video Prompt</div>
+            <div className="small">Video Prompt{model === 'wan-video/wan-2.2-animate-replace' ? ' (optional)' : ''}</div>
             <textarea
               className="input"
               value={prompt}
@@ -446,7 +471,7 @@ export default function VeoPage() {
                 <div style={{fontWeight:700, marginBottom:6}}>Reference media</div>
                 {uriFields.map((fieldKey) => (
                   <div key={fieldKey}>
-                    <div className="small">{fieldKey}</div>
+                    <div className="small">{fieldKey}{Array.isArray(inputSchema?.required) && inputSchema.required.includes(fieldKey) ? ' *' : ''}</div>
                     <div
                       className={`dnd`}
                       onDragOver={(e)=>{e.preventDefault();}}
@@ -465,7 +490,7 @@ export default function VeoPage() {
                       onClick={()=>{
                         const input = document.createElement('input');
                         input.type = 'file';
-                        input.accept = 'image/*,video/*';
+                        input.accept = fieldKey === 'video' ? 'video/*' : (fieldKey === 'character_image' ? 'image/*' : 'image/*,video/*');
                         input.onchange = async ()=>{
                           const f = (input.files?.[0]) || null;
                           if (f) {
@@ -482,7 +507,7 @@ export default function VeoPage() {
                     >
                       <div className="dnd-icon">📎</div>
                       <div className="dnd-title">{fieldKey}</div>
-                      <div className="dnd-subtitle">Image/Video • Auto-configured</div>
+                      <div className="dnd-subtitle">{fieldKey === 'video' ? 'Video' : (fieldKey === 'character_image' ? 'Image' : 'Image/Video')} • {Array.isArray(inputSchema?.required) && inputSchema.required.includes(fieldKey) ? 'Required' : 'Optional'}</div>
                       {inputValues[fieldKey] && (
                         <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
                           {String(inputValues[fieldKey]).match(/\.(mp4|mov|webm)(\?|$)/i) ? (
@@ -616,7 +641,7 @@ export default function VeoPage() {
           </div>
         )}
 
-        <button className="btn" style={{ marginTop: 12 }} disabled={!prompt.trim() || isLoading} onClick={runVeo}>
+        <button className="btn" style={{ marginTop: 12 }} disabled={isLoading || (model !== 'wan-video/wan-2.2-animate-replace' && !prompt.trim()) || animateMissingRequired} onClick={runVeo}>
           {isLoading ? 'Generating…' : 'Generate video'}
         </button>
       </div>
