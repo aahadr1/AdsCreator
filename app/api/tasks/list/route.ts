@@ -1,10 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getKvConfigFromEnv, kvGet, kvGetMany, kvListKeysPage, TaskRecord, taskListPrefix } from '@/lib/cloudflareKv';
 
-export const runtime = 'nodejs';
-
 export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   try {
