@@ -122,6 +122,35 @@ export async function kvListKeysPage({
   return { keys, cursor: next };
 }
 
+// List a page of keys and include metadata (if present). Useful for pre-filtering by user_id.
+export async function kvListKeysPageMeta({
+  prefix,
+  config,
+  limit = 50,
+  cursor,
+}: {
+  prefix: string;
+  config: KvConfig;
+  limit?: number;
+  cursor?: string | null;
+}): Promise<{ items: Array<{ name: string; metadata?: Record<string, unknown> | null }>; cursor: string | null }> {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  if (prefix) params.set('prefix', prefix);
+  if (cursor) params.set('cursor', cursor);
+  params.set('include', 'metadata');
+  const url = `${apiBase(config)}/keys?${params.toString()}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${config.apiToken}` } });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`KV list failed: ${res.status} ${res.statusText} ${text}`);
+  }
+  const json = (await res.json()) as { result: Array<{ name: string; metadata?: Record<string, unknown> | null }>; result_info?: { cursor?: string | null } };
+  const items = json.result || [];
+  const next = json.result_info?.cursor || null;
+  return { items, cursor: next };
+}
+
 // New: fetch many KV values with bounded concurrency
 export async function kvGetMany<T>({
   keys,

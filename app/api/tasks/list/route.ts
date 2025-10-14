@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getKvConfigFromEnv, kvGet, kvGetMany, kvListKeysPage, TaskRecord, taskListPrefix } from '@/lib/cloudflareKv';
+import { getKvConfigFromEnv, kvGet, kvGetMany, kvListKeysPage, kvListKeysPageMeta, TaskRecord, taskListPrefix } from '@/lib/cloudflareKv';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +33,15 @@ export async function GET(req: NextRequest) {
         if (keys.length) {
           const values = await kvGetMany<TaskRecord>({ keys, config, concurrency: 10 });
           tasks = values.filter(Boolean) as TaskRecord[];
+        }
+        // Fallback: if no user-prefixed keys found, scan a small global window and prefilter by metadata
+        if (tasks.length === 0) {
+          const { items } = await kvListKeysPageMeta({ prefix: taskListPrefix, config, limit: Math.min(limit, 100), cursor });
+          const matched = items.filter(it => (it.metadata as any)?.user_id === userId).map(it => it.name).slice(0, limit);
+          if (matched.length) {
+            const values = await kvGetMany<TaskRecord>({ keys: matched, config, concurrency: 10 });
+            tasks = values.filter(Boolean) as TaskRecord[];
+          }
         }
       } else {
         // Legacy fallback: scan a small window of global tasks with strict cap
