@@ -82,9 +82,9 @@ export async function prefetchUserData(userId: string): Promise<CachedData | nul
   const cached = await dataCache.get(userId);
   if (cached) return cached;
   
-  // Fetch fresh data
+  // Fetch fresh data from the new Supabase-based endpoint
   try {
-    const response = await fetch(`/api/user/prefetch?user_id=${encodeURIComponent(userId)}`, {
+    const response = await fetch(`/api/user/data?user_id=${encodeURIComponent(userId)}`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(5000)
     });
