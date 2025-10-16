@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseClient as supabase } from '../lib/supabaseClient';
+import { prefetchUserData } from '../lib/dataCache';
 import { 
   Activity, 
   Zap, 
@@ -156,9 +157,10 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>(initialTasks || []);
   const [userEmail, setUserEmail] = useState<string>(initialUserEmail || '');
-  const [hydrating, setHydrating] = useState<boolean>(false);
-  const [dataLoaded, setDataLoaded] = useState<boolean>(Array.isArray(initialTasks) && initialTasks.length > 0);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [dataReady, setDataReady] = useState<boolean>(false);
+  const loadStarted = useRef(false);
+  
   const [recentActivity] = useState<any[]>([
     { id: 1, type: 'lipsync', title: 'Video synced successfully', time: '2 minutes ago', status: 'success' },
     { id: 2, type: 'tts', title: 'Voice generated', time: '5 minutes ago', status: 'success' },
@@ -168,61 +170,50 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
 
   const isAuthenticated = Boolean(userEmail);
 
-  // Load tasks with fast retries and block dashboard until loaded
+  // Fast data loading with caching
   useEffect(() => {
-    let mounted = true;
+    if (loadStarted.current) return;
+    loadStarted.current = true;
 
-    const fetchTasksWithRetry = async (userId: string) => {
-      const attempts = [0, 400, 800, 1600];
-      for (let i = 0; i < attempts.length; i++) {
-        if (!mounted) return false;
-        if (attempts[i] > 0) await new Promise(r => setTimeout(r, attempts[i]));
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 3000);
-          const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=50`, { signal: controller.signal, cache: 'no-store' });
-          clearTimeout(timeout);
-          if (!res.ok) continue;
-          const json = (await res.json()) as { tasks?: Task[] };
-          const next = Array.isArray(json.tasks) ? json.tasks : [];
-          if (!mounted) return false;
-          setTasks(next);
-          setDataLoaded(true);
-          setLoadError(null);
-          return true;
-        } catch {
-          // retry
-        }
+    const loadData = async () => {
+      // If we have initial data from SSR, we're ready
+      if (initialUserEmail && initialTasks.length > 0) {
+        setDataReady(true);
+        return;
       }
-      return false;
-    };
 
-    const hydrate = async () => {
+      setLoading(true);
+      
       try {
-        // If we already have data from SSR, nothing to do
-        if (dataLoaded && userEmail) return;
-        setHydrating(true);
+        // Get authenticated user
         const { data: { user } } = await supabase.auth.getUser();
-        if (!mounted) return;
         if (!user) {
-          setHydrating(false);
-          setDataLoaded(false);
+          setLoading(false);
           return;
         }
-        if (!userEmail) setUserEmail(user.email || '');
-        if (!dataLoaded) {
-          const ok = await fetchTasksWithRetry(user.id);
-          if (!mounted) return;
-          if (!ok) setLoadError('Failed to load your data. Please try again.');
+
+        // Use the new fast prefetch endpoint with caching
+        const cachedData = await prefetchUserData(user.id);
+        
+        if (cachedData) {
+          setUserEmail(cachedData.user?.email || user.email || '');
+          setTasks(cachedData.tasks || []);
+          setDataReady(true);
+        } else {
+          // Fallback to basic data
+          setUserEmail(user.email || '');
+          setDataReady(true);
         }
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error);
+        setDataReady(true); // Show dashboard anyway
       } finally {
-        if (mounted) setHydrating(false);
+        setLoading(false);
       }
     };
 
-    void hydrate();
-    return () => { mounted = false; };
-  }, [userEmail, dataLoaded]);
+    loadData();
+  }, [initialUserEmail, initialTasks]);
 
   const goToAuth = () => {
     router.push('/auth');
@@ -405,7 +396,8 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
     }
   ];
 
-  if (hydrating || (isAuthenticated && !dataLoaded && !loadError)) {
+  // Show loading only on initial load
+  if (loading && !dataReady) {
     return (
       <div className="dashboard-loading">
         <div className="loading-spinner"></div>
@@ -713,7 +705,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
                 </details>
                 <details className="faq-item">
                   <summary>How fast is the processing?</summary>
-                  <p>Most videos process in under 2 minutes. Pro users get priority processing that’s 3x faster than Basic plans.</p>
+                  <p>Most videos process in under 2 minutes. Pro users get priority processing that&rsquo;s 3x faster than Basic plans.</p>
                 </details>
                 <details className="faq-item">
                   <summary>Can I cancel anytime?</summary>
@@ -729,7 +721,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
                 </details>
                 <details className="faq-item">
                   <summary>Do you offer refunds?</summary>
-                  <p>We offer a 30-day money-back guarantee. If you’re not satisfied, contact support for a full refund.</p>
+                  <p>We offer a 30-day money-back guarantee. If you&rsquo;re not satisfied, contact support for a full refund.</p>
                 </details>
               </div>
             </div>
@@ -740,7 +732,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
             <div className="container">
               <div className="cta-content">
                 <h2>Ready to transform your content creation?</h2>
-                <p>Join thousands of marketers who’ve already made the switch</p>
+                <p>Join thousands of marketers who&rsquo;ve already made the switch</p>
                 <a href="/auth" className="btn btn-primary btn-large">
                   <span>Start Creating Today</span>
                   <ArrowRight size={20} />
@@ -768,25 +760,6 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
             </div>
           </div>
         </footer>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="tasks-error">
-        <h3>Failed to load your workspace</h3>
-        <p>{loadError}</p>
-        <button
-          className="btn"
-          onClick={() => {
-            setLoadError(null);
-            setHydrating(true);
-            setDataLoaded(false);
-          }}
-        >
-          Try Again
-        </button>
       </div>
     );
   }
@@ -1056,5 +1029,3 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
     </div>
   );
 }
-
-
