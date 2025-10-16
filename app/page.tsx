@@ -1,5 +1,3 @@
-import './globals.css';
-import './landing.css';
 import DashboardClient from '../components/DashboardClient';
 import { getTasksFast } from '../lib/dashboardData';
 import { cookies as nextCookies } from 'next/headers';
