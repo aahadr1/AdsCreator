@@ -11,8 +11,8 @@ export default async function DashboardPage() {
 
   try {
     const supabase = createServerComponentClient({ cookies: nextCookies });
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
       userEmail = user.email || '';
       userId = user.id;
     }

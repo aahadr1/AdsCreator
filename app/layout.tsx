@@ -1,4 +1,5 @@
 import './globals.css'
+import './landing.css'
 import { LayoutWrapper } from '../components/LayoutWrapper';
 import { AuthGate } from '../components/AuthGate';
 import { SubscriptionGate } from '../components/SubscriptionGate';

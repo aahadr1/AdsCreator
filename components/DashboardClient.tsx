@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseClient as supabase } from '../lib/supabaseClient';
 import { 
@@ -156,6 +156,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>(initialTasks || []);
   const [userEmail, setUserEmail] = useState<string>(initialUserEmail || '');
+  const [hydrating, setHydrating] = useState<boolean>(false);
   const [recentActivity] = useState<any[]>([
     { id: 1, type: 'lipsync', title: 'Video synced successfully', time: '2 minutes ago', status: 'success' },
     { id: 2, type: 'tts', title: 'Voice generated', time: '5 minutes ago', status: 'success' },
@@ -164,6 +165,40 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
   ]);
 
   const isAuthenticated = Boolean(userEmail);
+
+  // Client-side auth fallback: if SSR didn't get the user, hydrate on mount
+  useEffect(() => {
+    let mounted = true;
+    const hydrateFromClient = async () => {
+      if (userEmail) return; // already have user
+      try {
+        setHydrating(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!mounted) return;
+        if (user) {
+          setUserEmail(user.email || '');
+          if (!tasks || tasks.length === 0) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 2500);
+            try {
+              const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}&limit=50`, { signal: controller.signal });
+              if (res.ok) {
+                const json = (await res.json()) as { tasks?: Task[] };
+                setTasks(Array.isArray(json.tasks) ? json.tasks : []);
+              }
+            } catch {}
+            finally {
+              clearTimeout(timeout);
+            }
+          }
+        }
+      } finally {
+        if (mounted) setHydrating(false);
+      }
+    };
+    void hydrateFromClient();
+    return () => { mounted = false; };
+  }, [userEmail, tasks]);
 
   const goToAuth = () => {
     router.push('/auth');
@@ -345,6 +380,15 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       shortcut: "⌘B"
     }
   ];
+
+  if (hydrating) {
+    return (
+      <div className="dashboard-loading">
+        <div className="loading-spinner"></div>
+        <p>Loading your creative workspace...</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
