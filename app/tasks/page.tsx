@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
+import { type SerializedTask } from '../../lib/tasksData';
 import { 
   Activity, 
   Clock, 
@@ -26,25 +27,7 @@ import {
 
 type TaskStatus = 'finished' | 'completed' | 'succeeded' | 'running' | 'processing' | 'queued' | 'error' | 'failed' | 'cancelled' | 'unknown';
 
-type Task = {
-  id: string;
-  status: string;
-  created_at: string;
-  backend?: string;
-  model_id?: string;
-  provider?: string;
-  video_url?: string;
-  audio_url?: string;
-  output_url?: string;
-  output_text?: string;
-  text_input?: string;
-  type?: string;
-  options_json?: {
-    model?: string;
-    backend?: string;
-    input_image?: string;
-  };
-};
+type Task = SerializedTask;
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -55,20 +38,34 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all');
   const [refreshing, setRefreshing] = useState(false);
 
+  const getBackendLabel = (task: Task): string => {
+    const candidates: Array<unknown> = [task.backend, task.model_id, task.provider];
+
+    const opts = task.options_json;
+    if (opts && typeof opts === 'object') {
+      const model = (opts as Record<string, unknown>).model;
+      const backend = (opts as Record<string, unknown>).backend;
+      candidates.push(model, backend);
+    }
+
+    const label = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+    return typeof label === 'string' ? String(label) : 'Unknown';
+  };
+
   const loadTasks = async () => {
-      try {
+    try {
       setRefreshing(true);
-        const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) { 
         setLoading(false);
         return; 
       }
-        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}`);
-        if (!res.ok) {
-          const txt = await res.text().catch(() => '');
-          setError(txt || 'Failed to load tasks');
-          return;
-        }
+      const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}`);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        setError(txt || 'Failed to load tasks');
+        return;
+      }
         const json = (await res.json()) as { tasks?: Task[] };
         setTasks(Array.isArray(json.tasks) ? json.tasks : []);
       setError(null);
@@ -309,9 +306,7 @@ export default function TasksPage() {
                     </div>
                     <div className="task-card-meta">
                       <span className="task-backend">
-                        {task.backend || task.model_id || 
-                         (task.options_json && (task.options_json.model || task.options_json.backend)) || 
-                         task.provider || 'Unknown'}
+                        {getBackendLabel(task)}
                       </span>
                       <span className="task-date">
                         <Calendar size={12} />

@@ -83,6 +83,7 @@ export type TaskRecord = {
   image_url?: string | null;
   text_input?: string | null;
   output_url?: string | null;
+  output_text?: string | null;
   job_id?: string | null;
   created_at: string; // ISO
   updated_at: string; // ISO

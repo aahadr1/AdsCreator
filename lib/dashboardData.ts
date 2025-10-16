@@ -1,4 +1,5 @@
 import { getKvConfigFromEnv, kvGetMany, kvListKeysPage, kvListKeysPageMeta, taskListPrefix, type TaskRecord } from './cloudflareKv';
+import { fetchSupabaseTaskRecords, mergeTaskRecords, serializeTaskRecord } from './tasksData';
 
 export type DashboardTask = {
   id: string;
@@ -8,6 +9,7 @@ export type DashboardTask = {
   video_url: string | null;
   audio_url: string | null;
   output_url: string | null;
+  output_text?: string | null;
   user_id?: string | null;
 };
 
@@ -23,14 +25,29 @@ export async function getTasksFast(userId: string, opts: GetTasksOptions = {}): 
   if (!userId) return [];
 
   const config = getKvConfigFromEnv();
+  const kvTasks = await getKvTasksForUser({ userId, limit, concurrency, config });
+  const supabaseTasks = await fetchSupabaseTaskRecords(userId, limit);
+  const merged = mergeTaskRecords(kvTasks, supabaseTasks, limit);
+
+  // Map to slim shape for dashboard usage
+  const slim: DashboardTask[] = merged.map((t) => serializeTaskRecord(t));
+
+  return slim;
+}
+
+type KvTaskOptions = {
+  userId: string;
+  limit: number;
+  concurrency: number;
+  config: ReturnType<typeof getKvConfigFromEnv>;
+};
+
+async function getKvTasksForUser({ userId, limit, concurrency, config }: KvTaskOptions): Promise<TaskRecord[]> {
   if (!config.accountId || !config.namespaceId || !config.apiToken) {
-    // Missing KV config; return empty swiftly
     return [];
   }
 
   const userPrefix = `${taskListPrefix}${userId}:`;
-
-  // First try: list a single page of user-prefixed keys (fast path)
   const { keys, cursor } = await kvListKeysPage({ prefix: userPrefix, config, limit });
   let tasks: TaskRecord[] = [];
 
@@ -39,7 +56,6 @@ export async function getTasksFast(userId: string, opts: GetTasksOptions = {}): 
     tasks = values.filter(Boolean) as TaskRecord[];
   }
 
-  // Fallback: scan a small global window with metadata prefilter if none found
   if (tasks.length === 0) {
     const { items } = await kvListKeysPageMeta({ prefix: taskListPrefix, config, limit: Math.min(limit, 100), cursor });
     const matched = items
@@ -53,20 +69,8 @@ export async function getTasksFast(userId: string, opts: GetTasksOptions = {}): 
   }
 
   tasks.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-
-  // Map to slim shape for dashboard usage
-  const slim: DashboardTask[] = tasks.map((t) => ({
-    id: t.id,
-    status: t.status,
-    created_at: t.created_at,
-    backend: t.backend ?? null,
-    video_url: t.video_url ?? null,
-    audio_url: t.audio_url ?? null,
-    output_url: t.output_url ?? null,
-    user_id: t.user_id ?? null,
-  }));
-
-  return slim;
+  return tasks;
 }
+
 
 

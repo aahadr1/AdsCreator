@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServer } from '../../../../lib/supabaseServer';
-import { getKvConfigFromEnv, kvListKeysPage, kvGetMany, taskListPrefix, type TaskRecord } from '../../../../lib/cloudflareKv';
+import { getKvConfigFromEnv, kvListKeysPage, kvGetMany, kvListKeysPageMeta, taskListPrefix, type TaskRecord } from '../../../../lib/cloudflareKv';
+import { fetchSupabaseTaskRecords, mergeTaskRecords, serializeTaskRecord } from '../../../../lib/tasksData';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -46,7 +47,9 @@ async function fetchTasksFast(userId: string): Promise<any[]> {
   try {
     const userPrefix = `${taskListPrefix}${userId}:`;
     const { keys } = await kvListKeysPage({ prefix: userPrefix, config, limit: 100 });
-    
+
+    let kvTasks: TaskRecord[] = [];
+
     if (keys.length === 0) {
       // Fallback: scan with metadata filter
       const { items } = await kvListKeysPageMeta({ prefix: taskListPrefix, config, limit: 100 });
@@ -54,30 +57,21 @@ async function fetchTasksFast(userId: string): Promise<any[]> {
         .filter(it => (it.metadata as any)?.user_id === userId)
         .map(it => it.name)
         .slice(0, 50);
-      if (matched.length === 0) return [];
-      
-      const values = await kvGetMany<TaskRecord>({ keys: matched, config, concurrency: 20 });
-      return values.filter(Boolean).map(formatTask);
+      if (matched.length) {
+        const values = await kvGetMany<TaskRecord>({ keys: matched, config, concurrency: 20 });
+        kvTasks = values.filter(Boolean) as TaskRecord[];
+      }
+    } else {
+      const values = await kvGetMany<TaskRecord>({ keys: keys.slice(0, 50), config, concurrency: 20 });
+      kvTasks = values.filter(Boolean) as TaskRecord[];
     }
-    
-    // Fast path with high concurrency
-    const values = await kvGetMany<TaskRecord>({ keys: keys.slice(0, 50), config, concurrency: 20 });
-    return values.filter(Boolean).map(formatTask);
+
+    const supabaseTasks = await fetchSupabaseTaskRecords(userId, 100);
+    const merged = mergeTaskRecords(kvTasks, supabaseTasks, 100);
+    return merged.map(serializeTaskRecord);
   } catch {
     return [];
   }
-}
-
-function formatTask(t: TaskRecord) {
-  return {
-    id: t.id,
-    status: t.status,
-    created_at: t.created_at,
-    backend: t.backend || null,
-    video_url: t.video_url || null,
-    audio_url: t.audio_url || null,
-    output_url: t.output_url || null,
-  };
 }
 
 async function fetchUserData(userId: string) {

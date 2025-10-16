@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getKvConfigFromEnv, kvGet, kvGetMany, kvListKeysPage, kvListKeysPageMeta, TaskRecord, taskListPrefix } from '@/lib/cloudflareKv';
+import { fetchSupabaseTaskRecords, mergeTaskRecords, serializeTaskRecord } from '@/lib/tasksData';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,8 +63,10 @@ export async function GET(req: NextRequest) {
       clearTimeout(timeout);
     }
 
-    tasks.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-    const body = JSON.stringify({ tasks, cursor: nextCursor });
+    const supabaseTasks = await fetchSupabaseTaskRecords(userId, limit);
+    const merged = mergeTaskRecords(tasks, supabaseTasks, limit);
+    const serialized = merged.map(serializeTaskRecord);
+    const body = JSON.stringify({ tasks: serialized, cursor: nextCursor });
     const duration = String(Date.now() - started);
     return new Response(body, {
       headers: { 'content-type': 'application/json', 'x-response-duration-ms': duration },

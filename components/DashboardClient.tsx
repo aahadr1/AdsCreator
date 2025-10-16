@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseClient as supabase } from '../lib/supabaseClient';
 import { prefetchUserData } from '../lib/dataCache';
-import { 
-  Activity, 
-  Zap, 
-  TrendingUp, 
-  CheckCircle, 
+import {
+  Activity,
+  Zap,
+  TrendingUp,
+  CheckCircle,
   XCircle,
   Play,
   Clock,
@@ -41,6 +41,7 @@ import {
   ArrowRight,
   LogIn,
   LogOut,
+  Copy,
 } from 'lucide-react';
 
 export type Task = {
@@ -48,9 +49,14 @@ export type Task = {
   status: string;
   created_at: string;
   backend: string | null;
+  model_id?: string | null;
+  provider?: string | null;
   video_url: string | null;
   audio_url: string | null;
   output_url: string | null;
+  output_text?: string | null;
+  text_input?: string | null;
+  type?: string | null;
   user_id?: string | null;
 };
 
@@ -169,6 +175,26 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
   ]);
 
   const isAuthenticated = Boolean(userEmail);
+
+  const copyTextOutput = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.focus({ preventScroll: true });
+      textArea.select();
+      try {
+        document.execCommand('copy');
+      } catch {
+        // ignore
+      }
+      document.body.removeChild(textArea);
+    }
+  }, []);
 
   // Fast data loading with caching
   useEffect(() => {
@@ -966,11 +992,20 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
                         </div>
                       </div>
                       <div className="task-actions">
-                        {task.output_url && (
+                        {task.output_url ? (
                           <a href={task.output_url} target="_blank" rel="noreferrer" className="task-action">
                             <Eye size={14} />
                           </a>
-                        )}
+                        ) : task.output_text ? (
+                          <button
+                            type="button"
+                            className="task-action"
+                            onClick={() => copyTextOutput(task.output_text ?? '')}
+                            title="Copy text output"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   ))}

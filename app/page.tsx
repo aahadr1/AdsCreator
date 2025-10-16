@@ -24,13 +24,16 @@ export default async function DashboardPage() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(50);
-        
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout')), 1500)
-        );
-        
-        const result = await Promise.race([tasksPromise, timeoutPromise]);
-        if ('data' in result && result.data) {
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const timer = setTimeout(() => {
+            clearTimeout(timer);
+            reject(new Error('Timeout'));
+          }, 1500);
+        });
+
+        const result = await Promise.race([tasksPromise, timeoutPromise]) as { data?: any[] };
+        if (Array.isArray(result?.data)) {
           tasks = result.data.map(t => ({
             id: t.id,
             status: t.status || 'unknown',

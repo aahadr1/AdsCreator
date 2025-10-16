@@ -10,6 +10,7 @@ interface CachedData {
   tasks: any[];
   user: any;
   credits: any;
+  subscription?: any;
   timestamp: number;
 }
 
@@ -84,10 +85,13 @@ export async function prefetchUserData(userId: string): Promise<CachedData | nul
   
   // Fetch fresh data from the new Supabase-based endpoint
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(`/api/user/data?user_id=${encodeURIComponent(userId)}`, {
       cache: 'no-store',
-      signal: AbortSignal.timeout(5000)
+      signal: controller.signal
     });
+    clearTimeout(timer);
     
     if (!response.ok) return null;
     

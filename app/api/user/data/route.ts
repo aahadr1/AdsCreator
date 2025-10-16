@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
       video_url: t.video_url || null,
       audio_url: t.audio_url || null,
       output_url: t.output_url || null,
+      output_text: t.output_text || null,
       type: t.type || null,
       text_input: t.text_input || null,
     })) || [];
