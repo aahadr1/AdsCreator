@@ -157,6 +157,8 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
   const [tasks, setTasks] = useState<Task[]>(initialTasks || []);
   const [userEmail, setUserEmail] = useState<string>(initialUserEmail || '');
   const [hydrating, setHydrating] = useState<boolean>(false);
+  const [dataLoaded, setDataLoaded] = useState<boolean>(Array.isArray(initialTasks) && initialTasks.length > 0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [recentActivity] = useState<any[]>([
     { id: 1, type: 'lipsync', title: 'Video synced successfully', time: '2 minutes ago', status: 'success' },
     { id: 2, type: 'tts', title: 'Voice generated', time: '5 minutes ago', status: 'success' },
@@ -166,46 +168,61 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
 
   const isAuthenticated = Boolean(userEmail);
 
-  // Client-side auth fallback: if SSR didn't get the user, hydrate on mount
+  // Load tasks with fast retries and block dashboard until loaded
   useEffect(() => {
     let mounted = true;
-    const hydrateFromClient = async () => {
-      if (userEmail) return; // already have user
+
+    const fetchTasksWithRetry = async (userId: string) => {
+      const attempts = [0, 400, 800, 1600];
+      for (let i = 0; i < attempts.length; i++) {
+        if (!mounted) return false;
+        if (attempts[i] > 0) await new Promise(r => setTimeout(r, attempts[i]));
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3000);
+          const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=50`, { signal: controller.signal, cache: 'no-store' });
+          clearTimeout(timeout);
+          if (!res.ok) continue;
+          const json = (await res.json()) as { tasks?: Task[] };
+          const next = Array.isArray(json.tasks) ? json.tasks : [];
+          if (!mounted) return false;
+          setTasks(next);
+          setDataLoaded(true);
+          setLoadError(null);
+          return true;
+        } catch {
+          // retry
+        }
+      }
+      return false;
+    };
+
+    const hydrate = async () => {
       try {
+        // If we already have data from SSR, nothing to do
+        if (dataLoaded && userEmail) return;
         setHydrating(true);
         const { data: { user } } = await supabase.auth.getUser();
         if (!mounted) return;
-        if (user) {
-          setUserEmail(user.email || '');
-          if (!tasks || tasks.length === 0) {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 1500);
-            try {
-              const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}&limit=50`, { signal: controller.signal });
-              if (res.ok) {
-                const json = (await res.json()) as { tasks?: Task[] };
-                setTasks(Array.isArray(json.tasks) ? json.tasks : []);
-              }
-            } catch {}
-            finally {
-              clearTimeout(timeout);
-            }
-          }
+        if (!user) {
+          setHydrating(false);
+          setDataLoaded(false);
+          return;
+        }
+        if (!userEmail) setUserEmail(user.email || '');
+        if (!dataLoaded) {
+          const ok = await fetchTasksWithRetry(user.id);
+          if (!mounted) return;
+          if (!ok) setLoadError('Failed to load your data. Please try again.');
         }
       } finally {
         if (mounted) setHydrating(false);
       }
     };
-    void hydrateFromClient();
-    return () => { mounted = false; };
-  }, [userEmail, tasks]);
 
-  // Safety valve: if hydration takes too long, stop showing the spinner
-  useEffect(() => {
-    if (!hydrating) return;
-    const t = setTimeout(() => setHydrating(false), 2000);
-    return () => clearTimeout(t);
-  }, [hydrating]);
+    void hydrate();
+    return () => { mounted = false; };
+  }, [userEmail, dataLoaded]);
 
   const goToAuth = () => {
     router.push('/auth');
@@ -388,7 +405,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
     }
   ];
 
-  if (hydrating) {
+  if (hydrating || (isAuthenticated && !dataLoaded && !loadError)) {
     return (
       <div className="dashboard-loading">
         <div className="loading-spinner"></div>
@@ -751,6 +768,25 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
             </div>
           </div>
         </footer>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="tasks-error">
+        <h3>Failed to load your workspace</h3>
+        <p>{loadError}</p>
+        <button
+          className="btn"
+          onClick={() => {
+            setLoadError(null);
+            setHydrating(true);
+            setDataLoaded(false);
+          }}
+        >
+          Try Again
+        </button>
       </div>
     );
   }
