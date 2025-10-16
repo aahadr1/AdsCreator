@@ -23,8 +23,10 @@ export default async function DashboardPage() {
   let tasks = [] as ClientTask[];
   if (userId) {
     try {
-      const t = await getTasksFast(userId, { limit: 50, concurrency: 12 });
-      tasks = t as unknown as ClientTask[];
+      const tasksPromise = getTasksFast(userId, { limit: 50, concurrency: 12 });
+      const timeoutPromise = new Promise<ClientTask[]>((resolve) => setTimeout(() => resolve([]), 1200));
+      const t = await Promise.race([tasksPromise, timeoutPromise]);
+      tasks = (t as unknown as ClientTask[]) || [];
     } catch {
       tasks = [];
     }

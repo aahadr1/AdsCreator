@@ -49,7 +49,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [pathname, router]);
 
   // Optionally render nothing until auth check completes on protected routes
-  if (!isChecked && !PUBLIC_PATHS.has(pathname)) return null;
+  if (!isChecked && !PUBLIC_PATHS.has(pathname)) {
+    return (
+      <div className="dashboard-loading">
+        <div className="loading-spinner"></div>
+        <p>Loading your creative workspace...</p>
+      </div>
+    );
+  }
 
   return <>{children}</>;
 }

@@ -179,7 +179,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
           setUserEmail(user.email || '');
           if (!tasks || tasks.length === 0) {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 2500);
+            const timeout = setTimeout(() => controller.abort(), 1500);
             try {
               const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}&limit=50`, { signal: controller.signal });
               if (res.ok) {
@@ -199,6 +199,13 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
     void hydrateFromClient();
     return () => { mounted = false; };
   }, [userEmail, tasks]);
+
+  // Safety valve: if hydration takes too long, stop showing the spinner
+  useEffect(() => {
+    if (!hydrating) return;
+    const t = setTimeout(() => setHydrating(false), 2000);
+    return () => clearTimeout(t);
+  }, [hydrating]);
 
   const goToAuth = () => {
     router.push('/auth');
