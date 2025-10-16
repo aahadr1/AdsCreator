@@ -4,10 +4,10 @@ export type DashboardTask = {
   id: string;
   status: string;
   created_at: string;
-  backend?: string | null;
-  video_url?: string | null;
-  audio_url?: string | null;
-  output_url?: string | null;
+  backend: string | null;
+  video_url: string | null;
+  audio_url: string | null;
+  output_url: string | null;
   user_id?: string | null;
 };
 
