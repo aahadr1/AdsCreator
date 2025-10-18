@@ -1,3 +1,13 @@
+## App icons / favicon
+
+Place your app icons in the `app/` directory so Next.js will automatically serve them:
+
+- `app/icon.png` — primary app icon (used for favicon and PWA). Recommended square PNG, at least 512x512.
+- `app/apple-icon.png` — Apple touch icon (180x180).
+- `public/favicon.ico` (optional) — multi-size ICO for legacy browsers.
+
+This project is configured in `app/layout.tsx` to advertise these icons to all browsers.
+
 ## Environment variables
 
 Set the following in your environment (e.g., `.env.local` for Next.js):
