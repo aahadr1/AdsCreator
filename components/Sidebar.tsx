@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { usePathname } from 'next/navigation';
-import { 
+import {
   Home,
   Mic,
   FileText,
@@ -28,7 +28,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ReactNode;
-  gradient?: string;
+  accent?: boolean;
   disabled?: boolean;
 };
 
@@ -38,85 +38,81 @@ const navigationItems: NavItem[] = [
     href: '/lipsync-new', 
     label: '+ New Lipsync', 
     icon: <Mic size={18} />,
-    gradient: 'linear-gradient(90deg, #6aa4ff, #ff9f43)'
+    accent: true
   },
   { 
     href: '/transcription/bulk', 
     label: '+ Bulk Transcription', 
     icon: <FileText size={18} />,
-    gradient: 'linear-gradient(90deg, #ff9f43, #6aa4ff)'
+    accent: true
   },
   { 
     href: '/veo', 
     label: '+ New Video', 
     icon: <Video size={18} />,
-    gradient: 'linear-gradient(90deg, #a36bff, #6aa4ff)'
+    accent: true
   },
   { 
     href: '/image', 
     label: '+ New Image', 
     icon: <Image size={18} />,
-    gradient: 'linear-gradient(90deg, #42d392, #a36bff)'
+    accent: true
   },
   { 
     href: '/enhance', 
     label: '+ New Enhance', 
     icon: <Sparkles size={18} />,
-    gradient: 'linear-gradient(90deg, #ffbd2e, #42d392)'
+    accent: true
   },
   { 
     href: '/tts', 
     label: '+ New Text to Speech', 
     icon: <Music size={18} />,
-    gradient: 'linear-gradient(90deg, #ffbd2e, #ff6b6b)'
+    accent: true
   },
   { 
     href: '/adscript', 
     label: '+ New Ad Script', 
     icon: <PenTool size={18} />,
-    gradient: 'linear-gradient(90deg, #6aa4ff, #ff9f43)'
+    accent: true
   },
   { 
     href: '/background-remove', 
     label: '+ Remove Background', 
     icon: <Scissors size={18} />,
-    gradient: 'linear-gradient(90deg, #42d392, #ff6b6b)'
+    accent: true
   },
   { 
     href: '/download', 
     label: '+ TikTok Downloader', 
     icon: <Download size={18} />,
-    gradient: 'linear-gradient(90deg, #1db954, #2b8a3e)'
+    accent: true
   },
   { 
     href: '/spy', 
     label: 'Spy Tool', 
-    icon: <Search size={18} />,
-    gradient: 'linear-gradient(90deg, #6aa4ff, #42d392)'
+    icon: <Search size={18} />
   },
   { 
     href: '/editor', 
     label: 'Editor', 
-    icon: <Monitor size={18} />,
-    gradient: 'linear-gradient(90deg, #42d392, #a36bff)'
+    icon: <Monitor size={18} />
   },
   { 
     href: '/auto-edit', 
     label: '+ Auto Edit (New)', 
     icon: <Cpu size={18} />,
-    gradient: 'linear-gradient(90deg, #1db954, #a36bff)'
+    accent: true
   },
   { 
     href: '/auto-edit-beta', 
     label: '+ Auto Edit Beta', 
-    icon: <Cpu size={18} />,
-    gradient: 'linear-gradient(90deg, #6aa4ff, #a36bff)'
+    icon: <Cpu size={18} />
   },
   { 
     href: '/library', 
     label: 'Database', 
-    icon: <Database size={18} />,
-    gradient: 'linear-gradient(90deg, #1db954, #6aa4ff)'
+    icon: <Database size={18} />
   },
   { href: '/tasks', label: 'Tasks', icon: <Activity size={18} /> },
   { href: '/credits', label: 'Credits', icon: <Zap size={18} /> },
@@ -131,25 +127,35 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h1 className="sidebar-title">AdzCreator</h1>
+        <div className="sidebar-logo" title="AdzCreator">
+          <div className="sidebar-logo-mark">AC</div>
+          <div className="sidebar-logo-text">
+            <span>AdzCreator</span>
+            <span className="sidebar-logo-tagline">Minimal Lab</span>
+          </div>
+        </div>
+        <div className="sidebar-signal">
+          <span className="sidebar-signal-dot" />
+          <span>Live</span>
+        </div>
       </div>
       
       <nav className="sidebar-nav">
         {navigationItems.map((item) => {
           const isActive = pathname === item.href;
-          const isGradientButton = !!item.gradient;
+          const isAccent = item.accent;
           
           return (
             <a
               key={item.href}
               href={item.href}
-              className={`nav-item ${isActive ? 'nav-item-active' : ''} ${
-                isGradientButton ? 'nav-item-gradient' : ''
-              } ${item.disabled ? 'nav-item-disabled' : ''}`}
-              style={isGradientButton ? { background: item.gradient } : undefined}
+              className={`nav-item ${isActive ? 'nav-item-active' : ''} ${isAccent ? 'nav-item-accent' : ''} ${
+                item.disabled ? 'nav-item-disabled' : ''
+              }`}
               onClick={item.disabled ? (e) => e.preventDefault() : undefined}
               title={item.label}
             >
+              <span className="nav-item-indicator" aria-hidden />
               <span className="nav-item-icon">{item.icon}</span>
               <span className="nav-item-label">{item.label}</span>
             </a>
@@ -162,6 +168,7 @@ export function Sidebar() {
       </div>
       
       <div className="sidebar-footer">
+        <div className="sidebar-watermark">AdzCreator</div>
         <div className="sidebar-copyright">
           © {new Date().getFullYear()} AdzCreator
         </div>

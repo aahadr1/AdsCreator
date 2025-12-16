@@ -99,7 +99,7 @@ export default function BillingPage() {
   const isCurrentPlan = (plan: string) => currentPlan === plan;
 
   return (
-    <div className="billing-page">
+    <div className="billing-page fade-in">
       <div className="billing-container">
         {/* Header */}
         <header className="billing-header">
@@ -343,5 +343,4 @@ export default function BillingPage() {
     </div>
   );
 }
-
 

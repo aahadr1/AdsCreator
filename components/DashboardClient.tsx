@@ -137,6 +137,9 @@ type QuickActionProps = {
   shortcut?: string;
 };
 
+const MINIMAL_GRADIENT = 'linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.85))';
+const ACCENT_GRADIENT = 'linear-gradient(135deg, rgba(204, 255, 0, 0.18), rgba(10, 10, 10, 0.96))';
+
 const QuickAction = ({ title, subtitle, href, icon, gradient, shortcut }: QuickActionProps) => (
   <a 
     href={href} 
@@ -290,7 +293,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Perfect lipsync for spokesperson ads and product videos",
       href: "/lipsync-new",
       icon: <Mic size={24} />,
-      gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      gradient: ACCENT_GRADIENT,
       category: "Core Feature",
       isPopular: true
     },
@@ -299,7 +302,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Create advertising videos from text prompts with AI",
       href: "/veo",
       icon: <Video size={24} />,
-      gradient: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "AI Generation"
     },
     {
@@ -307,7 +310,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Generate stunning images with AI",
       href: "/image",
       icon: <Image size={24} />,
-      gradient: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "AI Generation"
     },
     {
@@ -315,7 +318,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Convert scripts to natural voiceovers for ads",
       href: "/tts",
       icon: <Music size={24} />,
-      gradient: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Audio",
       badge: "Enhanced"
     },
@@ -324,7 +327,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Improve video quality with AI upscaling",
       href: "/enhance",
       icon: <Sparkles size={24} />,
-      gradient: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Enhancement"
     },
     {
@@ -332,7 +335,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Remove backgrounds from videos and images",
       href: "/background-remove",
       icon: <Scissors size={24} />,
-      gradient: "linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Enhancement"
     },
     {
@@ -340,7 +343,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Transcribe multiple videos automatically",
       href: "/transcription/bulk",
       icon: <FileText size={24} />,
-      gradient: "linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Productivity"
     },
     {
@@ -348,7 +351,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Download TikTok videos for processing",
       href: "/download",
       icon: <Download size={24} />,
-      gradient: "linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Utility"
     },
     {
@@ -356,7 +359,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Research competitor content and trends",
       href: "/spy",
       icon: <Search size={24} />,
-      gradient: "linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Research",
       badge: "Pro"
     },
@@ -365,7 +368,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Professional video editing suite",
       href: "/editor",
       icon: <Monitor size={24} />,
-      gradient: "linear-gradient(135deg, #fdbb2d 0%, #22c1c3 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Editing"
     },
     {
@@ -373,7 +376,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Automatic video editing with AI",
       href: "/auto-edit-beta",
       icon: <Cpu size={24} />,
-      gradient: "linear-gradient(135deg, #e0c3fc 0%, #9bb5ff 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "AI Editing",
       badge: "Beta"
     },
@@ -382,7 +385,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       description: "Manage and organize your content",
       href: "/library",
       icon: <Database size={24} />,
-      gradient: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
+      gradient: MINIMAL_GRADIENT,
       category: "Organization"
     }
   ];
@@ -393,7 +396,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       subtitle: "Sync audio to video",
       href: "/lipsync-new",
       icon: <Zap size={20} />,
-      gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      gradient: ACCENT_GRADIENT,
       shortcut: "⌘L"
     },
     {
@@ -401,7 +404,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       subtitle: "Create from text",
       href: "/veo",
       icon: <Video size={20} />,
-      gradient: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+      gradient: MINIMAL_GRADIENT,
       shortcut: "⌘V"
     },
     {
@@ -409,7 +412,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       subtitle: "Monitor progress",
       href: "/tasks",
       icon: <Activity size={20} />,
-      gradient: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+      gradient: MINIMAL_GRADIENT,
       shortcut: "⌘T"
     },
     {
@@ -417,7 +420,7 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       subtitle: "Browse assets",
       href: "/library",
       icon: <Database size={20} />,
-      gradient: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
+      gradient: MINIMAL_GRADIENT,
       shortcut: "⌘B"
     }
   ];
@@ -791,11 +794,15 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
   }
 
   return (
-    <div className="dashboard">
+    <div className="dashboard dashboard-minimal fade-in">
       {/* Header */}
       <header className="dashboard-header">
         <div className="dashboard-header-content">
           <div className="dashboard-header-main">
+            <div className="dashboard-branding">
+              <div className="dashboard-logo-mark">AC</div>
+              <span className="dashboard-brand-label">AdzCreator Studio</span>
+            </div>
             <h1 className="dashboard-title">
               <span className="desktop-only">Welcome back{userEmail ? `, ${userEmail.split('@')[0]}` : ''}</span>
               <span className="mobile-only">Welcome{userEmail ? `, ${userEmail.split('@')[0]}` : ''}</span>

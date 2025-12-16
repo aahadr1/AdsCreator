@@ -62,7 +62,7 @@ export function CreditManagement() {
 
   if (creditsLoading) {
     return (
-      <div className="credit-management loading">
+      <div className="credit-management loading fade-in">
         <div className="loading-spinner"></div>
         <p>Loading credit information...</p>
       </div>
@@ -71,7 +71,7 @@ export function CreditManagement() {
 
   if (!credits) {
     return (
-      <div className="credit-management error">
+      <div className="credit-management error fade-in">
         <AlertTriangle size={48} />
         <h3>Failed to load credits</h3>
         <p>Please refresh the page and try again.</p>
@@ -88,7 +88,7 @@ export function CreditManagement() {
   );
 
   return (
-    <div className="credit-management">
+    <div className="credit-management fade-in">
       <div className="credit-management-header">
         <h1>
           <Zap size={28} />

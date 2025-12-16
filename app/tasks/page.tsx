@@ -188,7 +188,7 @@ export default function TasksPage() {
   }
 
   return (
-    <div className="tasks-page">
+    <div className="tasks-page fade-in">
       {/* Header */}
       <div className="tasks-header">
         <div className="tasks-header-main">

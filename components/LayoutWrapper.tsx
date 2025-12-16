@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Sidebar } from './Sidebar';
 
@@ -11,6 +11,22 @@ type LayoutWrapperProps = {
 export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const pathname = usePathname();
   const isDashboard = pathname === '/';
+  const routeSlug = React.useMemo(() => {
+    if (!pathname) return 'page';
+    if (pathname === '/') return 'dashboard';
+    const slug = pathname.replace(/^\/+/, '').replace(/\/+/g, '-').replace(/[^a-z0-9-]/gi, '-');
+    return slug || 'page';
+  }, [pathname]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.dataset.page = routeSlug;
+    return () => {
+      if (document.body.dataset.page === routeSlug) {
+        delete document.body.dataset.page;
+      }
+    };
+  }, [routeSlug]);
 
   if (isDashboard) {
     return <>{children}</>;
