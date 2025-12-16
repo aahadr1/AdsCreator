@@ -54,6 +54,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const isDashboard = pathname === '/';
   const [commandOpen, setCommandOpen] = useState(false);
   const [searchValue, setSearchValue] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { credits } = useCredits();
   const pageMeta = useMemo(() => getPageMeta(pathname), [pathname]);
   const commandList = useMemo(() => commandCatalog, []);
@@ -90,19 +91,10 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
     <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} commands={commandList} />
   );
 
-  if (isDashboard) {
-    return (
-      <>
-        {children}
-        {palette}
-      </>
-    );
-  }
-
   return (
-    <div className="app-layout workspace-shell">
+    <div className={`workspace-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar />
-      <main className="app-main workspace-main">
+      <main className="workspace-main">
         <header className="workspace-header">
           <div className="workspace-title-block">
             <p className="workspace-eyebrow">{pageMeta.category}</p>
@@ -110,6 +102,13 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
             <p className="workspace-description">{pageMeta.description}</p>
           </div>
           <div className="workspace-tools">
+            <button
+              type="button"
+              className="workspace-toggle-btn"
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {sidebarCollapsed ? 'Show Menu' : 'Hide Menu'}
+            </button>
             <div className="workspace-search">
               <input
                 type="search"
@@ -140,7 +139,11 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
           </div>
         </header>
         <div className="workspace-content">
-          <div className="page-shell">{children}</div>
+          {isDashboard ? (
+            <div className="page-shell dashboard-shell">{children}</div>
+          ) : (
+            <div className="page-shell">{children}</div>
+          )}
         </div>
       </main>
       {palette}

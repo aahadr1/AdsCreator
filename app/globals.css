@@ -1608,6 +1608,17 @@ input[type="range"]::-moz-range-thumb:hover {
   min-height: 100vh;
 }
 
+.workspace-shell.sidebar-collapsed {
+  grid-template-columns: 0 1fr;
+}
+
+.workspace-shell.sidebar-collapsed .sidebar {
+  opacity: 0;
+  pointer-events: none;
+  border-right: none;
+  padding: 0;
+}
+
 .workspace-main {
   display: flex;
   flex-direction: column;
@@ -1656,6 +1667,16 @@ input[type="range"]::-moz-range-thumb:hover {
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
+}
+
+.workspace-toggle-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
 }
 
 .workspace-search {
@@ -1729,6 +1750,10 @@ input[type="range"]::-moz-range-thumb:hover {
 
 .page-shell {
   width: 100%;
+}
+
+.dashboard-shell {
+  padding: 0;
 }
 
 /* Mobile-First Responsive Design */
