@@ -244,8 +244,24 @@ export default function LipsyncNewPage() {
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   return (
-    <div className="container">
-      <div className="panel output">
+    <div className="page-template generator fade-in">
+      <header className="page-hero">
+        <div>
+          <p className="page-eyebrow">Generator Workflow</p>
+          <h1>AI Lipsync Studio</h1>
+          <p className="page-description">
+            Upload a spokesperson clip, swap the dialogue, and publish cohesive assets for every channel.
+          </p>
+        </div>
+        <div className="page-hero-actions">
+          <a href="/tasks" className="hero-link">View recent tasks</a>
+          <a href="/credits" className="hero-link">Credit status</a>
+        </div>
+      </header>
+      <div className="page-grid">
+        <div className="page-main">
+          <div className="generator-workspace">
+            <div className="panel output">
         <div className="header">
           <div style={{display:'flex', alignItems:'center', gap:8}}>
             <h2 style={{margin:0}}>Output</h2>
@@ -421,8 +437,34 @@ export default function LipsyncNewPage() {
           Generate
         </button>
       </div>
+          </div>
+        </div>
+        <aside className="page-side-panel">
+          <div className="side-panel-card">
+            <h3>Workflow</h3>
+            <ol>
+              <li>Upload video with a stable, front-facing shot.</li>
+              <li>Provide replacement audio or text-to-speech.</li>
+              <li>Pick a model and tune parameters as needed.</li>
+              <li>Generate, review, and publish from Tasks.</li>
+            </ol>
+          </div>
+          <div className="side-panel-card">
+            <h3>Best Practices</h3>
+            <ul>
+              <li>Use 2–10s clips for faster iteration.</li>
+              <li>Ensure the subject&rsquo;s mouth is well lit.</li>
+              <li>Enable quality checks for premium spots.</li>
+              <li>Track every submission inside the Task Center.</li>
+            </ul>
+          </div>
+          <div className="side-panel-card">
+            <h3>Need help?</h3>
+            <p>Chat with our studio team or browse the playbook for ready-made scripts.</p>
+            <a href="/support" className="hero-link">Open support portal</a>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
-
-

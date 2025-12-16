@@ -261,19 +261,19 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
 
   const metrics = useMemo(() => {
     const total = tasks.length;
-    const finished = tasks.filter(t => 
-      (t.status || '').toLowerCase().includes('finished') || 
-      (t.status || '').toLowerCase().includes('completed') || 
+    const finished = tasks.filter(t =>
+      (t.status || '').toLowerCase().includes('finished') ||
+      (t.status || '').toLowerCase().includes('completed') ||
       (t.status || '').toLowerCase().includes('succeeded')
     ).length;
-    const running = tasks.filter(t => 
-      (t.status || '').toLowerCase().includes('running') || 
-      (t.status || '').toLowerCase().includes('processing') || 
+    const running = tasks.filter(t =>
+      (t.status || '').toLowerCase().includes('running') ||
+      (t.status || '').toLowerCase().includes('processing') ||
       (t.status || '').toLowerCase().includes('queued')
     ).length;
-    const failed = tasks.filter(t => 
-      (t.status || '').toLowerCase().includes('error') || 
-      (t.status || '').toLowerCase().includes('failed') || 
+    const failed = tasks.filter(t =>
+      (t.status || '').toLowerCase().includes('error') ||
+      (t.status || '').toLowerCase().includes('failed') ||
       (t.status || '').toLowerCase().includes('cancel')
     ).length;
 
@@ -286,6 +286,34 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
 
     return { total, finished, running, failed, successRate, todaysTasks };
   }, [tasks]);
+
+  const heroSummary = useMemo(() => ([
+    { label: 'Tasks Today', value: metrics.todaysTasks, helper: 'Launched in last 24h' },
+    { label: 'In Progress', value: metrics.running, helper: 'Currently processing' },
+    { label: 'Completed', value: metrics.finished, helper: 'Delivered successfully' },
+    { label: 'Success Rate', value: `${metrics.successRate}%`, helper: 'This month' },
+  ]), [metrics]);
+
+  const insightCards = useMemo(() => ([
+    {
+      title: 'Pipeline Health',
+      detail: metrics.running > metrics.failed ? 'Stable' : 'Investigate failures',
+      tone: metrics.running > metrics.failed ? 'good' : 'warn',
+      helper: `${metrics.running} running, ${metrics.failed} blocked`
+    },
+    {
+      title: 'Focus Recommendation',
+      detail: metrics.running > 0 ? 'Review active jobs' : 'Start a new campaign',
+      tone: metrics.running > 0 ? 'info' : 'accent',
+      helper: metrics.running > 0 ? 'Ensure your assets are ready' : 'No jobs in queue'
+    },
+    {
+      title: 'Next Best Action',
+      detail: metrics.todaysTasks > 2 ? 'Share outputs with team' : 'Launch a new experiment',
+      tone: metrics.todaysTasks > 2 ? 'good' : 'accent',
+      helper: metrics.todaysTasks > 2 ? 'Momentum is high' : 'Keep pipeline full'
+    },
+  ]), [metrics]);
 
   const features = [
     {
@@ -851,6 +879,33 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
 
       {/* Main Content */}
       <main className="dashboard-main">
+        <section className="dashboard-section dashboard-spotlight">
+          <div className="dashboard-welcome-card">
+            <div className="dashboard-welcome-text">
+              <p className="dashboard-hero-eyebrow">Workflow Status</p>
+              <h2>Run the next viral experiment{userEmail ? `, ${userEmail.split('@')[0]}` : ''}</h2>
+              <p>Spin up new productions, monitor pipelines, and keep credits in view without leaving this screen.</p>
+              <div className="dashboard-hero-actions">
+                <a href="/lipsync-new" className="btn inline" title="Start a new lipsync project">
+                  Launch Lipsync
+                </a>
+                <a href="/veo" className="btn inline" title="Create an AI video">
+                  Generate Video
+                </a>
+              </div>
+            </div>
+          </div>
+          <div className="dashboard-highlight-grid">
+            {heroSummary.map((summary) => (
+              <div key={summary.label} className="dashboard-highlight">
+                <div className="dashboard-highlight-label">{summary.label}</div>
+                <div className="dashboard-highlight-value">{summary.value}</div>
+                <div className="dashboard-highlight-helper">{summary.helper}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Metrics Grid */}
         <section className="dashboard-section">
           <div className="section-header">
@@ -893,19 +948,58 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
           </div>
         </section>
 
-        {/* Quick Actions */}
-        <section className="dashboard-section">
-          <div className="section-header">
-            <h2 className="section-title">
-              <Zap size={24} />
-              Quick Actions
-            </h2>
+        <section className="dashboard-section dashboard-workflow-grid">
+          <div className="workflow-column">
+            <div className="section-header">
+              <h2 className="section-title">
+                <Zap size={24} />
+                Start Creating
+              </h2>
+              <p className="section-description">Spin up new jobs in a single click.</p>
+            </div>
+            <div className="quick-actions-grid">
+              {quickActions.map((action, index) => (
+                <QuickAction key={action.href + index} {...action} />
+              ))}
+            </div>
           </div>
-          <div className="quick-actions-grid">
-            {quickActions.map((action, index) => (
-              <QuickAction key={index} {...action} />
+          <div className="workflow-column">
+            <div className="section-header">
+              <h2 className="section-title">
+                <Activity size={24} />
+                Activity Timeline
+              </h2>
+              <p className="section-description">Live view of your recent automations.</p>
+            </div>
+            <div className="activity-timeline">
+              {recentActivity.map((activity) => (
+                <div key={activity.id} className={`timeline-item ${activity.status}`}>
+                  <div className="timeline-marker" />
+                  <div className="timeline-content">
+                    <div className="timeline-title">{activity.title}</div>
+                    <div className="timeline-meta">{activity.time}</div>
+                  </div>
+                </div>
+              ))}
+              <a href="/tasks" className="activity-view-all">
+                View all activity
+                <ChevronRight size={16} />
+              </a>
+            </div>
+          </div>
+          <aside className="dashboard-insights">
+            {insightCards.map((insight) => (
+              <div key={insight.title} className={`insight-card ${insight.tone}`}>
+                <div className="insight-header">
+                  <h3>{insight.title}</h3>
+                </div>
+                <div className="insight-content">
+                  <div className="insight-value">{insight.detail}</div>
+                  <div className="insight-description">{insight.helper}</div>
+                </div>
+              </div>
             ))}
-          </div>
+          </aside>
         </section>
 
         {/* Features Grid */}
@@ -926,105 +1020,75 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
           </div>
         </section>
 
-        {/* Recent Activity & Tasks */}
-        <div className="dashboard-row">
-          {/* Recent Activity */}
-          <section className="dashboard-section dashboard-section-half">
-            <div className="section-header">
-              <h2 className="section-title">
-                <Activity size={24} />
-                Recent Activity
-              </h2>
-            </div>
-            <div className="activity-list">
-              {recentActivity.map((activity) => (
-                <div key={activity.id} className="activity-item">
-                  <div className="activity-icon success">
-                    <CheckCircle size={16} />
-                  </div>
-                  <div className="activity-content">
-                    <div className="activity-title">{activity.title}</div>
-                    <div className="activity-time">{activity.time}</div>
-                  </div>
-                </div>
-              ))}
-              <a href="/tasks" className="activity-view-all">
-                View all activity
-                <ChevronRight size={16} />
-              </a>
-            </div>
-          </section>
-
-          {/* Recent Tasks */}
-          <section className="dashboard-section dashboard-section-half">
-            <div className="section-header">
-              <h2 className="section-title">
-                <FileText size={24} />
-                Recent Tasks
-              </h2>
-            </div>
-            <div className="tasks-list">
-              {tasks.length === 0 ? (
-                <div className="empty-state">
-                  <Lightbulb size={48} />
-                  <h3>No tasks yet</h3>
-                  <p>Start creating your first project above</p>
-                </div>
-              ) : (
-                <>
-                  {tasks.slice(0, 5).map((task) => (
-                    <div key={task.id} className="task-item">
-                      <div className={`task-status ${task.status?.toLowerCase()}`}>
-                        {task.status?.toLowerCase().includes('finished') || 
-                         task.status?.toLowerCase().includes('completed') || 
-                         task.status?.toLowerCase().includes('succeeded') ? (
-                          <CheckCircle size={16} />
-                        ) : task.status?.toLowerCase().includes('running') || 
-                             task.status?.toLowerCase().includes('processing') ? (
-                          <Clock size={16} />
-                        ) : task.status?.toLowerCase().includes('error') || 
-                             task.status?.toLowerCase().includes('failed') ? (
-                          <XCircle size={16} />
-                        ) : (
-                          <Activity size={16} />
-                        )}
-                      </div>
-                      <div className="task-content">
-                        <div className="task-title">Task {task.id.slice(0, 8)}...</div>
-                        <div className="task-meta">
-                          <span className="task-backend">{task.backend || 'Unknown'}</span>
-                          <span className="task-time">
-                            {new Date(task.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="task-actions">
-                        {task.output_url ? (
-                          <a href={task.output_url} target="_blank" rel="noreferrer" className="task-action">
-                            <Eye size={14} />
-                          </a>
-                        ) : task.output_text ? (
-                          <button
-                            type="button"
-                            className="task-action"
-                            onClick={() => copyTextOutput(task.output_text ?? '')}
-                            title="Copy text output"
-                          >
-                            <Copy size={14} />
-                          </button>
-                        ) : null}
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2 className="section-title">
+              <FileText size={24} />
+              Active Tasks
+            </h2>
+            <p className="section-description">Monitor the most recent jobs across all tools.</p>
+          </div>
+          <div className="tasks-list">
+            {tasks.length === 0 ? (
+              <div className="empty-state">
+                <Lightbulb size={48} />
+                <h3>No tasks yet</h3>
+                <p>Start creating your first project above</p>
+              </div>
+            ) : (
+              <>
+                {tasks.slice(0, 6).map((task) => (
+                  <div key={task.id} className="task-item">
+                    <div className={`task-status ${task.status?.toLowerCase()}`}>
+                      {task.status?.toLowerCase().includes('finished') ||
+                       task.status?.toLowerCase().includes('completed') ||
+                       task.status?.toLowerCase().includes('succeeded') ? (
+                        <CheckCircle size={16} />
+                      ) : task.status?.toLowerCase().includes('running') ||
+                           task.status?.toLowerCase().includes('processing') ? (
+                        <Clock size={16} />
+                      ) : task.status?.toLowerCase().includes('error') ||
+                           task.status?.toLowerCase().includes('failed') ? (
+                        <XCircle size={16} />
+                      ) : (
+                        <Activity size={16} />
+                      )}
+                    </div>
+                    <div className="task-content">
+                      <div className="task-title">Task {task.id.slice(0, 8)}...</div>
+                      <div className="task-meta">
+                        <span className="task-backend">{task.backend || 'Unknown'}</span>
+                        <span className="task-time">
+                          {new Date(task.created_at).toLocaleDateString()}
+                        </span>
                       </div>
                     </div>
-                  ))}
-                  <a href="/tasks" className="tasks-view-all">
-                    View all tasks
-                    <ChevronRight size={16} />
-                  </a>
-                </>
-              )}
-            </div>
-          </section>
-        </div>
+                    <div className="task-actions">
+                      {task.output_url ? (
+                        <a href={task.output_url} target="_blank" rel="noreferrer" className="task-action">
+                          <Eye size={14} />
+                        </a>
+                      ) : task.output_text ? (
+                        <button
+                          type="button"
+                          className="task-action"
+                          onClick={() => copyTextOutput(task.output_text ?? '')}
+                          title="Copy text output"
+                        >
+                          <Copy size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+                <a href="/tasks" className="tasks-view-all">
+                  View all tasks
+                  <ChevronRight size={16} />
+                </a>
+              </>
+            )}
+          </div>
+        </section>
 
         {/* Performance Insights */}
         <section className="dashboard-section">

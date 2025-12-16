@@ -87,8 +87,24 @@ export default function BillingPage() {
   };
 
   if (loading) {
-    return (
-      <div className="billing-page">
+  return (
+    <div className="page-template account fade-in">
+      <header className="page-hero">
+        <div>
+          <p className="page-eyebrow">Account</p>
+          <h1>Plans & Billing</h1>
+          <p className="page-description">Review your current plan, change tiers, and stay ahead of your credit usage.</p>
+        </div>
+        <div className="page-hero-actions">
+          <button className="btn inline" type="button" onClick={handlePortal} disabled={busy === 'portal'}>
+            {busy === 'portal' ? 'Loading...' : 'Manage subscription'}
+          </button>
+          <a href="/credits" className="hero-link">Credit Center</a>
+        </div>
+      </header>
+      <div className="page-grid">
+        <div className="page-main">
+          <div className="billing-page">
         <div className="loading-spinner" />
         <p>Loading billing information...</p>
       </div>
@@ -339,8 +355,21 @@ export default function BillingPage() {
             </div>
           </div>
         </section>
+          </div>
+        </div>
+        <aside className="page-side-panel">
+          <div className="side-panel-card">
+            <h3>Current Plan</h3>
+            <p>{currentPlan}</p>
+            <p>Status: {info?.status || 'Active'}</p>
+          </div>
+          <div className="side-panel-card">
+            <h3>Renewal</h3>
+            <p>Stripe Customer: {info?.stripe_customer_id || '—'}</p>
+            <p>Renews: {info?.current_period_end ? new Date(info.current_period_end).toLocaleDateString() : '—'}</p>
+          </div>
+        </aside>
       </div>
     </div>
   );
 }
-
