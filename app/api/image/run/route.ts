@@ -27,7 +27,7 @@ type FluxKontextInput = {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as (Partial<FluxKontextInput> & { model?: string; image_input?: string[]; output_format?: 'jpg' | 'png' }) | null;
+    const body = (await req.json()) as (Partial<FluxKontextInput> & { model?: string; image_input?: string[]; output_format?: 'jpg' | 'png'; aspect_ratio?: string; resolution?: string; safety_filter_level?: string }) | null;
     if (!body || !body.prompt || typeof body.prompt !== 'string') {
       return new Response('Missing required field: prompt', { status: 400 });
     }
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     const allowedModels = new Set([
       'black-forest-labs/flux-kontext-max',
       'google/nano-banana',
+      'google/nano-banana-pro',
       'black-forest-labs/flux-krea-dev',
     ]);
     const model = allowedModels.has(String(body.model || ''))
@@ -64,6 +65,23 @@ export async function POST(req: NextRequest) {
       };
       if (Array.isArray(body.image_input) && body.image_input.length > 0) {
         input.image_input = body.image_input;
+      }
+    } else if (model === 'google/nano-banana-pro') {
+      input = {
+        prompt: body.prompt,
+        output_format: body.output_format || 'png',
+      };
+      if (Array.isArray(body.image_input) && body.image_input.length > 0) {
+        input.image_input = body.image_input;
+      }
+      if (typeof (body as any).aspect_ratio === 'string') {
+        input.aspect_ratio = (body as any).aspect_ratio;
+      }
+      if (typeof (body as any).resolution === 'string') {
+        input.resolution = (body as any).resolution;
+      }
+      if (typeof (body as any).safety_filter_level === 'string') {
+        input.safety_filter_level = (body as any).safety_filter_level;
       }
     } else if (model === 'black-forest-labs/flux-krea-dev') {
       input = {

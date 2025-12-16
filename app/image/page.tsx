@@ -7,7 +7,7 @@ import { supabaseClient as supabase } from '../../lib/supabaseClient';
 type ImageResponse = { url?: string | null; raw?: any };
 
 export default function ImagePage() {
-  const [model, setModel] = useState<'black-forest-labs/flux-kontext-max' | 'google/nano-banana' | 'black-forest-labs/flux-krea-dev' | 'stability-ai/stable-diffusion-3' | 'bytedance/hyper-sd'>('black-forest-labs/flux-kontext-max');
+  const [model, setModel] = useState<'black-forest-labs/flux-kontext-max' | 'google/nano-banana' | 'google/nano-banana-pro' | 'black-forest-labs/flux-krea-dev' | 'stability-ai/stable-diffusion-3' | 'bytedance/hyper-sd'>('black-forest-labs/flux-kontext-max');
   const [prompt, setPrompt] = useState('A stunning digital artwork of a futuristic cityscape at sunset, with neon lights reflecting on wet streets');
   const [negativePrompt, setNegativePrompt] = useState('blurry, low quality, distorted, ugly');
   const [aspectRatio, setAspectRatio] = useState('match_input_image');
@@ -15,6 +15,8 @@ export default function ImagePage() {
   const [seed, setSeed] = useState<string>('');
   const [safetyTolerance, setSafetyTolerance] = useState<number>(2);
   const [promptUpsampling, setPromptUpsampling] = useState(false);
+  const [resolution, setResolution] = useState<string>('2K');
+  const [safetyFilterLevel, setSafetyFilterLevel] = useState<string>('block_only_high');
   
   // Advanced parameters
   const [guidance, setGuidance] = useState<number>(7.5);
@@ -78,6 +80,14 @@ export default function ImagePage() {
         Object.assign(options, {
           image_input: inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined),
           output_format: outputFormat,
+        });
+      } else if (model === 'google/nano-banana-pro') {
+        Object.assign(options, {
+          image_input: inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined),
+          aspect_ratio: aspectRatio,
+          resolution: resolution,
+          output_format: outputFormat,
+          safety_filter_level: safetyFilterLevel,
         });
       } else if (model === 'black-forest-labs/flux-krea-dev') {
         Object.assign(options, {
@@ -145,6 +155,11 @@ export default function ImagePage() {
             base.prompt_upsampling = promptUpsampling;
           } else if (model === 'google/nano-banana') {
             base.image_input = inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined);
+          } else if (model === 'google/nano-banana-pro') {
+            base.image_input = inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined);
+            base.aspect_ratio = aspectRatio;
+            base.resolution = resolution;
+            base.safety_filter_level = safetyFilterLevel;
           } else if (model === 'black-forest-labs/flux-krea-dev') {
             // Prefer using input_image to align with server mapping, server also accepts image
             base.input_image = inputImageUrl || undefined;
@@ -234,6 +249,7 @@ export default function ImagePage() {
               <option value="black-forest-labs/flux-kontext-max">FLUX Kontext Max (Best Quality)</option>
               <option value="black-forest-labs/flux-krea-dev">FLUX Krea Dev (Fast)</option>
               <option value="google/nano-banana">Google Nano Banana</option>
+              <option value="google/nano-banana-pro">Google Nano Banana Pro 🍌🍌</option>
               <option value="stability-ai/stable-diffusion-3">Stable Diffusion 3</option>
               <option value="bytedance/hyper-sd">ByteDance Hyper-SD</option>
             </select>
@@ -277,7 +293,7 @@ export default function ImagePage() {
               if (!files.length) return;
               try {
                 const urls = await Promise.all(files.map(f=>uploadImage(f)));
-                if (model === 'google/nano-banana') setInputImageUrls(prev => [...prev, ...urls]);
+                if (model === 'google/nano-banana' || model === 'google/nano-banana-pro') setInputImageUrls(prev => [...prev, ...urls]);
                 else setInputImageUrl(urls[0]);
               } catch (err: any) {
                 setError(err?.message || 'Upload failed');
@@ -287,13 +303,13 @@ export default function ImagePage() {
               const input = document.createElement('input');
               input.type = 'file';
               input.accept = 'image/*';
-              if (model === 'google/nano-banana') (input as any).multiple = true;
+              if (model === 'google/nano-banana' || model === 'google/nano-banana-pro') (input as any).multiple = true;
               input.onchange = async ()=>{
                 const files = Array.from(input.files || []);
                 if (!files.length) return;
                 try {
                   const urls = await Promise.all(files.map(f=>uploadImage(f)));
-                  if (model === 'google/nano-banana') setInputImageUrls(prev => [...prev, ...urls]);
+                  if (model === 'google/nano-banana' || model === 'google/nano-banana-pro') setInputImageUrls(prev => [...prev, ...urls]);
                   else setInputImageUrl(urls[0]);
                 } catch (err: any) {
                   setError(err?.message || 'Upload failed');
@@ -305,7 +321,7 @@ export default function ImagePage() {
             <div className="dnd-icon">🖼️</div>
             <div className="dnd-title">Reference Image</div>
             <div className="dnd-subtitle">PNG/JPG/GIF/WebP • Optional for image editing</div>
-            {model === 'google/nano-banana' ? (
+            {model === 'google/nano-banana' || model === 'google/nano-banana-pro' ? (
               inputImageUrls.length > 0 && (
                 <div className="fileInfo" style={{marginTop:'var(--space-3)', display:'flex', flexWrap:'wrap', gap:'var(--space-2)'}}>
                   {inputImageUrls.map((url, idx) => (
@@ -325,7 +341,7 @@ export default function ImagePage() {
               )
             )}
           </div>
-          {model === 'google/nano-banana' ? (
+          {model === 'google/nano-banana' || model === 'google/nano-banana-pro' ? (
             inputImageUrls.length > 0 && (
               <button className="btn" style={{marginTop:8}} onClick={()=>setInputImageUrls([])}>Clear images</button>
             )
@@ -410,6 +426,27 @@ export default function ImagePage() {
               <label className="small" style={{display:'flex', gap:'var(--space-2)', alignItems:'center'}}>
                 <input type="checkbox" checked={promptUpsampling} onChange={(e)=>setPromptUpsampling(e.target.checked)} /> Prompt Upsampling
               </label>
+            </div>
+          </div>
+        )}
+
+        {model === 'google/nano-banana-pro' && (
+          <div className="options">
+            <div>
+              <div className="small">Resolution</div>
+              <select className="select" value={resolution} onChange={(e)=>setResolution(e.target.value)}>
+                <option value="1K">1K</option>
+                <option value="2K">2K</option>
+                <option value="4K">4K</option>
+              </select>
+            </div>
+            <div>
+              <div className="small">Safety Filter Level</div>
+              <select className="select" value={safetyFilterLevel} onChange={(e)=>setSafetyFilterLevel(e.target.value)}>
+                <option value="block_low_and_above">Block Low and Above (Strictest)</option>
+                <option value="block_medium_and_above">Block Medium and Above</option>
+                <option value="block_only_high">Block Only High (Most Permissive)</option>
+              </select>
             </div>
           </div>
         )}
