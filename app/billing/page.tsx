@@ -86,27 +86,42 @@ export default function BillingPage() {
     }
   };
 
+  const hero = (
+    <header className="page-hero">
+      <div>
+        <p className="page-eyebrow">Account</p>
+        <h1>Plans & Billing</h1>
+        <p className="page-description">
+          Review your current plan, change tiers, and stay ahead of your credit usage.
+        </p>
+      </div>
+      <div className="page-hero-actions">
+        <button className="btn inline" type="button" onClick={handlePortal} disabled={busy === 'portal'}>
+          {busy === 'portal' ? 'Loading...' : 'Manage subscription'}
+        </button>
+        <a href="/credits" className="hero-link">Credit Center</a>
+      </div>
+    </header>
+  );
+
   if (loading) {
-  return (
-    <div className="page-template account fade-in">
-      <header className="page-hero">
-        <div>
-          <p className="page-eyebrow">Account</p>
-          <h1>Plans & Billing</h1>
-          <p className="page-description">Review your current plan, change tiers, and stay ahead of your credit usage.</p>
+    return (
+      <div className="page-template account fade-in">
+        {hero}
+        <div className="page-grid">
+          <div className="page-main">
+            <div className="billing-page">
+              <div className="loading-spinner" />
+              <p>Loading billing information...</p>
+            </div>
+          </div>
+          <aside className="page-side-panel">
+            <div className="side-panel-card">
+              <h3>Status</h3>
+              <p>Fetching plan data…</p>
+            </div>
+          </aside>
         </div>
-        <div className="page-hero-actions">
-          <button className="btn inline" type="button" onClick={handlePortal} disabled={busy === 'portal'}>
-            {busy === 'portal' ? 'Loading...' : 'Manage subscription'}
-          </button>
-          <a href="/credits" className="hero-link">Credit Center</a>
-        </div>
-      </header>
-      <div className="page-grid">
-        <div className="page-main">
-          <div className="billing-page">
-        <div className="loading-spinner" />
-        <p>Loading billing information...</p>
       </div>
     );
   }
@@ -115,8 +130,11 @@ export default function BillingPage() {
   const isCurrentPlan = (plan: string) => currentPlan === plan;
 
   return (
-    <div className="billing-page fade-in">
-      <div className="billing-container">
+    <div className="page-template account fade-in">
+      {hero}
+      <div className="page-grid">
+        <div className="page-main">
+          <div className="billing-page">
         {/* Header */}
         <header className="billing-header">
           <div className="billing-header-content">

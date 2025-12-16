@@ -188,23 +188,7 @@ export default function TasksPage() {
   }
 
   return (
-    <div className="page-template manager fade-in">
-      <header className="page-hero">
-        <div>
-          <p className="page-eyebrow">Management</p>
-          <h1>Task Command Center</h1>
-          <p className="page-description">Monitor every AI submission, check statuses, and rerun failed jobs without leaving this hub.</p>
-        </div>
-        <div className="page-hero-actions">
-          <button className="btn inline" type="button" onClick={loadTasks} disabled={refreshing}>
-            Refresh
-          </button>
-          <a href="/credits" className="hero-link">Credits</a>
-        </div>
-      </header>
-      <div className="page-grid">
-        <div className="page-main">
-          <div className="tasks-page">
+    <div className="tasks-page fade-in">
       {/* Header */}
       <div className="tasks-header">
         <div className="tasks-header-main">
@@ -632,30 +616,6 @@ export default function TasksPage() {
           ))}
         </div>
         )}
-          </div>
-        </div>
-        <aside className="page-side-panel">
-          <div className="side-panel-card">
-            <h3>Snapshot</h3>
-            <ul>
-              <li>Total tasks: {stats.total}</li>
-              <li>Finished: {stats.finished}</li>
-              <li>Running: {stats.running}</li>
-              <li>Failed: {stats.failed}</li>
-            </ul>
-          </div>
-          <div className="side-panel-card">
-            <h3>Filter Guidance</h3>
-            <p>Use the search bar to find specific IDs, models, or prompt fragments. Combine it with the status filter for best results.</p>
-          </div>
-          <div className="side-panel-card">
-            <h3>Automation Tips</h3>
-            <ul>
-              <li>Announce completed jobs in Slack or email via webhooks.</li>
-              <li>Label your prompts with campaign names for faster lookup.</li>
-            </ul>
-          </div>
-        </aside>
       </div>
     </div>
   );
