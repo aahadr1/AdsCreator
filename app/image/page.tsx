@@ -103,7 +103,6 @@ export default function ImagePage() {
       }
 
       // Create KV task (Cloudflare KV for /tasks page)
-      let kvIdLocal: string | null = null;
       try {
         const createRes = await fetch('/api/tasks/create', {
           method: 'POST',
