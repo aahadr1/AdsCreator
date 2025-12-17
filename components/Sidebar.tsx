@@ -90,61 +90,73 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="sidebar-logo" title="AdzCreator">
-          <div className="sidebar-logo-mark">AC</div>
-          <div className="sidebar-logo-text">
-            <span>AdzCreator</span>
-            <span className="sidebar-logo-tagline">Minimal Lab</span>
-          </div>
-        </div>
-        <div className="sidebar-signal">
-          <span className="sidebar-signal-dot" />
-          <span>Live</span>
-        </div>
-      </div>
-      
-      <nav className="sidebar-nav">
-        {navGroups.map((group) => (
-          <div className="nav-group" key={group.title}>
-            <div className="nav-group-header">
-              <div>
-                <div className="nav-group-title">{group.title}</div>
-                {group.description && <div className="nav-group-description">{group.description}</div>}
-              </div>
+      <div className="sidebar-inner">
+        <div className="sidebar-brand-card">
+          <div className="sidebar-logo" title="AdzCreator">
+            <div className="sidebar-logo-mark">AC</div>
+            <div className="sidebar-logo-text">
+              <span>AdzCreator</span>
+              <span className="sidebar-logo-tagline">Minimal Lab</span>
             </div>
-            {group.items.map((item) => {
-              const isActive = pathname === item.href;
-              const isAccent = item.accent;
-              
-              return (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  className={`nav-item ${isActive ? 'nav-item-active' : ''} ${isAccent ? 'nav-item-accent' : ''} ${
-                    item.disabled ? 'nav-item-disabled' : ''
-                  }`}
-                  onClick={item.disabled ? (e) => e.preventDefault() : undefined}
-                  title={item.label}
-                >
-                  <span className="nav-item-indicator" aria-hidden />
-                  <span className="nav-item-icon">{item.icon}</span>
-                  <span className="nav-item-label">{item.label}</span>
-                </a>
-              );
-            })}
           </div>
-        ))}
-      </nav>
-      
-      <div className="sidebar-credits">
-        <CreditCounter />
-      </div>
-      
-      <div className="sidebar-footer">
-        <div className="sidebar-watermark">AdzCreator</div>
-        <div className="sidebar-copyright">
-          © {new Date().getFullYear()} AdzCreator
+          <div className="sidebar-signal">
+            <span className="sidebar-signal-dot" />
+            <span>Systems nominal</span>
+          </div>
+        </div>
+
+        <div className="sidebar-scroll">
+          {navGroups.map((group) => (
+            <section className="nav-section" key={group.title}>
+              <div className="nav-section-header">
+                <div>
+                  <div className="nav-section-title">{group.title}</div>
+                  {group.description && <div className="nav-section-description">{group.description}</div>}
+                </div>
+              </div>
+              <div className="nav-card">
+                {group.items.map((item) => {
+                  const isActive = pathname === item.href;
+                  const isAccent = item.accent;
+                  return (
+                    <a
+                      key={item.href}
+                      href={item.href}
+                      className={`nav-item ${isActive ? 'nav-item-active' : ''} ${isAccent ? 'nav-item-accent' : ''} ${
+                        item.disabled ? 'nav-item-disabled' : ''
+                      }`}
+                      onClick={item.disabled ? (e) => e.preventDefault() : undefined}
+                      title={item.label}
+                    >
+                      <span className="nav-item-indicator" aria-hidden />
+                      <span className="nav-item-icon">{item.icon}</span>
+                      <span className="nav-item-label">{item.label}</span>
+                    </a>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <div className="sidebar-bottom">
+          <div className="sidebar-credits-card">
+            <div className="sidebar-credits-header">
+              <div>
+                <div className="sidebar-credits-title">Credits</div>
+                <div className="sidebar-credits-subtitle">Track usage in real time</div>
+              </div>
+              <span className="sidebar-chip">Live</span>
+            </div>
+            <CreditCounter />
+          </div>
+
+          <div className="sidebar-footer">
+            <div className="sidebar-watermark">AdzCreator</div>
+            <div className="sidebar-copyright">
+              © {new Date().getFullYear()} AdzCreator
+            </div>
+          </div>
         </div>
       </div>
     </aside>

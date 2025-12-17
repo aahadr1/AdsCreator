@@ -4,10 +4,87 @@ import '../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
+type VideoModelValue =
+  | 'google/veo-3-fast'
+  | 'google/veo-3'
+  | 'openai/sora-2'
+  | 'openai/sora-2-pro'
+  | 'bytedance/seedance-1-pro'
+  | 'bytedance/seedance-1-lite'
+  | 'wan-video/wan-2.2-i2v-fast'
+  | 'wan-video/wan-2.2-animate-replace'
+  | 'kwaivgi/kling-v2.5-turbo-pro';
+
+type VideoModelMeta = {
+  value: VideoModelValue;
+  label: string;
+  description?: string;
+  badge?: string;
+};
+
+const VIDEO_MODELS: readonly VideoModelMeta[] = [
+  {
+    value: 'google/veo-3-fast',
+    label: 'Google VEO 3 Fast',
+    badge: 'Recommended',
+    description: 'Balanced quality and speed with strong prompt following for social edits.',
+  },
+  {
+    value: 'google/veo-3',
+    label: 'Google VEO 3',
+    badge: 'Premium',
+    description: 'Highest fidelity version of VEO with longer queue times but incredible detail.',
+  },
+  {
+    value: 'openai/sora-2',
+    label: 'OpenAI Sora 2',
+    badge: 'Audio-synced',
+    description: 'Ideal for cinematic shots with synced audio and precise lighting controls.',
+  },
+  {
+    value: 'openai/sora-2-pro',
+    label: 'OpenAI Sora 2 Pro',
+    badge: 'Pro',
+    description: 'Extended duration, fine-grain controls, and better consistency for complex scenes.',
+  },
+  {
+    value: 'bytedance/seedance-1-pro',
+    label: 'ByteDance Seedance 1 Pro',
+    description: 'High-energy motion tuned for short-form ads, especially character work.',
+  },
+  {
+    value: 'bytedance/seedance-1-lite',
+    label: 'ByteDance Seedance 1 Lite',
+    description: 'Budget-friendly Seedance with faster responses for concept exploration.',
+  },
+  {
+    value: 'wan-video/wan-2.2-i2v-fast',
+    label: 'Pruna WAN 2.2 i2v Fast',
+    description: 'Image-to-video workflow with quick turnarounds for animating stills.',
+  },
+  {
+    value: 'wan-video/wan-2.2-animate-replace',
+    label: 'Wan 2.2 Animate Replace',
+    description: 'Swap characters inside existing footage using Wan’s character replacement.',
+  },
+  {
+    value: 'kwaivgi/kling-v2.5-turbo-pro',
+    label: 'Kling 2.5 Turbo Pro',
+    badge: 'New',
+    description: 'Pro-level text-to-video and image-to-video with silky motion and cinematic depth.',
+  },
+];
+
+type VideoModel = VideoModelValue;
+const DEFAULT_MODEL: VideoModel = 'google/veo-3-fast';
+const GOOGLE_MODELS = new Set<VideoModel>(
+  VIDEO_MODELS.filter((m) => m.value.startsWith('google/veo')).map((m) => m.value as VideoModel)
+);
+
 type VeoResponse = { url?: string | null; raw?: any };
 
 export default function VeoPage() {
-  const [model, setModel] = useState<'google/veo-3' | 'google/veo-3-fast' | 'bytedance/seedance-1-pro' | 'bytedance/seedance-1-lite' | 'wan-video/wan-2.2-i2v-fast' | 'wan-video/wan-2.2-animate-replace' | 'openai/sora-2' | 'openai/sora-2-pro'>('google/veo-3-fast');
+  const [model, setModel] = useState<VideoModel>(DEFAULT_MODEL);
   const [prompt, setPrompt] = useState('A cinematic drone flyover of futuristic cityscapes at sunset.');
   const [imageUrl, setImageUrl] = useState('');
   const [negativePrompt, setNegativePrompt] = useState('');
@@ -30,6 +107,11 @@ export default function VeoPage() {
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [inputSchema, setInputSchema] = useState<any | null>(null);
   const [inputValues, setInputValues] = useState<Record<string, any>>({});
+
+  const selectedModelMeta = useMemo(() => VIDEO_MODELS.find((m) => m.value === model), [model]);
+  const isGoogleModel = useMemo(() => GOOGLE_MODELS.has(model), [model]);
+  const isKlingModel = model === 'kwaivgi/kling-v2.5-turbo-pro';
+  const supportsNegativePrompt = isGoogleModel || Boolean(inputSchema?.properties?.negative_prompt);
 
   const uploadImage = useCallback(async (file: File): Promise<string> => {
     const form = new FormData();
@@ -114,15 +196,18 @@ export default function VeoPage() {
         throw new Error('Please sign in at /auth before creating a task.');
       }
 
-      const isGoogle = model.startsWith('google/veo');
+      const isGoogle = isGoogleModel;
       const dynamicInput: Record<string, any> = { ...inputValues };
       if (isGoogle) {
         if (imageUrl) dynamicInput.image = imageUrl;
-        if (negativePrompt) dynamicInput.negative_prompt = negativePrompt;
         dynamicInput.resolution = resolution;
         if (seed.trim() !== '') dynamicInput.seed = Number(seed);
         if (startFrameUrl) dynamicInput.start_frame = startFrameUrl;
         if (endFrameUrl) dynamicInput.end_frame = endFrameUrl;
+      }
+      const trimmedNegative = negativePrompt.trim();
+      if (supportsNegativePrompt && trimmedNegative) {
+        dynamicInput.negative_prompt = trimmedNegative;
       }
       // Client-side validation for Wan Animate Replace
       if (model === 'wan-video/wan-2.2-animate-replace') {
@@ -268,24 +353,34 @@ export default function VeoPage() {
           <span className="badge">AI Video Models</span>
         </div>
 
-        <div className="options">
-          <div style={{gridColumn: 'span 2'}}>
-            <div className="small">Model</div>
-            <select className="select" value={model} onChange={(e)=>setModel(e.target.value as any)}>
-              <option value="google/veo-3-fast">Google VEO 3 Fast (Recommended)</option>
-              <option value="google/veo-3">Google VEO 3 (Highest Quality)</option>
-              <option value="openai/sora-2">OpenAI Sora 2 (Synced Audio)</option>
-              <option value="openai/sora-2-pro">OpenAI Sora 2 Pro (Advanced)</option>
-              <option value="bytedance/seedance-1-pro">ByteDance Seedance 1 Pro</option>
-              <option value="bytedance/seedance-1-lite">ByteDance Seedance 1 Lite</option>
-              <option value="wan-video/wan-2.2-i2v-fast">Pruna WAN 2.2 i2v Fast (Image-to-Video)</option>
-              <option value="wan-video/wan-2.2-animate-replace">Wan 2.2 Animate Replace (Character Replacement)</option>
+        <div className="veo-control-stack">
+          <section className="veo-control-card">
+            <div className="veo-control-card-header">
+              <div>
+                <div className="small">Model</div>
+                <div className="veo-control-title">{selectedModelMeta?.label || 'Select a model'}</div>
+              </div>
+              {selectedModelMeta?.badge && (
+                <span className="veo-chip">{selectedModelMeta.badge}</span>
+              )}
+            </div>
+            <select className="select" value={model} onChange={(e)=>setModel(e.target.value as VideoModel)}>
+              {VIDEO_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
             </select>
-          </div>
-        </div>
+            {selectedModelMeta?.description && (
+              <p className="veo-control-description">{selectedModelMeta.description}</p>
+            )}
+          </section>
 
-        <div className="options">
-          <div style={{gridColumn: 'span 2'}}>
+          {isKlingModel && (
+            <section className="veo-info-banner">
+              <strong>Kling tip:</strong> Provide a crisp start image for the best likeness and keep prompts focused on motion.
+            </section>
+          )}
+
+          <section className="veo-control-card">
             <div className="small">Video Prompt{model === 'wan-video/wan-2.2-animate-replace' ? ' (optional)' : ''}</div>
             <textarea
               className="input"
@@ -294,37 +389,33 @@ export default function VeoPage() {
               rows={4}
               placeholder="Describe the video you want to generate in detail..."
             />
-          </div>
-        </div>
+            {supportsNegativePrompt && (
+              <div style={{marginTop:'var(--space-4)'}}>
+                <div className="small">Negative Prompt (optional)</div>
+                <textarea
+                  className="input"
+                  value={negativePrompt}
+                  onChange={(e)=>setNegativePrompt(e.target.value)}
+                  rows={3}
+                  placeholder="Things to avoid in the video"
+                />
+              </div>
+            )}
+          </section>
 
-        {model.startsWith('google/veo') && (
-          <>
-            <div>
-              <div className="small">Reference image (optional)</div>
-              <div
-                className={`dnd ${dragImage ? 'drag' : ''}`}
-                onDragOver={(e)=>{e.preventDefault(); setDragImage(true);}}
-                onDragLeave={(e)=>{e.preventDefault(); setDragImage(false);}}
-                onDrop={async (e)=>{
-                  e.preventDefault();
-                  setDragImage(false);
-                  const f = e.dataTransfer.files?.[0];
-                  if (f && f.type.startsWith('image/')) {
-                    try {
-                      const url = await uploadImage(f);
-                      setImageUrl(url);
-                    } catch (err: any) {
-                      setError(err?.message || 'Upload failed');
-                    }
-                  }
-                }}
-                onClick={()=>{
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.accept = 'image/*';
-                  input.onchange = async ()=>{
-                    const f = (input.files?.[0]) || null;
-                    if (f) {
+          {isGoogleModel && (
+            <section className="veo-control-card">
+              <div>
+                <div className="small">Reference image (optional)</div>
+                <div
+                  className={`dnd ${dragImage ? 'drag' : ''}`}
+                  onDragOver={(e)=>{e.preventDefault(); setDragImage(true);}}
+                  onDragLeave={(e)=>{e.preventDefault(); setDragImage(false);}}
+                  onDrop={async (e)=>{
+                    e.preventDefault();
+                    setDragImage(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f && f.type.startsWith('image/')) {
                       try {
                         const url = await uploadImage(f);
                         setImageUrl(url);
@@ -332,44 +423,6 @@ export default function VeoPage() {
                         setError(err?.message || 'Upload failed');
                       }
                     }
-                  };
-                  input.click();
-                }}
-              >
-                <div className="dnd-icon">🖼️</div>
-                <div className="dnd-title">Reference Image</div>
-                <div className="dnd-subtitle">PNG/JPG • ideal 1280x720</div>
-                {imageUrl && (
-                  <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                    <img src={imageUrl} alt="reference" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                    <div className="small" style={{marginTop:'var(--space-2)'}}><a href={imageUrl} target="_blank" rel="noreferrer">Open image</a></div>
-                  </div>
-                )}
-              </div>
-              {imageUrl && (
-                <button className="btn" style={{marginTop:8}} onClick={()=>setImageUrl('')}>Clear image</button>
-              )}
-            </div>
-
-            <div className="options" style={{marginTop:12}}>
-              <div>
-                <div className="small">Start frame (optional)</div>
-                <div
-                  className={`dnd ${dragStart ? 'drag' : ''}`}
-                  onDragOver={(e)=>{e.preventDefault(); setDragStart(true);}}
-                  onDragLeave={(e)=>{e.preventDefault(); setDragStart(false);}}
-                  onDrop={async (e)=>{
-                    e.preventDefault();
-                    setDragStart(false);
-                    const f = e.dataTransfer.files?.[0];
-                    if (f && f.type.startsWith('image/')) {
-                      try {
-                        const url = await uploadImage(f);
-                        setStartFrameUrl(url);
-                      } catch (err: any) {
-                        setError(err?.message || 'Upload failed');
-                      }
-                    }
                   }}
                   onClick={()=>{
                     const input = document.createElement('input');
@@ -378,6 +431,44 @@ export default function VeoPage() {
                     input.onchange = async ()=>{
                       const f = (input.files?.[0]) || null;
                       if (f) {
+                        try {
+                          const url = await uploadImage(f);
+                          setImageUrl(url);
+                        } catch (err: any) {
+                          setError(err?.message || 'Upload failed');
+                        }
+                      }
+                    };
+                    input.click();
+                  }}
+                >
+                  <div className="dnd-icon">🖼️</div>
+                  <div className="dnd-title">Reference Image</div>
+                  <div className="dnd-subtitle">PNG/JPG • ideal 1280x720</div>
+                  {imageUrl && (
+                    <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
+                      <img src={imageUrl} alt="reference" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                      <div className="small" style={{marginTop:'var(--space-2)'}}><a href={imageUrl} target="_blank" rel="noreferrer">Open image</a></div>
+                    </div>
+                  )}
+                </div>
+                {imageUrl && (
+                  <button className="btn" style={{marginTop:8}} onClick={()=>setImageUrl('')}>Clear image</button>
+                )}
+              </div>
+
+              <div className="options" style={{marginTop:12}}>
+                <div>
+                  <div className="small">Start frame (optional)</div>
+                  <div
+                    className={`dnd ${dragStart ? 'drag' : ''}`}
+                    onDragOver={(e)=>{e.preventDefault(); setDragStart(true);}}
+                    onDragLeave={(e)=>{e.preventDefault(); setDragStart(false);}}
+                    onDrop={async (e)=>{
+                      e.preventDefault();
+                      setDragStart(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f && f.type.startsWith('image/')) {
                         try {
                           const url = await uploadImage(f);
                           setStartFrameUrl(url);
@@ -385,51 +476,51 @@ export default function VeoPage() {
                           setError(err?.message || 'Upload failed');
                         }
                       }
-                    };
-                    input.click();
-                  }}
-                >
-                  <div className="dnd-icon">🎬</div>
-                  <div className="dnd-title">Start Frame</div>
-                  <div className="dnd-subtitle">PNG/JPG</div>
+                    }}
+                    onClick={()=>{
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'image/*';
+                      input.onchange = async ()=>{
+                        const f = (input.files?.[0]) || null;
+                        if (f) {
+                          try {
+                            const url = await uploadImage(f);
+                            setStartFrameUrl(url);
+                          } catch (err: any) {
+                            setError(err?.message || 'Upload failed');
+                          }
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    <div className="dnd-icon">🎬</div>
+                    <div className="dnd-title">Start Frame</div>
+                    <div className="dnd-subtitle">PNG/JPG</div>
+                    {startFrameUrl && (
+                      <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
+                        <img src={startFrameUrl} alt="start" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                        <div className="small" style={{marginTop:'var(--space-2)'}}><a href={startFrameUrl} target="_blank" rel="noreferrer">Open start</a></div>
+                      </div>
+                    )}
+                  </div>
                   {startFrameUrl && (
-                    <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                      <img src={startFrameUrl} alt="start" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                      <div className="small" style={{marginTop:'var(--space-2)'}}><a href={startFrameUrl} target="_blank" rel="noreferrer">Open start</a></div>
-                    </div>
+                    <button className="btn" style={{marginTop:8}} onClick={()=>setStartFrameUrl('')}>Clear start</button>
                   )}
                 </div>
-                {startFrameUrl && (
-                  <button className="btn" style={{marginTop:8}} onClick={()=>setStartFrameUrl('')}>Clear start</button>
-                )}
-              </div>
 
-              <div>
-                <div className="small">End frame (optional)</div>
-                <div
-                  className={`dnd ${dragEnd ? 'drag' : ''}`}
-                  onDragOver={(e)=>{e.preventDefault(); setDragEnd(true);}}
-                  onDragLeave={(e)=>{e.preventDefault(); setDragEnd(false);}}
-                  onDrop={async (e)=>{
-                    e.preventDefault();
-                    setDragEnd(false);
-                    const f = e.dataTransfer.files?.[0];
-                    if (f && f.type.startsWith('image/')) {
-                      try {
-                        const url = await uploadImage(f);
-                        setEndFrameUrl(url);
-                      } catch (err: any) {
-                        setError(err?.message || 'Upload failed');
-                      }
-                    }
-                  }}
-                  onClick={()=>{
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.onchange = async ()=>{
-                      const f = (input.files?.[0]) || null;
-                      if (f) {
+                <div>
+                  <div className="small">End frame (optional)</div>
+                  <div
+                    className={`dnd ${dragEnd ? 'drag' : ''}`}
+                    onDragOver={(e)=>{e.preventDefault(); setDragEnd(true);}}
+                    onDragLeave={(e)=>{e.preventDefault(); setDragEnd(false);}}
+                    onDrop={async (e)=>{
+                      e.preventDefault();
+                      setDragEnd(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f && f.type.startsWith('image/')) {
                         try {
                           const url = await uploadImage(f);
                           setEndFrameUrl(url);
@@ -437,216 +528,232 @@ export default function VeoPage() {
                           setError(err?.message || 'Upload failed');
                         }
                       }
-                    };
-                    input.click();
-                  }}
-                >
-                  <div className="dnd-icon">🏁</div>
-                  <div className="dnd-title">End Frame</div>
-                  <div className="dnd-subtitle">PNG/JPG</div>
-                  {endFrameUrl && (
-                    <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                      <img src={endFrameUrl} alt="end" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                      <div className="small" style={{marginTop:'var(--space-2)'}}><a href={endFrameUrl} target="_blank" rel="noreferrer">Open end</a></div>
-                    </div>
-                  )}
-                </div>
-                {endFrameUrl && (
-                  <button className="btn" style={{marginTop:8}} onClick={()=>setEndFrameUrl('')}>Clear end</button>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Dynamic reference media for any model's URI fields */}
-        {schemaLoading ? (
-          <div className="small" style={{marginTop:8}}>Loading model schema…</div>
-        ) : schemaError ? (
-          <div className="small" style={{ color: '#ff7878', marginTop:8 }}>{schemaError}</div>
-        ) : inputSchema ? (
-          <>
-            {uriFields.length > 0 && (
-              <div className="options" style={{marginTop:12}}>
-                <div style={{fontWeight:700, marginBottom:6}}>Reference media</div>
-                {uriFields.map((fieldKey) => (
-                  <div key={fieldKey}>
-                    <div className="small">{fieldKey}{Array.isArray(inputSchema?.required) && inputSchema.required.includes(fieldKey) ? ' *' : ''}</div>
-                    <div
-                      className={`dnd`}
-                      onDragOver={(e)=>{e.preventDefault();}}
-                      onDrop={async (e)=>{
-                        e.preventDefault();
-                        const f = e.dataTransfer.files?.[0];
+                    }}
+                    onClick={()=>{
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'image/*';
+                      input.onchange = async ()=>{
+                        const f = (input.files?.[0]) || null;
                         if (f) {
                           try {
-                            const url = await uploadMedia(f);
-                            setInputValues(v => ({ ...v, [fieldKey]: url }));
+                            const url = await uploadImage(f);
+                            setEndFrameUrl(url);
                           } catch (err: any) {
                             setError(err?.message || 'Upload failed');
                           }
                         }
-                      }}
-                      onClick={()=>{
-                        const input = document.createElement('input');
-                        input.type = 'file';
-                        input.accept = fieldKey === 'video' ? 'video/*' : (fieldKey === 'character_image' ? 'image/*' : 'image/*,video/*');
-                        input.onchange = async ()=>{
-                          const f = (input.files?.[0]) || null;
-                          if (f) {
-                            try {
-                              const url = await uploadMedia(f);
-                              setInputValues(v => ({ ...v, [fieldKey]: url }));
-                            } catch (err: any) {
-                              setError(err?.message || 'Upload failed');
-                            }
-                          }
-                        };
-                        input.click();
-                      }}
-                    >
-                      <div className="dnd-icon">📎</div>
-                      <div className="dnd-title">{fieldKey}</div>
-                      <div className="dnd-subtitle">{fieldKey === 'video' ? 'Video' : (fieldKey === 'character_image' ? 'Image' : 'Image/Video')} • {Array.isArray(inputSchema?.required) && inputSchema.required.includes(fieldKey) ? 'Required' : 'Optional'}</div>
-                      {inputValues[fieldKey] && (
-                        <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                          {String(inputValues[fieldKey]).match(/\.(mp4|mov|webm)(\?|$)/i) ? (
-                            <video src={inputValues[fieldKey]} controls style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                          ) : (
-                            <img src={inputValues[fieldKey]} alt={fieldKey} style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                          )}
-                          <div className="small" style={{marginTop:'var(--space-2)'}}><a href={inputValues[fieldKey]} target="_blank" rel="noreferrer">Open</a></div>
-                        </div>
-                      )}
-                    </div>
-                    {inputValues[fieldKey] && (
-                      <button className="btn" style={{marginTop:8}} onClick={()=>setInputValues(v => { const n = { ...v }; delete n[fieldKey]; return n; })}>Clear {fieldKey}</button>
+                      };
+                      input.click();
+                    }}
+                  >
+                    <div className="dnd-icon">🏁</div>
+                    <div className="dnd-title">End Frame</div>
+                    <div className="dnd-subtitle">PNG/JPG</div>
+                    {endFrameUrl && (
+                      <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
+                        <img src={endFrameUrl} alt="end" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                        <div className="small" style={{marginTop:'var(--space-2)'}}><a href={endFrameUrl} target="_blank" rel="noreferrer">Open end</a></div>
+                      </div>
                     )}
                   </div>
-                ))}
+                  {endFrameUrl && (
+                    <button className="btn" style={{marginTop:8}} onClick={()=>setEndFrameUrl('')}>Clear end</button>
+                  )}
+                </div>
               </div>
-            )}
+            </section>
+          )}
 
-            {nonUriFields.length > 0 && (
-              <div className="options" style={{marginTop:12}}>
-                <div style={{fontWeight:700, marginBottom:6}}>Model parameters</div>
-                {nonUriFields.map(({ key, schema }) => {
-                  const required = Array.isArray(inputSchema?.required) && inputSchema.required.includes(key);
-                  const title = schema?.title || key;
-                  // Render based on schema
-                  if (Array.isArray(schema?.enum)) {
-                    const isNumericEnum = schema?.type === 'integer' || schema?.type === 'number';
-                    return (
-                      <div key={key}>
-                        <div className="small">{title}{required ? ' *' : ''}</div>
-                        <select
-                          className="select"
-                          value={inputValues[key] ?? schema.default ?? ''}
-                          onChange={(e)=>{
-                            const val = e.target.value;
-                            setInputValues(v=>({
-                              ...v,
-                              [key]: isNumericEnum ? (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)) : val
-                            }));
+          <section className="veo-control-card">
+            <div className="veo-control-card-header">
+              <div>
+                <div className="small">Model Inputs</div>
+                <div className="veo-control-description">Synced from Replicate schema</div>
+              </div>
+            </div>
+            {schemaLoading ? (
+              <div className="small" style={{marginTop:8}}>Loading model schema…</div>
+            ) : schemaError ? (
+              <div className="small" style={{ color: '#ff7878', marginTop:8 }}>{schemaError}</div>
+            ) : inputSchema ? (
+              <>
+                {uriFields.length > 0 && (
+                  <div className="veo-subsection">
+                    <div className="veo-subsection-title">Reference media</div>
+                    {uriFields.map((fieldKey) => (
+                      <div key={fieldKey}>
+                        <div className="small">{fieldKey}{Array.isArray(inputSchema?.required) && inputSchema.required.includes(fieldKey) ? ' *' : ''}</div>
+                        <div
+                          className={`dnd`}
+                          onDragOver={(e)=>{e.preventDefault();}}
+                          onDrop={async (e)=>{
+                            e.preventDefault();
+                            const f = e.dataTransfer.files?.[0];
+                            if (f) {
+                              try {
+                                const url = await uploadMedia(f);
+                                setInputValues(v => ({ ...v, [fieldKey]: url }));
+                              } catch (err: any) {
+                                setError(err?.message || 'Upload failed');
+                              }
+                            }
+                          }}
+                          onClick={()=>{
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = fieldKey === 'video' ? 'video/*' : (fieldKey === 'character_image' ? 'image/*' : 'image/*,video/*');
+                            input.onchange = async ()=>{
+                              const f = (input.files?.[0]) || null;
+                              if (f) {
+                                try {
+                                  const url = await uploadMedia(f);
+                                  setInputValues(v => ({ ...v, [fieldKey]: url }));
+                                } catch (err: any) {
+                                  setError(err?.message || 'Upload failed');
+                                }
+                              }
+                            };
+                            input.click();
                           }}
                         >
-                          {schema.enum.map((opt: any) => {
-                            const label = String(opt);
-                            const value = String(opt);
-                            return (
-                              <option key={label} value={value}>{label}</option>
-                            );
-                          })}
-                        </select>
+                          <div className="dnd-icon">📎</div>
+                          <div className="dnd-title">{fieldKey}</div>
+                          <div className="dnd-subtitle">{fieldKey === 'video' ? 'Video' : (fieldKey === 'character_image' ? 'Image' : 'Image/Video')} • {Array.isArray(inputSchema?.required) && inputSchema.required.includes(fieldKey) ? 'Required' : 'Optional'}</div>
+                          {inputValues[fieldKey] && (
+                            <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
+                              {String(inputValues[fieldKey]).match(/\.(mp4|mov|webm)(\?|$)/i) ? (
+                                <video src={inputValues[fieldKey]} controls style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                              ) : (
+                                <img src={inputValues[fieldKey]} alt={fieldKey} style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                              )}
+                              <div className="small" style={{marginTop:'var(--space-2)'}}><a href={inputValues[fieldKey]} target="_blank" rel="noreferrer">Open</a></div>
+                            </div>
+                          )}
+                        </div>
+                        {inputValues[fieldKey] && (
+                          <button className="btn" style={{marginTop:8}} onClick={()=>setInputValues(v => { const n = { ...v }; delete n[fieldKey]; return n; })}>Clear {fieldKey}</button>
+                        )}
                       </div>
-                    );
-                  }
-                  if (schema?.type === 'integer' || schema?.type === 'number') {
-                    const step = schema?.type === 'integer' ? 1 : (schema?.multipleOf || 0.1);
-                    return (
-                      <div key={key}>
-                        <div className="small">{title}{required ? ' *' : ''}</div>
-                        <input
-                          className="input"
-                          type="number"
-                          step={step}
-                          min={schema?.minimum ?? undefined}
-                          max={schema?.maximum ?? undefined}
-                          value={inputValues[key] ?? ''}
-                          onChange={(e)=>{
-                            const val = e.target.value;
-                            setInputValues(v=>({ ...v, [key]: val === '' ? undefined : (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)) }));
-                          }}
-                          placeholder={schema?.description || ''}
-                        />
-                      </div>
-                    );
-                  }
-                  if (schema?.type === 'boolean') {
-                    return (
-                      <label key={key} className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
-                        <input
-                          type="checkbox"
-                          checked={!!inputValues[key]}
-                          onChange={(e)=>setInputValues(v=>({ ...v, [key]: e.target.checked }))}
-                        /> {title}{required ? ' *' : ''}
-                      </label>
-                    );
-                  }
-                  // default: string
-                  return (
-                    <div key={key}>
-                      <div className="small">{title}{required ? ' *' : ''}</div>
-                      <input
-                        className="input"
-                        value={inputValues[key] ?? ''}
-                        onChange={(e)=>setInputValues(v=>({ ...v, [key]: e.target.value }))}
-                        placeholder={schema?.description || ''}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
+                    ))}
+                  </div>
+                )}
+
+                {nonUriFields.length > 0 && (
+                  <div className="veo-subsection">
+                    <div className="veo-subsection-title">Model parameters</div>
+                    {nonUriFields.map(({ key, schema }) => {
+                      const required = Array.isArray(inputSchema?.required) && inputSchema.required.includes(key);
+                      const title = schema?.title || key;
+                      if (Array.isArray(schema?.enum)) {
+                        const isNumericEnum = schema?.type === 'integer' || schema?.type === 'number';
+                        return (
+                          <div key={key}>
+                            <div className="small">{title}{required ? ' *' : ''}</div>
+                            <select
+                              className="select"
+                              value={inputValues[key] ?? schema.default ?? ''}
+                              onChange={(e)=>{
+                                const val = e.target.value;
+                                setInputValues(v=>({
+                                  ...v,
+                                  [key]: isNumericEnum ? (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)) : val
+                                }));
+                              }}
+                            >
+                              {schema.enum.map((opt: any) => {
+                                const label = String(opt);
+                                const value = String(opt);
+                                return (
+                                  <option key={label} value={value}>{label}</option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                        );
+                      }
+                      if (schema?.type === 'integer' || schema?.type === 'number') {
+                        const step = schema?.type === 'integer' ? 1 : (schema?.multipleOf || 0.1);
+                        return (
+                          <div key={key}>
+                            <div className="small">{title}{required ? ' *' : ''}</div>
+                            <input
+                              className="input"
+                              type="number"
+                              step={step}
+                              min={schema?.minimum ?? undefined}
+                              max={schema?.maximum ?? undefined}
+                              value={inputValues[key] ?? ''}
+                              onChange={(e)=>{
+                                const val = e.target.value;
+                                setInputValues(v=>({ ...v, [key]: val === '' ? undefined : (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)) }));
+                              }}
+                              placeholder={schema?.description || ''}
+                            />
+                          </div>
+                        );
+                      }
+                      if (schema?.type === 'boolean') {
+                        return (
+                          <label key={key} className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
+                            <input
+                              type="checkbox"
+                              checked={!!inputValues[key]}
+                              onChange={(e)=>setInputValues(v=>({ ...v, [key]: e.target.checked }))}
+                            /> {title}{required ? ' *' : ''}
+                          </label>
+                        );
+                      }
+                      return (
+                        <div key={key}>
+                          <div className="small">{title}{required ? ' *' : ''}</div>
+                          <input
+                            className="input"
+                            value={inputValues[key] ?? ''}
+                            onChange={(e)=>setInputValues(v=>({ ...v, [key]: e.target.value }))}
+                            placeholder={schema?.description || ''}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {uriFields.length === 0 && nonUriFields.length === 0 && (
+                  <div className="small" style={{color:'var(--text-muted)'}}>This model has no additional exposed parameters.</div>
+                )}
+              </>
+            ) : (
+              <div className="small" style={{color:'var(--text-muted)'}}>Select a model to load its inputs.</div>
             )}
-          </>
-        ) : null}
+          </section>
 
-        {model.startsWith('google/veo') && (
-          <div>
-            <div className="small">Negative Prompt (optional)</div>
-            <textarea
-              className="input"
-              value={negativePrompt}
-              onChange={(e)=>setNegativePrompt(e.target.value)}
-              rows={3}
-              placeholder="Things to avoid in the video"
-            />
-          </div>
-        )}
+          {isGoogleModel && (
+            <section className="veo-control-card">
+              <div className="options" style={{marginTop:0}}>
+                <div>
+                  <div className="small">Resolution</div>
+                  <select className="select" value={resolution} onChange={(e)=>setResolution(e.target.value as any)}>
+                    <option value="720p">720p</option>
+                    <option value="1080p">1080p</option>
+                  </select>
+                </div>
 
-        {model.startsWith('google/veo') && (
-          <div className="options" style={{marginTop:12}}>
-            <div>
-              <div className="small">Resolution</div>
-              <select className="select" value={resolution} onChange={(e)=>setResolution(e.target.value as any)}>
-                <option value="720p">720p</option>
-                <option value="1080p">1080p</option>
-              </select>
-            </div>
+                <div>
+                  <div className="small">Seed (optional)</div>
+                  <input className="input" type="number" value={seed} onChange={(e)=>setSeed(e.target.value)} placeholder="Random if empty" />
+                </div>
+              </div>
+            </section>
+          )}
 
-            <div>
-              <div className="small">Seed (optional)</div>
-              <input className="input" type="number" value={seed} onChange={(e)=>setSeed(e.target.value)} placeholder="Random if empty" />
-            </div>
-          </div>
-        )}
-
-        <button className="btn" style={{ marginTop: 12 }} disabled={isLoading || (model !== 'wan-video/wan-2.2-animate-replace' && !prompt.trim()) || animateMissingRequired} onClick={runVeo}>
-          {isLoading ? 'Generating…' : 'Generate video'}
-        </button>
+          <section className="veo-control-card">
+            <button className="btn" style={{ width: '100%' }} disabled={isLoading || (model !== 'wan-video/wan-2.2-animate-replace' && !prompt.trim()) || animateMissingRequired} onClick={runVeo}>
+              {isLoading ? 'Generating…' : 'Generate video'}
+            </button>
+          </section>
+        </div>
       </div>
     </div>
   );
 }
-
-

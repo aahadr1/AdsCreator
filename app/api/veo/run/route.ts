@@ -11,7 +11,8 @@ type VeoInput = {
     | 'wan-video/wan-2.2-i2v-fast'
     | 'wan-video/wan-2.2-animate-replace'
     | 'openai/sora-2'
-    | 'openai/sora-2-pro';
+    | 'openai/sora-2-pro'
+    | 'kwaivgi/kling-v2.5-turbo-pro';
   image?: string | null;
   negative_prompt?: string | null;
   resolution?: '720p' | '1080p';
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
       'wan-video/wan-2.2-animate-replace',
       'openai/sora-2',
       'openai/sora-2-pro',
+      'kwaivgi/kling-v2.5-turbo-pro',
     ]);
     const model = allowedModels.has((body.model as string) || '')
       ? (body.model as string)
@@ -116,5 +118,4 @@ export async function POST(req: NextRequest) {
     return new Response(`Error: ${err.message}`, { status: 500 });
   }
 }
-
 
