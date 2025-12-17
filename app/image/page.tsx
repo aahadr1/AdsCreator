@@ -4,10 +4,22 @@ import '../globals.css';
 import { useCallback, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
+const FLUX_KONTEXT_ASPECT_RATIOS = ['match_input_image','1:1','16:9','9:16','4:3','3:4','3:2','2:3','4:5','5:4','21:9','9:21','2:1','1:2'] as const;
+const GENERIC_ASPECT_RATIOS = ['1:1','16:9','21:9','3:2','2:3','4:5','5:4','3:4','4:3','9:16','9:21'] as const;
+const MULTI_IMAGE_MODELS = new Set(['google/nano-banana','google/nano-banana-pro','openai/gpt-image-1.5']);
+
 type ImageResponse = { url?: string | null; raw?: any };
 
 export default function ImagePage() {
-  const [model, setModel] = useState<'black-forest-labs/flux-kontext-max' | 'google/nano-banana' | 'google/nano-banana-pro' | 'black-forest-labs/flux-krea-dev' | 'stability-ai/stable-diffusion-3' | 'bytedance/hyper-sd'>('black-forest-labs/flux-kontext-max');
+  const [model, setModel] = useState<
+    | 'black-forest-labs/flux-kontext-max'
+    | 'google/nano-banana'
+    | 'google/nano-banana-pro'
+    | 'black-forest-labs/flux-krea-dev'
+    | 'stability-ai/stable-diffusion-3'
+    | 'bytedance/hyper-sd'
+    | 'openai/gpt-image-1.5'
+  >('black-forest-labs/flux-kontext-max');
   const [prompt, setPrompt] = useState('A stunning digital artwork of a futuristic cityscape at sunset, with neon lights reflecting on wet streets');
   const [negativePrompt, setNegativePrompt] = useState('blurry, low quality, distorted, ugly');
   const [aspectRatio, setAspectRatio] = useState('match_input_image');
@@ -17,6 +29,14 @@ export default function ImagePage() {
   const [promptUpsampling, setPromptUpsampling] = useState(false);
   const [resolution, setResolution] = useState<string>('2K');
   const [safetyFilterLevel, setSafetyFilterLevel] = useState<string>('block_only_high');
+
+  const [openAiApiKey, setOpenAiApiKey] = useState('');
+  const [inputFidelity, setInputFidelity] = useState<'low' | 'medium' | 'high'>('low');
+  const [qualityPreset, setQualityPreset] = useState<'standard' | 'high'>('high');
+  const [backgroundSetting, setBackgroundSetting] = useState<'auto' | 'transparent' | 'opaque'>('auto');
+  const [outputCompression, setOutputCompression] = useState<number>(90);
+  const [moderationSetting, setModerationSetting] = useState<'auto' | 'lenient' | 'strict' | 'none'>('auto');
+  const [userId, setUserId] = useState('');
   
   // Advanced parameters
   const [guidance, setGuidance] = useState<number>(7.5);
@@ -37,6 +57,8 @@ export default function ImagePage() {
   const [rawImageUrl, setRawImageUrl] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [kvTaskId, setKvTaskId] = useState<string | null>(null);
+  const supportsMultipleInputImages = MULTI_IMAGE_MODELS.has(model);
+  const maxImageOutputs = model === 'openai/gpt-image-1.5' ? 10 : 4;
 
   const uploadImage = useCallback(async (file: File): Promise<string> => {
     const form = new FormData();
@@ -66,41 +88,58 @@ export default function ImagePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Please sign in at /auth before creating a task.');
 
-      const options: Record<string, any> = { model, prompt };
-      if (model === 'black-forest-labs/flux-kontext-max') {
-        Object.assign(options, {
-          input_image: inputImageUrl || undefined,
-          aspect_ratio: aspectRatio,
-          output_format: outputFormat,
-          seed: seed.trim() === '' ? undefined : Number(seed),
-          safety_tolerance: typeof safetyTolerance === 'number' ? safetyTolerance : undefined,
-          prompt_upsampling: promptUpsampling,
-        });
-      } else if (model === 'google/nano-banana') {
-        Object.assign(options, {
-          image_input: inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined),
-          output_format: outputFormat,
-        });
-      } else if (model === 'google/nano-banana-pro') {
-        Object.assign(options, {
-          image_input: inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined),
-          aspect_ratio: aspectRatio,
-          resolution: resolution,
-          output_format: outputFormat,
-          safety_filter_level: safetyFilterLevel,
-        });
-      } else if (model === 'black-forest-labs/flux-krea-dev') {
-        Object.assign(options, {
-          image: inputImageUrl || undefined,
-          // Default to 1:1 if previous value is not applicable
-          aspect_ratio: ['1:1','16:9','21:9','3:2','2:3','4:5','5:4','3:4','4:3','9:16','9:21'].includes(aspectRatio) ? aspectRatio : '1:1',
-          output_format: outputFormat || 'webp',
-          seed: seed.trim() === '' ? undefined : Number(seed),
-          guidance,
-          num_outputs: Math.min(4, Math.max(1, Number(numOutputs) || 1)),
-          output_quality: Math.min(100, Math.max(0, Number(outputQuality) || 80)),
-        });
-      }
+      const buildModelOptions = (includeSensitive = false): Record<string, any> => {
+        const normalizedFormat = model === 'openai/gpt-image-1.5' && outputFormat === 'jpg' ? 'jpeg' : outputFormat;
+        const sanitizedFluxAspect = FLUX_KONTEXT_ASPECT_RATIOS.includes(aspectRatio as (typeof FLUX_KONTEXT_ASPECT_RATIOS)[number])
+          ? aspectRatio
+          : 'match_input_image';
+        const sanitizedGenericAspect = GENERIC_ASPECT_RATIOS.includes(aspectRatio as (typeof GENERIC_ASPECT_RATIOS)[number])
+          ? aspectRatio
+          : '1:1';
+        const seedNumber = seed.trim() === '' ? undefined : Number(seed);
+        const uploadedImages = inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined);
+        const clampOutputs = (max: number) => Math.min(max, Math.max(1, Number(numOutputs) || 1));
+        const base: Record<string, any> = { model, prompt, output_format: normalizedFormat };
+
+        if (model === 'black-forest-labs/flux-kontext-max') {
+          Object.assign(base, {
+            input_image: inputImageUrl || undefined,
+            aspect_ratio: sanitizedFluxAspect,
+            seed: seedNumber,
+            safety_tolerance: typeof safetyTolerance === 'number' ? safetyTolerance : undefined,
+            prompt_upsampling: promptUpsampling,
+          });
+        } else if (model === 'google/nano-banana') {
+          base.image_input = uploadedImages;
+        } else if (model === 'google/nano-banana-pro') {
+          base.image_input = uploadedImages;
+          base.aspect_ratio = sanitizedGenericAspect;
+          base.resolution = resolution;
+          base.safety_filter_level = safetyFilterLevel;
+        } else if (model === 'black-forest-labs/flux-krea-dev') {
+          base.input_image = inputImageUrl || undefined;
+          base.aspect_ratio = sanitizedGenericAspect;
+          base.seed = seedNumber;
+          (base as any).guidance = guidance;
+          (base as any).num_outputs = clampOutputs(4);
+          (base as any).output_quality = Math.min(100, Math.max(0, Number(outputQuality) || 80));
+        } else if (model === 'openai/gpt-image-1.5') {
+          base.aspect_ratio = sanitizedGenericAspect;
+          if (uploadedImages && uploadedImages.length) base.input_images = uploadedImages;
+          base.input_fidelity = inputFidelity;
+          base.quality = qualityPreset;
+          base.background = backgroundSetting;
+          base.number_of_images = clampOutputs(10);
+          base.output_compression = Math.min(100, Math.max(0, Number(outputCompression) || 0));
+          base.moderation = moderationSetting;
+          if (userId.trim()) base.user_id = userId.trim();
+          if (includeSensitive && openAiApiKey.trim()) base.openai_api_key = openAiApiKey.trim();
+        }
+
+        return base;
+      };
+
+      const options = buildModelOptions(false);
 
       // Create KV task (Cloudflare KV for /tasks page)
       try {
@@ -144,32 +183,7 @@ export default function ImagePage() {
       const res = await fetch('/api/image/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify((() => {
-          const base: Record<string, any> = { model, prompt, output_format: outputFormat };
-          if (model === 'black-forest-labs/flux-kontext-max') {
-            base.input_image = inputImageUrl || undefined;
-            base.aspect_ratio = aspectRatio;
-            base.seed = seed.trim() === '' ? undefined : Number(seed);
-            base.safety_tolerance = typeof safetyTolerance === 'number' ? safetyTolerance : undefined;
-            base.prompt_upsampling = promptUpsampling;
-          } else if (model === 'google/nano-banana') {
-            base.image_input = inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined);
-          } else if (model === 'google/nano-banana-pro') {
-            base.image_input = inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined);
-            base.aspect_ratio = aspectRatio;
-            base.resolution = resolution;
-            base.safety_filter_level = safetyFilterLevel;
-          } else if (model === 'black-forest-labs/flux-krea-dev') {
-            // Prefer using input_image to align with server mapping, server also accepts image
-            base.input_image = inputImageUrl || undefined;
-            base.aspect_ratio = ['1:1','16:9','21:9','3:2','2:3','4:5','5:4','3:4','4:3','9:16','9:21'].includes(aspectRatio) ? aspectRatio : '1:1';
-            base.seed = seed.trim() === '' ? undefined : Number(seed);
-            (base as any).guidance = guidance;
-            (base as any).num_outputs = Math.min(4, Math.max(1, Number(numOutputs) || 1));
-            (base as any).output_quality = Math.min(100, Math.max(0, Number(outputQuality) || 80));
-          }
-          return base;
-        })()),
+        body: JSON.stringify(buildModelOptions(true)),
       });
       if (!res.ok) throw new Error(await res.text());
       const json = (await res.json()) as ImageResponse;
@@ -249,6 +263,7 @@ export default function ImagePage() {
               <option value="black-forest-labs/flux-krea-dev">FLUX Krea Dev (Fast)</option>
               <option value="google/nano-banana">Google Nano Banana</option>
               <option value="google/nano-banana-pro">Google Nano Banana Pro 🍌🍌</option>
+              <option value="openai/gpt-image-1.5">OpenAI GPT Image 1.5</option>
               <option value="stability-ai/stable-diffusion-3">Stable Diffusion 3</option>
               <option value="bytedance/hyper-sd">ByteDance Hyper-SD</option>
             </select>
@@ -292,7 +307,7 @@ export default function ImagePage() {
               if (!files.length) return;
               try {
                 const urls = await Promise.all(files.map(f=>uploadImage(f)));
-                if (model === 'google/nano-banana' || model === 'google/nano-banana-pro') setInputImageUrls(prev => [...prev, ...urls]);
+                if (supportsMultipleInputImages) setInputImageUrls(prev => [...prev, ...urls]);
                 else setInputImageUrl(urls[0]);
               } catch (err: any) {
                 setError(err?.message || 'Upload failed');
@@ -302,13 +317,13 @@ export default function ImagePage() {
               const input = document.createElement('input');
               input.type = 'file';
               input.accept = 'image/*';
-              if (model === 'google/nano-banana' || model === 'google/nano-banana-pro') (input as any).multiple = true;
+              if (supportsMultipleInputImages) (input as any).multiple = true;
               input.onchange = async ()=>{
                 const files = Array.from(input.files || []);
                 if (!files.length) return;
                 try {
                   const urls = await Promise.all(files.map(f=>uploadImage(f)));
-                  if (model === 'google/nano-banana' || model === 'google/nano-banana-pro') setInputImageUrls(prev => [...prev, ...urls]);
+                  if (supportsMultipleInputImages) setInputImageUrls(prev => [...prev, ...urls]);
                   else setInputImageUrl(urls[0]);
                 } catch (err: any) {
                   setError(err?.message || 'Upload failed');
@@ -320,7 +335,7 @@ export default function ImagePage() {
             <div className="dnd-icon">🖼️</div>
             <div className="dnd-title">Reference Image</div>
             <div className="dnd-subtitle">PNG/JPG/GIF/WebP • Optional for image editing</div>
-            {model === 'google/nano-banana' || model === 'google/nano-banana-pro' ? (
+            {supportsMultipleInputImages ? (
               inputImageUrls.length > 0 && (
                 <div className="fileInfo" style={{marginTop:'var(--space-3)', display:'flex', flexWrap:'wrap', gap:'var(--space-2)'}}>
                   {inputImageUrls.map((url, idx) => (
@@ -340,7 +355,7 @@ export default function ImagePage() {
               )
             )}
           </div>
-          {model === 'google/nano-banana' || model === 'google/nano-banana-pro' ? (
+          {supportsMultipleInputImages ? (
             inputImageUrls.length > 0 && (
               <button className="btn" style={{marginTop:8}} onClick={()=>setInputImageUrls([])}>Clear images</button>
             )
@@ -356,13 +371,13 @@ export default function ImagePage() {
           <div>
             <div className="small">Aspect Ratio</div>
             <select className="select" value={aspectRatio} onChange={(e)=>setAspectRatio(e.target.value)}>
-              {model === 'black-forest-labs/flux-kontext-max' ? 
-                ['match_input_image','1:1','16:9','9:16','4:3','3:4','3:2','2:3','4:5','5:4','21:9','9:21','2:1','1:2'].map(a => (
-                  <option key={a} value={a}>{a}</option>
-                )) :
-                ['1:1','16:9','21:9','3:2','2:3','4:5','5:4','3:4','4:3','9:16','9:21'].map(a => (
-                  <option key={a} value={a}>{a}</option>
-                ))
+              {model === 'black-forest-labs/flux-kontext-max'
+                ? FLUX_KONTEXT_ASPECT_RATIOS.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))
+                : GENERIC_ASPECT_RATIOS.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))
               }
             </select>
           </div>
@@ -372,7 +387,7 @@ export default function ImagePage() {
             <select className="select" value={outputFormat} onChange={(e)=>setOutputFormat(e.target.value as any)}>
               <option value="png">PNG</option>
               <option value="jpg">JPG</option>
-              {model === 'black-forest-labs/flux-krea-dev' && (
+              {(model === 'black-forest-labs/flux-krea-dev' || model === 'openai/gpt-image-1.5') && (
                 <option value="webp">WebP</option>
               )}
             </select>
@@ -384,8 +399,8 @@ export default function ImagePage() {
           </div>
 
           <div>
-            <div className="small">Number of Images</div>
-            <input className="input" type="number" min={1} max={4} value={numOutputs} onChange={(e)=>setNumOutputs(parseInt(e.target.value || '1'))} />
+            <div className="small">Number of Images (max {maxImageOutputs})</div>
+            <input className="input" type="number" min={1} max={maxImageOutputs} value={numOutputs} onChange={(e)=>setNumOutputs(parseInt(e.target.value || '1'))} />
           </div>
         </div>
 
@@ -450,6 +465,78 @@ export default function ImagePage() {
           </div>
         )}
 
+        {model === 'openai/gpt-image-1.5' && (
+          <>
+            <div className="options">
+              <div style={{gridColumn:'span 2'}}>
+                <div className="small">OpenAI API Key (optional)</div>
+                <input
+                  className="input"
+                  type="password"
+                  value={openAiApiKey}
+                  onChange={(e)=>setOpenAiApiKey(e.target.value)}
+                  placeholder="sk-..."
+                />
+                <div className="small" style={{marginTop:4, fontSize:12, opacity:0.8}}>Leave blank to use the shared proxy key.</div>
+              </div>
+              <div>
+                <div className="small">Input Fidelity</div>
+                <select className="select" value={inputFidelity} onChange={(e)=>setInputFidelity(e.target.value as any)}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+              <div>
+                <div className="small">Quality</div>
+                <select className="select" value={qualityPreset} onChange={(e)=>setQualityPreset(e.target.value as any)}>
+                  <option value="standard">Standard</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+            </div>
+            <div className="options">
+              <div>
+                <div className="small">Background</div>
+                <select className="select" value={backgroundSetting} onChange={(e)=>setBackgroundSetting(e.target.value as any)}>
+                  <option value="auto">Auto</option>
+                  <option value="transparent">Transparent</option>
+                  <option value="opaque">Opaque</option>
+                </select>
+              </div>
+              <div>
+                <div className="small">Moderation</div>
+                <select className="select" value={moderationSetting} onChange={(e)=>setModerationSetting(e.target.value as any)}>
+                  <option value="auto">Auto</option>
+                  <option value="lenient">Lenient</option>
+                  <option value="strict">Strict</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div>
+                <div className="small">Output Compression (%)</div>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={outputCompression}
+                  onChange={(e)=>setOutputCompression(Math.min(100, Math.max(0, parseInt(e.target.value || '0') || 0)))}
+                />
+              </div>
+              <div style={{gridColumn:'span 2'}}>
+                <div className="small">User ID (optional)</div>
+                <input
+                  className="input"
+                  value={userId}
+                  onChange={(e)=>setUserId(e.target.value)}
+                  placeholder="user-123"
+                />
+              </div>
+            </div>
+          </>
+        )}
+
         <button className="btn" style={{ marginTop: 12 }} disabled={!prompt.trim() || isLoading} onClick={runImage}>
           {isLoading ? 'Generating…' : 'Generate image'}
         </button>
@@ -457,5 +544,3 @@ export default function ImagePage() {
     </div>
   );
 }
-
-

@@ -1,3 +1,6 @@
+export const runtime = 'nodejs';
+export const maxDuration = 1800;
+
 import { NextRequest } from 'next/server';
 import Replicate from 'replicate';
 
@@ -25,9 +28,36 @@ type FluxKontextInput = {
   prompt_upsampling?: boolean;
 };
 
+type OpenAiGptImageInput = {
+  prompt: string;
+  openai_api_key?: string;
+  aspect_ratio?: string;
+  input_fidelity?: string;
+  input_images?: string[];
+  number_of_images?: number;
+  quality?: string;
+  background?: string;
+  output_compression?: number;
+  output_format?: string;
+  moderation?: string;
+  user_id?: string;
+};
+
+type ImageRequestBody = Partial<FluxKontextInput> &
+  Partial<OpenAiGptImageInput> & {
+    model?: string;
+    image_input?: string[];
+    image?: string;
+    resolution?: string;
+    safety_filter_level?: string;
+    guidance?: number;
+    num_outputs?: number;
+    output_quality?: number;
+  };
+
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as (Partial<FluxKontextInput> & { model?: string; image_input?: string[]; output_format?: 'jpg' | 'png'; aspect_ratio?: string; resolution?: string; safety_filter_level?: string }) | null;
+    const body = (await req.json()) as ImageRequestBody | null;
     if (!body || !body.prompt || typeof body.prompt !== 'string') {
       return new Response('Missing required field: prompt', { status: 400 });
     }
@@ -42,6 +72,7 @@ export async function POST(req: NextRequest) {
       'google/nano-banana',
       'google/nano-banana-pro',
       'black-forest-labs/flux-krea-dev',
+      'openai/gpt-image-1.5',
     ]);
     const model = allowedModels.has(String(body.model || ''))
       ? String(body.model)
@@ -82,6 +113,53 @@ export async function POST(req: NextRequest) {
       }
       if (typeof (body as any).safety_filter_level === 'string') {
         input.safety_filter_level = (body as any).safety_filter_level;
+      }
+    } else if (model === 'openai/gpt-image-1.5') {
+      const format = typeof body.output_format === 'string' ? body.output_format.toLowerCase() : undefined;
+      input = {
+        prompt: body.prompt,
+        output_format: format === 'jpg' ? 'jpeg' : (format || 'webp'),
+      };
+      const maybeImages =
+        Array.isArray((body as any).input_images) && (body as any).input_images.length > 0
+          ? (body as any).input_images
+          : Array.isArray((body as any).image_input) && (body as any).image_input.length > 0
+              ? (body as any).image_input
+              : null;
+      if (maybeImages) {
+        const sanitized = (maybeImages as unknown[])
+          .map((url) => (typeof url === 'string' ? url.trim() : null))
+          .filter((url): url is string => Boolean(url));
+        if (sanitized.length > 0) input.input_images = sanitized;
+      }
+      if (typeof (body as any).aspect_ratio === 'string' && (body as any).aspect_ratio.trim()) {
+        input.aspect_ratio = (body as any).aspect_ratio.trim();
+      }
+      if (typeof (body as any).input_fidelity === 'string' && (body as any).input_fidelity.trim()) {
+        input.input_fidelity = (body as any).input_fidelity.trim();
+      }
+      if (typeof (body as any).quality === 'string' && (body as any).quality.trim()) {
+        input.quality = (body as any).quality.trim();
+      }
+      if (typeof (body as any).background === 'string' && (body as any).background.trim()) {
+        input.background = (body as any).background.trim();
+      }
+      if (typeof (body as any).number_of_images === 'number' && Number.isFinite((body as any).number_of_images)) {
+        const n = Math.min(10, Math.max(1, Math.floor((body as any).number_of_images)));
+        input.number_of_images = n;
+      }
+      if (typeof (body as any).output_compression === 'number' && Number.isFinite((body as any).output_compression)) {
+        const compression = Math.min(100, Math.max(0, Math.floor((body as any).output_compression)));
+        input.output_compression = compression;
+      }
+      if (typeof (body as any).moderation === 'string' && (body as any).moderation.trim()) {
+        input.moderation = (body as any).moderation.trim();
+      }
+      if (typeof (body as any).user_id === 'string' && (body as any).user_id.trim()) {
+        input.user_id = (body as any).user_id.trim();
+      }
+      if (typeof (body as any).openai_api_key === 'string' && (body as any).openai_api_key.trim()) {
+        input.openai_api_key = (body as any).openai_api_key.trim();
       }
     } else if (model === 'black-forest-labs/flux-krea-dev') {
       input = {
@@ -134,5 +212,3 @@ export async function POST(req: NextRequest) {
     return new Response(`Error: ${err.message}`, { status: 500 });
   }
 }
-
-
