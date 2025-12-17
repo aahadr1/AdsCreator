@@ -1,5 +1,5 @@
 export const runtime = 'nodejs';
-export const maxDuration = 1800;
+export const maxDuration = 300;
 
 import { NextRequest } from 'next/server';
 import Replicate from 'replicate';
