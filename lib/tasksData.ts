@@ -89,17 +89,22 @@ export function mergeTaskRecords(
   return typeof limit === 'number' ? merged.slice(0, limit) : merged;
 }
 
-export async function fetchSupabaseTaskRecords(userId: string, limit: number): Promise<TaskRecord[]> {
+export async function fetchSupabaseTaskRecords(userId: string, limit?: number): Promise<TaskRecord[]> {
   if (!userId) return [];
 
   try {
     const supabase = createSupabaseServer();
-    const { data, error } = await supabase
+    let query = supabase
       .from('tasks')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+      .order('created_at', { ascending: false });
+
+    if (typeof limit === 'number' && Number.isFinite(limit)) {
+      query = query.limit(Math.max(1, limit));
+    }
+
+    const { data, error } = await query;
 
     if (error || !Array.isArray(data) || data.length === 0) {
       return [];
@@ -174,5 +179,4 @@ export function serializeTaskRecord(record: TaskRecord): SerializedTask {
     user_id: record.user_id ?? null,
   };
 }
-
 

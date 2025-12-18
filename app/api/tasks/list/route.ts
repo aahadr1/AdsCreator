@@ -14,7 +14,19 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const userId = (searchParams.get('user_id') || '').trim();
-    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50', 10) || 50, 1), 100);
+    const limitParamRaw = (searchParams.get('limit') || '').trim().toLowerCase();
+    let requestedLimit: number;
+    if (!limitParamRaw || limitParamRaw === 'all') {
+      requestedLimit = Number.POSITIVE_INFINITY;
+    } else {
+      const parsed = parseInt(limitParamRaw, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        requestedLimit = Math.min(parsed, 5000);
+      } else {
+        requestedLimit = Number.POSITIVE_INFINITY;
+      }
+    }
+    const isUnlimited = !Number.isFinite(requestedLimit);
     const cursor = searchParams.get('cursor');
     const controller = new AbortController();
 
@@ -22,37 +34,87 @@ export async function GET(req: NextRequest) {
     const timeoutMs = Math.min(Math.max(parseInt(searchParams.get('timeout_ms') || '2500', 10) || 2500, 500), 5000);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
+    const maxPageSize = 100;
     let tasks: TaskRecord[] = [];
     let nextCursor: string | null = null;
+    let metaScanUsed = false;
+    let kvCursor = cursor;
 
-    try {
+    const fetchKvPage = async (pageLimit: number, cursorToken: string | null): Promise<{ pageTasks: TaskRecord[]; cursor: string | null }> => {
+      let pageTasks: TaskRecord[] = [];
+      let cursorValue: string | null = null;
+
       if (userId) {
-        // Fast path: user-scoped prefix prevents global scans
         const userPrefix = `${taskListPrefix}${userId}:`;
-        const { keys, cursor: c } = await kvListKeysPage({ prefix: userPrefix, config, limit, cursor });
-        nextCursor = c;
+        const { keys, cursor: c } = await kvListKeysPage({
+          prefix: userPrefix,
+          config,
+          limit: pageLimit,
+          cursor: cursorToken ?? undefined,
+        });
+        cursorValue = c;
         if (keys.length) {
           const values = await kvGetMany<TaskRecord>({ keys, config, concurrency: 10 });
-          tasks = values.filter(Boolean) as TaskRecord[];
+          pageTasks = values.filter(Boolean) as TaskRecord[];
         }
-        // Fallback: if no user-prefixed keys found, scan a small global window and prefilter by metadata
-        if (tasks.length === 0) {
-          const { items } = await kvListKeysPageMeta({ prefix: taskListPrefix, config, limit: Math.min(limit, 100), cursor });
-          const matched = items.filter(it => (it.metadata as any)?.user_id === userId).map(it => it.name).slice(0, limit);
+        if (pageTasks.length === 0 && !metaScanUsed) {
+          metaScanUsed = true;
+          const { items } = await kvListKeysPageMeta({
+            prefix: taskListPrefix,
+            config,
+            limit: pageLimit,
+            cursor: cursorToken ?? undefined,
+          });
+          const matched = items
+            .filter((it) => (it.metadata as any)?.user_id === userId)
+            .map((it) => it.name)
+            .slice(0, pageLimit);
           if (matched.length) {
             const values = await kvGetMany<TaskRecord>({ keys: matched, config, concurrency: 10 });
-            tasks = values.filter(Boolean) as TaskRecord[];
+            pageTasks = values.filter(Boolean) as TaskRecord[];
           }
+          cursorValue = null;
         }
       } else {
-        // Legacy fallback: scan a small window of global tasks with strict cap
-        const { keys } = await kvListKeysPage({ prefix: taskListPrefix, config, limit: Math.min(limit, 50), cursor });
+        const { keys, cursor: c } = await kvListKeysPage({
+          prefix: taskListPrefix,
+          config,
+          limit: pageLimit,
+          cursor: cursorToken ?? undefined,
+        });
+        cursorValue = c;
         if (keys.length) {
           const values = await kvGetMany<TaskRecord>({ keys, config, concurrency: 8 });
-          tasks = (values.filter(Boolean) as TaskRecord[]).slice(0, limit);
+          pageTasks = values.filter(Boolean) as TaskRecord[];
         }
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('tasks/list: using legacy global scan without user_id; pass user_id to avoid slow scans');
+      }
+
+      return { pageTasks, cursor: cursorValue };
+    };
+
+    try {
+      let loops = 0;
+      while (true) {
+        const remaining = Number.isFinite(requestedLimit) ? (requestedLimit as number) - tasks.length : Infinity;
+        if (remaining <= 0) {
+          nextCursor = kvCursor;
+          break;
+        }
+        const pageLimit = Number.isFinite(remaining) ? Math.max(1, Math.min(maxPageSize, remaining)) : maxPageSize;
+        const { pageTasks, cursor: updatedCursor } = await fetchKvPage(pageLimit, kvCursor);
+        if (pageTasks.length) {
+          tasks.push(...pageTasks);
+        }
+        kvCursor = updatedCursor;
+        const exhausted = !updatedCursor || pageTasks.length === 0;
+        if (exhausted || (!isUnlimited && tasks.length >= requestedLimit)) {
+          nextCursor = updatedCursor;
+          break;
+        }
+        loops += 1;
+        if (loops > 200) {
+          nextCursor = updatedCursor;
+          break;
         }
       }
     } catch (err) {
@@ -63,8 +125,14 @@ export async function GET(req: NextRequest) {
       clearTimeout(timeout);
     }
 
-    const supabaseTasks = await fetchSupabaseTaskRecords(userId, limit);
-    const merged = mergeTaskRecords(tasks, supabaseTasks, limit);
+    if (!Number.isFinite(requestedLimit)) {
+      nextCursor = null;
+    } else if (Number.isFinite(requestedLimit) && typeof requestedLimit === 'number' && requestedLimit > 0) {
+      tasks = tasks.slice(0, requestedLimit);
+    }
+
+    const supabaseTasks = await fetchSupabaseTaskRecords(userId, Number.isFinite(requestedLimit) ? requestedLimit : undefined);
+    const merged = mergeTaskRecords(tasks, supabaseTasks, Number.isFinite(requestedLimit) ? requestedLimit : undefined);
     const serialized = merged.map(serializeTaskRecord);
     const body = JSON.stringify({ tasks: serialized, cursor: nextCursor });
     const duration = String(Date.now() - started);
@@ -75,5 +143,4 @@ export async function GET(req: NextRequest) {
     return new Response(`Error: ${e.message}`, { status: 500 });
   }
 }
-
 

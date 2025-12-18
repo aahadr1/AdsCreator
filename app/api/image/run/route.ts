@@ -2,7 +2,8 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 import { NextRequest } from 'next/server';
-import Replicate from 'replicate';
+
+const REPLICATE_API = 'https://api.replicate.com/v1';
 
 type FluxKontextInput = {
   prompt: string;
@@ -64,8 +65,6 @@ export async function POST(req: NextRequest) {
 
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return new Response('Server misconfigured: missing REPLICATE_API_TOKEN', { status: 500 });
-
-    const replicate = new Replicate({ auth: token });
 
     const allowedModels = new Set([
       'black-forest-labs/flux-kontext-max',
@@ -174,40 +173,34 @@ export async function POST(req: NextRequest) {
       if (typeof (body as any).num_outputs === 'number') input.num_outputs = Math.min(4, Math.max(1, (body as any).num_outputs));
       if (typeof (body as any).output_quality === 'number') input.output_quality = Math.min(100, Math.max(0, (body as any).output_quality));
     }
-
-    const output = (await replicate.run(model as `${string}/${string}`, { input })) as unknown;
-
-    let url: string | null = null;
-    if (Array.isArray(output) && output.length > 0) {
-      // Some models return an array of URLs or file-like objects
-      for (const item of output as any[]) {
-        if (typeof item === 'string') {
-          url = item;
-          break;
-        }
-        if (item && typeof item === 'object') {
-          if (typeof item.url === 'function') {
-            try { url = item.url(); } catch {}
-            if (url) break;
-          }
-          if (typeof item.url === 'string') {
-            url = item.url;
-            break;
-          }
-        }
-      }
+    const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
+      headers: { Authorization: `Token ${token}` },
+      cache: 'no-store',
+    });
+    if (!modelRes.ok) {
+      return new Response(await modelRes.text(), { status: modelRes.status });
     }
-    if (!url && output && typeof output === 'object' && 'url' in (output as any) && typeof (output as any).url === 'function') {
-      try { url = (output as any).url(); } catch {}
-    }
-    if (!url && typeof output === 'string') {
-      url = output;
-    }
-    if (!url && output && typeof (output as any).url === 'string') {
-      url = (output as any).url;
+    const modelJson = await modelRes.json();
+    const versionId = modelJson?.latest_version?.id;
+    if (!versionId) {
+      return new Response('No latest version found for model', { status: 404 });
     }
 
-    return Response.json({ url, raw: output });
+    const res = await fetch(`${REPLICATE_API}/predictions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Token ${token}`,
+      },
+      body: JSON.stringify({ version: versionId, input }),
+    });
+
+    if (!res.ok) {
+      return new Response(await res.text(), { status: res.status });
+    }
+
+    const prediction = await res.json();
+    return Response.json({ id: prediction.id, status: prediction.status });
   } catch (err: any) {
     return new Response(`Error: ${err.message}`, { status: 500 });
   }

@@ -147,6 +147,13 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
     credits: 5,
     description: 'AI image creation and manipulation',
   },
+  'openai/gpt-image-1.5': {
+    name: 'GPT Image 1.5',
+    category: 'other',
+    credits: 14,
+    provider: 'OpenAI',
+    description: 'Latest OpenAI image model with better instruction following and fidelity',
+  },
   'transcription': {
     name: 'Transcription',
     category: 'other',
@@ -159,6 +166,13 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
     credits: 35,
     provider: 'Google',
     description: 'Advanced AI video generation',
+  },
+  'kwaivgi/kling-v2.5-turbo-pro': {
+    name: 'Kling 2.5 Turbo Pro',
+    category: 'other',
+    credits: 40,
+    provider: 'Kwaivgi',
+    description: 'Premium text-to-video & image-to-video creation with smooth cinematic motion',
   },
 };
 

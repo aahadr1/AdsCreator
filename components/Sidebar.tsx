@@ -3,90 +3,102 @@
 import React from 'react';
 import { usePathname } from 'next/navigation';
 import {
-  Home,
-  Mic,
-  FileText,
-  Video,
-  Image,
-  Sparkles,
-  Music,
-  PenTool,
-  Scissors,
-  Download,
-  Search,
-  Monitor,
+  Activity,
   Cpu,
   Database,
-  Activity,
+  Download,
+  FileText,
+  Home,
+  Image as ImageIcon,
   LogIn,
+  Mic,
+  Monitor,
+  Music,
+  Search,
   Settings,
-  Zap
+  Sparkles,
+  Scissors,
+  Video,
+  Zap,
 } from 'lucide-react';
 import { CreditCounter } from './CreditCounter';
 
-type NavItem = {
+type NavLink = {
   href: string;
   label: string;
   icon: React.ReactNode;
-  accent?: boolean;
+  description?: string;
+  badge?: string;
   disabled?: boolean;
 };
 
-type NavGroup = {
+type NavSection = {
   title: string;
   description?: string;
-  items: NavItem[];
+  items: NavLink[];
 };
 
-const navGroups: NavGroup[] = [
+type QuickAction = {
+  href: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+};
+
+const quickActions: QuickAction[] = [
+  { href: '/lipsync-new', label: 'New Lipsync', description: 'Swap dialogue in minutes', icon: <Mic size={18} /> },
+  { href: '/veo', label: 'Generate Video', description: 'VEO · Sora · Kling', icon: <Video size={18} /> },
+  { href: '/image', label: 'Create Image', description: 'Flux · GPT Image 1.5', icon: <ImageIcon size={18} /> },
+  { href: '/tasks', label: 'View Tasks', description: 'Live production queue', icon: <Activity size={18} /> },
+];
+
+const navSections: NavSection[] = [
   {
     title: 'Workspace',
     description: 'Monitor and manage your creative operations',
     items: [
-      { href: '/', label: 'Home', icon: <Home size={18} /> },
-      { href: '/tasks', label: 'Tasks', icon: <Activity size={18} /> },
-      { href: '/library', label: 'Library', icon: <Database size={18} /> },
-      { href: '/spy', label: 'Spy Tool', icon: <Search size={18} /> },
+      { href: '/', label: 'Home', icon: <Home size={18} />, description: 'Command center' },
+      { href: '/tasks', label: 'Tasks', icon: <Activity size={18} />, description: 'Track progress' },
+      { href: '/library', label: 'Library', icon: <Database size={18} />, description: 'Asset archive' },
+      { href: '/spy', label: 'Spy Tool', icon: <Search size={18} />, description: 'Competitor insights', badge: 'Pro' },
     ],
   },
   {
     title: 'Create',
-    description: 'Launch new AI-powered production flows',
+    description: 'Launch new AI-powered flows',
     items: [
-      { href: '/lipsync-new', label: '+ New Lipsync', icon: <Mic size={18} />, accent: true },
-      { href: '/transcription/bulk', label: '+ Bulk Transcription', icon: <FileText size={18} />, accent: true },
-      { href: '/veo', label: '+ New Video', icon: <Video size={18} />, accent: true },
-      { href: '/image', label: '+ New Image', icon: <Image size={18} />, accent: true },
-      { href: '/enhance', label: '+ New Enhance', icon: <Sparkles size={18} />, accent: true },
-      { href: '/tts', label: '+ New Text to Speech', icon: <Music size={18} />, accent: true },
-      { href: '/adscript', label: '+ New Ad Script', icon: <PenTool size={18} />, accent: true },
-      { href: '/auto-edit', label: '+ Auto Edit (New)', icon: <Cpu size={18} />, accent: true },
-      { href: '/auto-edit-beta', label: 'Auto Edit Beta', icon: <Cpu size={18} /> },
+      { href: '/lipsync-new', label: 'Lipsync Studio', icon: <Mic size={18} />, description: 'Voices & dialogue', badge: 'New' },
+      { href: '/veo', label: 'Video Generation', icon: <Video size={18} />, description: 'VEO · Sora · Kling' },
+      { href: '/image', label: 'Image Lab', icon: <ImageIcon size={18} />, description: 'Flux · GPT Image' },
+      { href: '/enhance', label: 'Enhance Footage', icon: <Sparkles size={18} />, description: 'Upscale & polish' },
+      { href: '/tts', label: 'Text to Speech', icon: <Music size={18} />, description: 'Narration & VO' },
+      { href: '/transcription/bulk', label: 'Bulk Transcription', icon: <FileText size={18} />, description: 'Batch transcripts' },
+      { href: '/auto-edit-beta', label: 'Auto Edit Beta', icon: <Cpu size={18} />, description: 'Automated cuts', badge: 'Beta' },
     ],
   },
   {
-    title: 'Enhance & Utilities',
-    description: 'Finish assets and pull resources into your workflow',
+    title: 'Utilities',
+    description: 'Polish and download assets',
     items: [
-      { href: '/background-remove', label: 'Remove Background', icon: <Scissors size={18} />, accent: true },
-      { href: '/download', label: 'TikTok Downloader', icon: <Download size={18} /> },
-      { href: '/editor', label: 'Editor', icon: <Monitor size={18} /> },
+      { href: '/background-remove', label: 'Background Remove', icon: <Scissors size={18} />, description: 'Image + Video' },
+      { href: '/download', label: 'TikTok Downloader', icon: <Download size={18} />, description: 'Grab references' },
+      { href: '/editor', label: 'Editor', icon: <Monitor size={18} />, description: 'Frame-accurate edits' },
     ],
   },
   {
     title: 'Account',
     description: 'Credits, billing, and access',
     items: [
-      { href: '/credits', label: 'Credits', icon: <Zap size={18} /> },
-      { href: '/billing', label: 'Plan & Billing', icon: <Settings size={18} /> },
-      { href: '/auth', label: 'Sign in / Up', icon: <LogIn size={18} /> },
-      { href: '#', label: 'Settings (soon)', icon: <Settings size={18} />, disabled: true },
+      { href: '/credits', label: 'Credits', icon: <Zap size={18} />, description: 'Usage + limits' },
+      { href: '/billing', label: 'Billing', icon: <Settings size={18} />, description: 'Plans & invoices' },
+      { href: '/auth', label: 'Sign in / Up', icon: <LogIn size={18} />, description: 'Workspace access' },
     ],
   },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const year = new Date().getFullYear();
 
   return (
     <aside className="sidebar">
@@ -106,31 +118,44 @@ export function Sidebar() {
         </div>
 
         <div className="sidebar-scroll">
-          {navGroups.map((group) => (
-            <section className="nav-section" key={group.title}>
-              <div className="nav-section-header">
-                <div>
-                  <div className="nav-section-title">{group.title}</div>
-                  {group.description && <div className="nav-section-description">{group.description}</div>}
+          <div className="sidebar-quick-actions">
+            {quickActions.map((action) => (
+              <a key={action.href} href={action.href} className="sidebar-quick-card">
+                <div className="sidebar-quick-icon">{action.icon}</div>
+                <div className="sidebar-quick-copy">
+                  <span>{action.label}</span>
+                  <p>{action.description}</p>
                 </div>
+              </a>
+            ))}
+          </div>
+
+          {navSections.map((section) => (
+            <section className="sidebar-section" key={section.title}>
+              <div className="sidebar-section-heading">
+                <p>{section.title}</p>
+                {section.description && <span>{section.description}</span>}
               </div>
-              <div className="nav-card">
-                {group.items.map((item) => {
+              <div className="sidebar-nav-grid">
+                {section.items.map((item) => {
                   const isActive = pathname === item.href;
-                  const isAccent = item.accent;
                   return (
                     <a
                       key={item.href}
                       href={item.href}
-                      className={`nav-item ${isActive ? 'nav-item-active' : ''} ${isAccent ? 'nav-item-accent' : ''} ${
-                        item.disabled ? 'nav-item-disabled' : ''
-                      }`}
+                      className={`sidebar-nav-item ${isActive ? 'active' : ''} ${item.disabled ? 'disabled' : ''}`}
+                      aria-current={isActive ? 'page' : undefined}
                       onClick={item.disabled ? (e) => e.preventDefault() : undefined}
-                      title={item.label}
                     >
-                      <span className="nav-item-indicator" aria-hidden />
-                      <span className="nav-item-icon">{item.icon}</span>
-                      <span className="nav-item-label">{item.label}</span>
+                      <span className="sidebar-nav-indicator" aria-hidden />
+                      <div className="sidebar-nav-icon">{item.icon}</div>
+                      <div className="sidebar-nav-copy">
+                        <div className="sidebar-nav-title">
+                          <span>{item.label}</span>
+                          {item.badge && <span className="sidebar-nav-badge">{item.badge}</span>}
+                        </div>
+                        {item.description && <p>{item.description}</p>}
+                      </div>
                     </a>
                   );
                 })}
@@ -139,24 +164,20 @@ export function Sidebar() {
           ))}
         </div>
 
-        <div className="sidebar-bottom">
-          <div className="sidebar-credits-card">
-            <div className="sidebar-credits-header">
-              <div>
-                <div className="sidebar-credits-title">Credits</div>
-                <div className="sidebar-credits-subtitle">Track usage in real time</div>
-              </div>
-              <span className="sidebar-chip">Live</span>
+        <div className="sidebar-footer-card">
+          <div className="sidebar-credits-header">
+            <div>
+              <div className="sidebar-credits-title">Credits</div>
+              <div className="sidebar-credits-subtitle">Track usage in real time</div>
             </div>
-            <CreditCounter />
+            <span className="sidebar-chip">Live</span>
           </div>
+          <CreditCounter />
+        </div>
 
-          <div className="sidebar-footer">
-            <div className="sidebar-watermark">AdzCreator</div>
-            <div className="sidebar-copyright">
-              © {new Date().getFullYear()} AdzCreator
-            </div>
-          </div>
+        <div className="sidebar-footer-meta">
+          <span>© {year} AdzCreator</span>
+          <span>Build fast · Iterate daily</span>
         </div>
       </div>
     </aside>
