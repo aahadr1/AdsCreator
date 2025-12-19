@@ -24,7 +24,14 @@ export async function POST(req: NextRequest) {
     }
 
     const r2 = createR2Client({ accountId: r2AccountId, accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey, bucket, publicBaseUrl });
-    await ensureR2Bucket(r2, bucket);
+    try {
+      await ensureR2Bucket(r2, bucket);
+    } catch (err: any) {
+      // If bucket already exists or caller lacks create permissions, continue and attempt upload.
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('ensureR2Bucket skipped:', err?.message || err);
+      }
+    }
 
     const fileExt = typeof (file as any).name === 'string' ? (file as any).name.split('.').pop() : (filename || 'bin').split('.').pop();
     const safeName = (filename || (typeof (file as any).name === 'string' ? (file as any).name : `upload.${fileExt}`))
