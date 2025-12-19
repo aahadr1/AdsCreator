@@ -18,9 +18,9 @@ const POLL_INTERVAL_MS = 6000;
 const SUCCESS_FLASH_MS = 8000;
 const ICON_BASE_SIZE = 64;
 const DOT_RADIUS = 9;
-const DOT_VERTICAL_OFFSET = 6;
+const DOT_VERTICAL_OFFSET = 14;
 const CANVAS_HEIGHT = ICON_BASE_SIZE + DOT_RADIUS * 2 + DOT_VERTICAL_OFFSET;
-const RECENT_TASK_WINDOW_MS = 5 * 60 * 1000;
+const RECENT_TASK_WINDOW_MS = 10 * 60 * 1000;
 
 export function FaviconTaskIndicator() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -151,10 +151,10 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=15`, { cache: 'no-store' });
+        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=all`, { cache: 'no-store' });
         if (!res.ok) throw new Error();
         const json = (await res.json()) as {
-          tasks?: Array<{ status?: string | null; created_at?: string | null }>;
+          tasks?: Array<{ status?: string | null; created_at?: string | null; updated_at?: string | null }>;
         };
         const tasks = Array.isArray(json.tasks) ? json.tasks : [];
         const now = Date.now();
@@ -167,10 +167,17 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
         };
 
         const running = tasks.some((task) => {
-          const ts = parseTime(task.created_at);
-          if (!Number.isFinite(ts) || ts < recentThreshold) return false;
+          const ts = parseTime(task.updated_at || task.created_at);
+          const recentEnough = Number.isFinite(ts) ? ts >= recentThreshold : true;
           const status = String(task?.status || '').toLowerCase();
-          return /running|processing|queued|pending|in_progress/.test(status);
+          return recentEnough && /running|processing|queued|pending|in_progress/.test(status);
+        });
+
+        const hasRecentSuccess = tasks.some((task) => {
+          const ts = parseTime(task.updated_at || task.created_at);
+          const recentEnough = Number.isFinite(ts) ? ts >= recentThreshold : true;
+          const status = String(task?.status || '').toLowerCase();
+          return recentEnough && /finished|completed|succeeded|success/.test(status);
         });
 
         if (running) {
@@ -179,7 +186,7 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
           return;
         }
 
-        if (hadRunningRef.current) {
+        if (hadRunningRef.current || hasRecentSuccess) {
           hadRunningRef.current = false;
           setFaviconState('success');
           if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);

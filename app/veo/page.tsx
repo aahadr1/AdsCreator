@@ -207,31 +207,61 @@ const GOOGLE_MODELS = new Set<VideoModel>(
 const KLING_MODELS = new Set<VideoModel>(['kwaivgi/kling-v2.5-turbo-pro', 'kwaivgi/kling-v2.1']);
 
 type VeoResponse = { url?: string | null; raw?: any };
+type VideoJobRecord = {
+  id: string;
+  label: string;
+  prompt: string;
+  imageUrl: string;
+  resolution: '720p' | '1080p';
+  seed: string;
+  startFrameUrl: string;
+  endFrameUrl: string;
+  inputValues: Record<string, any>;
+  status: 'idle' | 'running' | 'success' | 'error';
+  videoUrl: string | null;
+  rawVideoUrl: string | null;
+  error: string | null;
+  kvTaskId: string | null;
+};
+
+const DEFAULT_JOB_PROMPT =
+  'Woman holding the product facing the camera with slight but sharp hand movements. Keep her face locked on camera and avoid rotating the product.';
+
+const makeJob = (index: number): VideoJobRecord => ({
+  id: `video-job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  label: `Generation ${index}`,
+  prompt: DEFAULT_JOB_PROMPT,
+  imageUrl: '',
+  resolution: '720p',
+  seed: '',
+  startFrameUrl: '',
+  endFrameUrl: '',
+  inputValues: {},
+  status: 'idle',
+  videoUrl: null,
+  rawVideoUrl: null,
+  error: null,
+  kvTaskId: null,
+});
 
 export default function VeoPage() {
   const [model, setModel] = useState<VideoModel>(DEFAULT_MODEL);
-  const [prompt, setPrompt] = useState('Woman holding the product facing the camera with slight but sharp hand movements. Keep her face locked on camera and avoid rotating the product.');
-  const [imageUrl, setImageUrl] = useState('');
+  const initialJob = useMemo(() => makeJob(1), []);
+  const [jobs, setJobs] = useState<VideoJobRecord[]>(() => [initialJob]);
+  const [activeJobId, setActiveJobId] = useState<string>(initialJob.id);
+  const [applyPromptToAll, setApplyPromptToAll] = useState(true);
+  const [sharedPrompt, setSharedPrompt] = useState(initialJob.prompt);
   const [negativePrompt, setNegativePrompt] = useState('');
-  const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
-  const [seed, setSeed] = useState<string>('');
-  const [startFrameUrl, setStartFrameUrl] = useState('');
-  const [endFrameUrl, setEndFrameUrl] = useState('');
 
   const [dragImage, setDragImage] = useState(false);
   const [dragStart, setDragStart] = useState(false);
   const [dragEnd, setDragEnd] = useState(false);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [rawVideoUrl, setRawVideoUrl] = useState<string | null>(null);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [kvTaskId, setKvTaskId] = useState<string | null>(null);
+  const [isBatchRunning, setIsBatchRunning] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [inputSchema, setInputSchema] = useState<any | null>(null);
-  const [inputValues, setInputValues] = useState<Record<string, any>>({});
 
   const selectedModelMeta = useMemo(() => VIDEO_MODELS.find((m) => m.value === model), [model]);
   const selectedModelDoc = useMemo(() => VIDEO_MODEL_DOCS[model] || null, [model]);
@@ -239,6 +269,43 @@ export default function VeoPage() {
   const isKlingModel = useMemo(() => KLING_MODELS.has(model), [model]);
   const klingRequiresStartImage = model === 'kwaivgi/kling-v2.1';
   const supportsNegativePrompt = isGoogleModel || Boolean(inputSchema?.properties?.negative_prompt);
+  const activeJob = useMemo(() => jobs.find((job) => job.id === activeJobId) ?? jobs[0], [jobs, activeJobId]);
+
+  const updateJob = useCallback((jobId: string, updater: (prev: VideoJobRecord) => VideoJobRecord) => {
+    setJobs((prev) => prev.map((job) => (job.id === jobId ? updater(job) : job)));
+  }, []);
+
+  const patchJob = useCallback(
+    (jobId: string, patch: Partial<VideoJobRecord>) => {
+      updateJob(jobId, (job) => ({ ...job, ...patch }));
+    },
+    [updateJob],
+  );
+
+  const addJob = useCallback(() => {
+    setJobs((prev) => {
+      const base = makeJob(prev.length + 1);
+      const jobToAdd = applyPromptToAll ? { ...base, prompt: sharedPrompt } : base;
+      const next = [...prev, jobToAdd];
+      setActiveJobId(jobToAdd.id);
+      return next;
+    });
+  }, [applyPromptToAll, sharedPrompt]);
+
+  const removeJob = useCallback(
+    (jobId: string) => {
+      setJobs((prev) => {
+        if (prev.length === 1) return prev;
+        const filtered = prev.filter((job) => job.id !== jobId);
+        const relabeled = filtered.map((job, index) => ({ ...job, label: `Generation ${index + 1}` }));
+        if (!relabeled.find((job) => job.id === activeJobId)) {
+          setActiveJobId(relabeled[0].id);
+        }
+        return relabeled;
+      });
+    },
+    [activeJobId],
+  );
 
   const uploadImage = useCallback(async (file: File): Promise<string> => {
     const form = new FormData();
@@ -262,11 +329,17 @@ export default function VeoPage() {
   }, []);
 
   useEffect(() => {
+    const reset = makeJob(1);
+    setJobs([reset]);
+    setActiveJobId(reset.id);
+    setSharedPrompt(reset.prompt);
+  }, [model]);
+
+  useEffect(() => {
     const loadSchema = async () => {
       setSchemaLoading(true);
       setSchemaError(null);
       setInputSchema(null);
-      setInputValues({});
       try {
         const res = await fetch(`/api/replicate/schema?model=${encodeURIComponent(model)}`, { cache: 'no-store' });
         if (!res.ok) throw new Error(await res.text());
@@ -311,36 +384,51 @@ export default function VeoPage() {
     } catch { return url; }
   }
 
-  async function runVeo() {
-    let kvIdLocal: string | null = null;
-    setIsLoading(true);
-    setError(null);
-    setVideoUrl(null);
-    try {
-      // Create task records so it appears in /tasks (KV) and optionally Supabase if needed
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('Please sign in at /auth before creating a task.');
-      }
+  const jobPromptValue = (job: VideoJobRecord) =>
+    (applyPromptToAll ? sharedPrompt : job.prompt).trim();
 
-      const isGoogle = isGoogleModel;
-      const dynamicInput: Record<string, any> = { ...inputValues };
-      if (isGoogle) {
-        if (imageUrl) dynamicInput.image = imageUrl;
-        dynamicInput.resolution = resolution;
-        if (seed.trim() !== '') dynamicInput.seed = Number(seed);
-        if (startFrameUrl) dynamicInput.start_frame = startFrameUrl;
-        if (endFrameUrl) dynamicInput.end_frame = endFrameUrl;
+  async function runBatch(jobIds?: string[]) {
+    const targets = jobs.filter((job) => (jobIds ? jobIds.includes(job.id) : true));
+    if (!targets.length) return;
+    setIsBatchRunning(true);
+    setGlobalError(null);
+    try {
+      for (const job of targets) {
+        await runSingleJob(job);
+      }
+    } finally {
+      setIsBatchRunning(false);
+    }
+  }
+
+  async function runSingleJob(job: VideoJobRecord) {
+    const promptValue = jobPromptValue(job);
+    if (model !== 'wan-video/wan-2.2-animate-replace' && !promptValue) {
+      patchJob(job.id, { status: 'error', error: 'Prompt required' });
+      return;
+    }
+
+    let kvIdLocal: string | null = null;
+    patchJob(job.id, { status: 'running', error: null, videoUrl: null, rawVideoUrl: null });
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Please sign in at /auth before creating a task.');
+
+      const dynamicInput: Record<string, any> = { ...job.inputValues };
+      if (isGoogleModel) {
+        if (job.imageUrl) dynamicInput.image = job.imageUrl;
+        dynamicInput.resolution = job.resolution;
+        if (job.seed.trim() !== '') dynamicInput.seed = Number(job.seed);
+        if (job.startFrameUrl) dynamicInput.start_frame = job.startFrameUrl;
+        if (job.endFrameUrl) dynamicInput.end_frame = job.endFrameUrl;
       }
       const trimmedNegative = negativePrompt.trim();
       if (supportsNegativePrompt && trimmedNegative) {
         dynamicInput.negative_prompt = trimmedNegative;
       }
-      // Client-side validation for Wan Animate Replace
+
       if (model === 'wan-video/wan-2.2-animate-replace') {
-        const v = dynamicInput.video;
-        const ci = dynamicInput.character_image;
-        if (!v || typeof v !== 'string' || !ci || typeof ci !== 'string') {
+        if (!dynamicInput.video || !dynamicInput.character_image) {
           throw new Error('Please provide both video and character_image files.');
         }
         if (dynamicInput.refert_num !== undefined) {
@@ -357,14 +445,12 @@ export default function VeoPage() {
         }
       }
 
-      // Coerce types based on loaded schema to avoid string values for numbers/integers
       if (inputSchema?.properties && typeof inputSchema.properties === 'object') {
         for (const [key, prop] of Object.entries<any>(inputSchema.properties)) {
           if (!(key in dynamicInput)) continue;
           const val = dynamicInput[key];
           if (val === undefined || val === null || val === '') continue;
           const declaredType = prop?.type;
-          // If enum is numeric but type missing, infer from first enum
           const isEnumNumeric = Array.isArray(prop?.enum) && prop.enum.length > 0 && typeof prop.enum[0] === 'number';
           if (declaredType === 'integer' || (isEnumNumeric && Number.isInteger(Number(val)))) {
             const parsed = parseInt(String(val));
@@ -378,7 +464,6 @@ export default function VeoPage() {
 
       const options = { model, ...dynamicInput } as Record<string, any>;
 
-      // Create KV task
       try {
         const createRes = await fetch('/api/tasks/create', {
           method: 'POST',
@@ -390,14 +475,14 @@ export default function VeoPage() {
             provider: 'replicate',
             model_id: model,
             options_json: options,
-            text_input: prompt,
+            text_input: promptValue,
             image_url: dynamicInput.image || null,
-          })
+          }),
         });
         if (createRes.ok) {
           const created = await createRes.json();
           kvIdLocal = created?.id || null;
-          setKvTaskId(kvIdLocal);
+          patchJob(job.id, { kvTaskId: kvIdLocal });
         }
       } catch {}
 
@@ -406,7 +491,7 @@ export default function VeoPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          prompt,
+          prompt: promptValue,
           input: dynamicInput,
         }),
       });
@@ -415,32 +500,38 @@ export default function VeoPage() {
       if (!json.url) throw new Error('No video URL returned');
       const persisted = await persistUrlIfPossible(json.url);
       const proxied = `/api/proxy?type=video&url=${encodeURIComponent(persisted)}`;
-      setRawVideoUrl(persisted);
-      setVideoUrl(proxied);
+      patchJob(job.id, { status: 'success', rawVideoUrl: persisted, videoUrl: proxied });
 
-      // Update KV task
       if (kvIdLocal) {
         try {
           await fetch('/api/tasks/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: kvIdLocal, status: 'finished', output_url: persisted })
+            body: JSON.stringify({ id: kvIdLocal, status: 'finished', output_url: persisted }),
           });
         } catch {}
       }
     } catch (e: any) {
-      setError(e?.message || 'Failed to generate video');
-      if (kvTaskId) {
-        try { await fetch('/api/tasks/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: kvTaskId, status: 'error' }) }); } catch {}
+      const message = e?.message || 'Failed to generate video';
+      patchJob(job.id, { status: 'error', error: message });
+      const targetKv = kvIdLocal || job.kvTaskId;
+      if (targetKv) {
+        try {
+          await fetch('/api/tasks/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: targetKv, status: 'error' }),
+          });
+        } catch {}
       }
-    } finally {
-      setIsLoading(false);
+      setGlobalError((prev) => prev ?? message);
     }
   }
 
+  const activeInputs = activeJob?.inputValues ?? {};
   const isAnimateReplace = model === 'wan-video/wan-2.2-animate-replace';
-  const animateMissingRequired = isAnimateReplace && (!inputValues.video || !inputValues.character_image);
-  const klingStartMissing = klingRequiresStartImage && !inputValues.start_image;
+  const animateMissingRequired = isAnimateReplace && (!activeInputs.video || !activeInputs.character_image);
+  const klingStartMissing = klingRequiresStartImage && !activeInputs.start_image;
 
   return (
     <div className="page-template generator fade-in">
@@ -466,28 +557,48 @@ export default function VeoPage() {
                 <h2 style={{margin:0}}>Output</h2>
               </div>
               <div className="outputArea">
-                {videoUrl ? (
-                  <div>
-                    <video controls preload="metadata" playsInline style={{ width: '100%', borderRadius: 8 }} onError={()=> setError('Failed to load video. Try the direct link below.') }>
-                      <source src={videoUrl} type="video/mp4" />
-                      {rawVideoUrl && rawVideoUrl !== videoUrl ? (
-                        <source src={rawVideoUrl} />
-                      ) : null}
-                    </video>
-                    <div className="small" style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                      <a href={videoUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open via proxy</a>
-                      {rawVideoUrl ? (
-                        <a href={rawVideoUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open direct</a>
-                      ) : null}
-                      <a href={`${videoUrl}${videoUrl.includes('?') ? '&' : '?'}download=true`} style={{padding:'8px 12px', background:'var(--accent)', color:'var(--color-black)', borderRadius:'6px', textDecoration:'none'}}>Download</a>
+                {jobs.map((job) => (
+                  <div key={job.id} className="veo-output-card">
+                    <div className="veo-output-header">
+                      <div className="veo-output-title">
+                        <span>{job.label}</span>
+                        <span className={`status-pill ${job.status}`}>{job.status}</span>
+                      </div>
+                      <button className="tiny-link" onClick={() => runBatch([job.id])} disabled={isBatchRunning}>
+                        Rerun
+                      </button>
                     </div>
+                    {job.videoUrl ? (
+                      <>
+                        <video
+                          controls
+                          preload="metadata"
+                          playsInline
+                          style={{ width: '100%', borderRadius: 8 }}
+                          onError={() => patchJob(job.id, { error: 'Failed to load video. Try the direct link below.' })}
+                        >
+                          <source src={job.videoUrl} type="video/mp4" />
+                          {job.rawVideoUrl && job.rawVideoUrl !== job.videoUrl ? <source src={job.rawVideoUrl} /> : null}
+                        </video>
+                        <div className="small" style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
+                          <a href={job.videoUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open via proxy</a>
+                          {job.rawVideoUrl ? (
+                            <a href={job.rawVideoUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open direct</a>
+                          ) : null}
+                          <a href={`${job.videoUrl}${job.videoUrl.includes('?') ? '&' : '?'}download=true`} style={{padding:'8px 12px', background:'var(--accent)', color:'var(--color-black)', borderRadius:'6px', textDecoration:'none'}}>Download</a>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{fontSize:16, color:'#b7c2df'}}>Generated video will appear here.</div>
+                    )}
+                    {job.error && (
+                      <div className="small" style={{ marginTop: 'var(--space-2)', color: '#ff7878' }}>{job.error}</div>
+                    )}
                   </div>
-                ) : (
-                  <div style={{fontSize:16, color:'#b7c2df'}}>Generated video will appear here.</div>
-                )}
+                ))}
               </div>
-              {error && (
-                <div className="small" style={{ color: '#ff7878' }}>{error}</div>
+              {globalError && (
+                <div className="small" style={{ color: '#ff7878' }}>{globalError}</div>
               )}
             </div>
 
@@ -518,6 +629,34 @@ export default function VeoPage() {
                   )}
                 </section>
 
+                <section className="veo-control-card">
+                  <div className="veo-job-tabs">
+                    {jobs.map((job) => (
+                      <button
+                        key={job.id}
+                        type="button"
+                        className={`veo-job-tab ${job.id === activeJobId ? 'active' : ''}`}
+                        onClick={()=>setActiveJobId(job.id)}
+                      >
+                        <span>{job.label}</span>
+                        <span className={`status-pill ${job.status}`}>{job.status}</span>
+                      </button>
+                    ))}
+                    <button type="button" className="veo-job-tab add" onClick={addJob}>+ Add</button>
+                    {jobs.length > 1 && (
+                      <button type="button" className="veo-job-tab remove" onClick={()=>removeJob(activeJobId)}>Remove</button>
+                    )}
+                  </div>
+                  <label className="apply-all-toggle">
+                    <input
+                      type="checkbox"
+                      checked={applyPromptToAll}
+                      onChange={(e)=>setApplyPromptToAll(e.target.checked)}
+                    />
+                    Apply shared prompt to all jobs
+                  </label>
+                </section>
+
                 {isKlingModel && (
                   <section className="veo-info-banner">
                     <strong>Kling tip:</strong>{' '}
@@ -531,8 +670,15 @@ export default function VeoPage() {
                   <div className="small">Video Prompt{model === 'wan-video/wan-2.2-animate-replace' ? ' (optional)' : ''}</div>
                   <textarea
                     className="input"
-                    value={prompt}
-                    onChange={(e)=>setPrompt(e.target.value)}
+                    value={applyPromptToAll ? sharedPrompt : (activeJob?.prompt ?? '')}
+                    onChange={(e)=>{
+                      const next = e.target.value;
+                      if (applyPromptToAll) {
+                        setSharedPrompt(next);
+                      } else if (activeJob) {
+                        patchJob(activeJob.id, { prompt: next });
+                      }
+                    }}
                     rows={4}
                     placeholder="Describe the video you want to generate in detail..."
                   />
@@ -565,9 +711,9 @@ export default function VeoPage() {
                           if (f && f.type.startsWith('image/')) {
                             try {
                               const url = await uploadImage(f);
-                              setImageUrl(url);
+                              if (activeJob) patchJob(activeJob.id, { imageUrl: url });
                             } catch (err: any) {
-                              setError(err?.message || 'Upload failed');
+                              setGlobalError(err?.message || 'Upload failed');
                             }
                           }
                         }}
@@ -580,9 +726,9 @@ export default function VeoPage() {
                             if (f) {
                               try {
                                 const url = await uploadImage(f);
-                                setImageUrl(url);
+                                if (activeJob) patchJob(activeJob.id, { imageUrl: url });
                               } catch (err: any) {
-                                setError(err?.message || 'Upload failed');
+                                setGlobalError(err?.message || 'Upload failed');
                               }
                             }
                           };
@@ -592,15 +738,15 @@ export default function VeoPage() {
                         <div className="dnd-icon">🖼️</div>
                         <div className="dnd-title">Reference Image</div>
                         <div className="dnd-subtitle">PNG/JPG • ideal 1280x720</div>
-                        {imageUrl && (
+                        {activeJob?.imageUrl && (
                           <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                            <img src={imageUrl} alt="reference" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                            <div className="small" style={{marginTop:'var(--space-2)'}}><a href={imageUrl} target="_blank" rel="noreferrer">Open image</a></div>
+                            <img src={activeJob.imageUrl} alt="reference" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                            <div className="small" style={{marginTop:'var(--space-2)'}}><a href={activeJob.imageUrl} target="_blank" rel="noreferrer">Open image</a></div>
                           </div>
                         )}
                       </div>
-                      {imageUrl && (
-                        <button className="btn" style={{marginTop:8}} onClick={()=>setImageUrl('')}>Clear image</button>
+                      {activeJob?.imageUrl && (
+                        <button className="btn" style={{marginTop:8}} onClick={()=>patchJob(activeJob.id, { imageUrl: '' })}>Clear image</button>
                       )}
                     </div>
 
@@ -611,49 +757,49 @@ export default function VeoPage() {
                           className={`dnd ${dragStart ? 'drag' : ''}`}
                           onDragOver={(e)=>{e.preventDefault(); setDragStart(true);}}
                           onDragLeave={(e)=>{e.preventDefault(); setDragStart(false);}}
-                          onDrop={async (e)=>{
-                            e.preventDefault();
-                            setDragStart(false);
-                            const f = e.dataTransfer.files?.[0];
-                            if (f && f.type.startsWith('image/')) {
-                              try {
-                                const url = await uploadImage(f);
-                                setStartFrameUrl(url);
-                              } catch (err: any) {
-                                setError(err?.message || 'Upload failed');
-                              }
+                        onDrop={async (e)=>{
+                          e.preventDefault();
+                          setDragStart(false);
+                          const f = e.dataTransfer.files?.[0];
+                          if (f && f.type.startsWith('image/')) {
+                            try {
+                              const url = await uploadImage(f);
+                              if (activeJob) patchJob(activeJob.id, { startFrameUrl: url });
+                            } catch (err: any) {
+                              setGlobalError(err?.message || 'Upload failed');
                             }
-                          }}
-                          onClick={()=>{
-                            const input = document.createElement('input');
+                          }
+                        }}
+                        onClick={()=>{
+                          const input = document.createElement('input');
                             input.type = 'file';
                             input.accept = 'image/*';
                             input.onchange = async ()=>{
-                              const f = (input.files?.[0]) || null;
-                              if (f) {
-                                try {
-                                  const url = await uploadImage(f);
-                                  setStartFrameUrl(url);
-                                } catch (err: any) {
-                                  setError(err?.message || 'Upload failed');
-                                }
+                            const f = (input.files?.[0]) || null;
+                            if (f) {
+                              try {
+                                const url = await uploadImage(f);
+                                if (activeJob) patchJob(activeJob.id, { startFrameUrl: url });
+                              } catch (err: any) {
+                                setGlobalError(err?.message || 'Upload failed');
                               }
-                            };
-                            input.click();
-                          }}
+                            }
+                          };
+                          input.click();
+                        }}
                         >
                           <div className="dnd-icon">🎬</div>
                           <div className="dnd-title">Start Frame</div>
                           <div className="dnd-subtitle">PNG/JPG</div>
-                          {startFrameUrl && (
+                          {activeJob?.startFrameUrl && (
                             <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                              <img src={startFrameUrl} alt="start" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                              <div className="small" style={{marginTop:'var(--space-2)'}}><a href={startFrameUrl} target="_blank" rel="noreferrer">Open start</a></div>
+                              <img src={activeJob.startFrameUrl} alt="start" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                              <div className="small" style={{marginTop:'var(--space-2)'}}><a href={activeJob.startFrameUrl} target="_blank" rel="noreferrer">Open start</a></div>
                             </div>
                           )}
                         </div>
-                        {startFrameUrl && (
-                          <button className="btn" style={{marginTop:8}} onClick={()=>setStartFrameUrl('')}>Clear start</button>
+                        {activeJob?.startFrameUrl && (
+                          <button className="btn" style={{marginTop:8}} onClick={()=>patchJob(activeJob.id, { startFrameUrl: '' })}>Clear start</button>
                         )}
                       </div>
 
@@ -663,49 +809,49 @@ export default function VeoPage() {
                           className={`dnd ${dragEnd ? 'drag' : ''}`}
                           onDragOver={(e)=>{e.preventDefault(); setDragEnd(true);}}
                           onDragLeave={(e)=>{e.preventDefault(); setDragEnd(false);}}
-                          onDrop={async (e)=>{
-                            e.preventDefault();
-                            setDragEnd(false);
-                            const f = e.dataTransfer.files?.[0];
-                            if (f && f.type.startsWith('image/')) {
-                              try {
-                                const url = await uploadImage(f);
-                                setEndFrameUrl(url);
-                              } catch (err: any) {
-                                setError(err?.message || 'Upload failed');
-                              }
+                        onDrop={async (e)=>{
+                          e.preventDefault();
+                          setDragEnd(false);
+                          const f = e.dataTransfer.files?.[0];
+                          if (f && f.type.startsWith('image/')) {
+                            try {
+                              const url = await uploadImage(f);
+                              if (activeJob) patchJob(activeJob.id, { endFrameUrl: url });
+                            } catch (err: any) {
+                              setGlobalError(err?.message || 'Upload failed');
                             }
-                          }}
-                          onClick={()=>{
-                            const input = document.createElement('input');
+                          }
+                        }}
+                        onClick={()=>{
+                          const input = document.createElement('input');
                             input.type = 'file';
                             input.accept = 'image/*';
                             input.onchange = async ()=>{
-                              const f = (input.files?.[0]) || null;
-                              if (f) {
-                                try {
-                                  const url = await uploadImage(f);
-                                  setEndFrameUrl(url);
-                                } catch (err: any) {
-                                  setError(err?.message || 'Upload failed');
-                                }
+                            const f = (input.files?.[0]) || null;
+                            if (f) {
+                              try {
+                                const url = await uploadImage(f);
+                                if (activeJob) patchJob(activeJob.id, { endFrameUrl: url });
+                              } catch (err: any) {
+                                setGlobalError(err?.message || 'Upload failed');
                               }
-                            };
-                            input.click();
-                          }}
+                            }
+                          };
+                          input.click();
+                        }}
                         >
                           <div className="dnd-icon">🏁</div>
                           <div className="dnd-title">End Frame</div>
                           <div className="dnd-subtitle">PNG/JPG</div>
-                          {endFrameUrl && (
+                          {activeJob?.endFrameUrl && (
                             <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                              <img src={endFrameUrl} alt="end" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                              <div className="small" style={{marginTop:'var(--space-2)'}}><a href={endFrameUrl} target="_blank" rel="noreferrer">Open end</a></div>
+                              <img src={activeJob.endFrameUrl} alt="end" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                              <div className="small" style={{marginTop:'var(--space-2)'}}><a href={activeJob.endFrameUrl} target="_blank" rel="noreferrer">Open end</a></div>
                             </div>
                           )}
                         </div>
-                        {endFrameUrl && (
-                          <button className="btn" style={{marginTop:8}} onClick={()=>setEndFrameUrl('')}>Clear end</button>
+                        {activeJob?.endFrameUrl && (
+                          <button className="btn" style={{marginTop:8}} onClick={()=>patchJob(activeJob.id, { endFrameUrl: '' })}>Clear end</button>
                         )}
                       </div>
                     </div>
@@ -740,9 +886,14 @@ export default function VeoPage() {
                                   if (f) {
                                     try {
                                       const url = await uploadMedia(f);
-                                      setInputValues(v => ({ ...v, [fieldKey]: url }));
+                                      if (activeJob) {
+                                        updateJob(activeJob.id, (job) => ({
+                                          ...job,
+                                          inputValues: { ...job.inputValues, [fieldKey]: url },
+                                        }));
+                                      }
                                     } catch (err: any) {
-                                      setError(err?.message || 'Upload failed');
+                                      setGlobalError(err?.message || 'Upload failed');
                                     }
                                   }
                                 }}
@@ -755,9 +906,14 @@ export default function VeoPage() {
                                     if (f) {
                                       try {
                                         const url = await uploadMedia(f);
-                                        setInputValues(v => ({ ...v, [fieldKey]: url }));
+                                        if (activeJob) {
+                                          updateJob(activeJob.id, (job) => ({
+                                            ...job,
+                                            inputValues: { ...job.inputValues, [fieldKey]: url },
+                                          }));
+                                        }
                                       } catch (err: any) {
-                                        setError(err?.message || 'Upload failed');
+                                        setGlobalError(err?.message || 'Upload failed');
                                       }
                                     }
                                   };
@@ -767,19 +923,29 @@ export default function VeoPage() {
                                 <div className="dnd-icon">📎</div>
                                 <div className="dnd-title">{fieldKey}</div>
                                 <div className="dnd-subtitle">{fieldKey === 'video' ? 'Video' : (fieldKey === 'character_image' ? 'Image' : 'Image/Video')} • {Array.isArray(inputSchema?.required) && inputSchema.required.includes(fieldKey) ? 'Required' : 'Optional'}</div>
-                                {inputValues[fieldKey] && (
+                                {activeInputs[fieldKey] && (
                                   <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                                    {String(inputValues[fieldKey]).match(/\.(mp4|mov|webm)(\?|$)/i) ? (
-                                      <video src={inputValues[fieldKey]} controls style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                                    {String(activeInputs[fieldKey]).match(/\.(mp4|mov|webm)(\?|$)/i) ? (
+                                      <video src={activeInputs[fieldKey]} controls style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
                                     ) : (
-                                      <img src={inputValues[fieldKey]} alt={fieldKey} style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                                      <img src={activeInputs[fieldKey]} alt={fieldKey} style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
                                     )}
-                                    <div className="small" style={{marginTop:'var(--space-2)'}}><a href={inputValues[fieldKey]} target="_blank" rel="noreferrer">Open</a></div>
+                                    <div className="small" style={{marginTop:'var(--space-2)'}}><a href={activeInputs[fieldKey]} target="_blank" rel="noreferrer">Open</a></div>
                                   </div>
                                 )}
                               </div>
-                              {inputValues[fieldKey] && (
-                                <button className="btn" style={{marginTop:8}} onClick={()=>setInputValues(v => { const n = { ...v }; delete n[fieldKey]; return n; })}>Clear {fieldKey}</button>
+                              {activeInputs[fieldKey] && activeJob && (
+                                <button
+                                  className="btn"
+                                  style={{marginTop:8}}
+                                  onClick={()=>updateJob(activeJob.id, (job) => {
+                                    const next = { ...job.inputValues };
+                                    delete next[fieldKey];
+                                    return { ...job, inputValues: next };
+                                  })}
+                                >
+                                  Clear {fieldKey}
+                                </button>
                               )}
                             </div>
                           ))}
@@ -799,12 +965,16 @@ export default function VeoPage() {
                                   <div className="small">{title}{required ? ' *' : ''}</div>
                                   <select
                                     className="select"
-                                    value={inputValues[key] ?? schema.default ?? ''}
+                                    value={activeInputs[key] ?? schema.default ?? ''}
                                     onChange={(e)=>{
                                       const val = e.target.value;
-                                      setInputValues(v=>({
-                                        ...v,
-                                        [key]: isNumericEnum ? (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)) : val
+                                      if (!activeJob) return;
+                                      updateJob(activeJob.id, (job) => ({
+                                        ...job,
+                                        inputValues: {
+                                          ...job.inputValues,
+                                          [key]: isNumericEnum ? (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)) : val,
+                                        },
                                       }));
                                     }}
                                   >
@@ -830,10 +1000,17 @@ export default function VeoPage() {
                                     step={step}
                                     min={schema?.minimum ?? undefined}
                                     max={schema?.maximum ?? undefined}
-                                    value={inputValues[key] ?? ''}
+                                    value={activeInputs[key] ?? ''}
                                     onChange={(e)=>{
+                                      if (!activeJob) return;
                                       const val = e.target.value;
-                                      setInputValues(v=>({ ...v, [key]: val === '' ? undefined : (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)) }));
+                                      updateJob(activeJob.id, (job) => ({
+                                        ...job,
+                                        inputValues: {
+                                          ...job.inputValues,
+                                          [key]: val === '' ? undefined : (schema?.type === 'integer' ? parseInt(val) : parseFloat(val)),
+                                        },
+                                      }));
                                     }}
                                     placeholder={schema?.description || ''}
                                   />
@@ -845,8 +1022,15 @@ export default function VeoPage() {
                                 <label key={key} className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
                                   <input
                                     type="checkbox"
-                                    checked={!!inputValues[key]}
-                                    onChange={(e)=>setInputValues(v=>({ ...v, [key]: e.target.checked }))}
+                                    checked={!!activeInputs[key]}
+                                    onChange={(e)=>{
+                                      if (!activeJob) return;
+                                      const checked = e.target.checked;
+                                      updateJob(activeJob.id, (job) => ({
+                                        ...job,
+                                        inputValues: { ...job.inputValues, [key]: checked },
+                                      }));
+                                    }}
                                   /> {title}{required ? ' *' : ''}
                                 </label>
                               );
@@ -856,8 +1040,15 @@ export default function VeoPage() {
                                 <div className="small">{title}{required ? ' *' : ''}</div>
                                 <input
                                   className="input"
-                                  value={inputValues[key] ?? ''}
-                                  onChange={(e)=>setInputValues(v=>({ ...v, [key]: e.target.value }))}
+                                  value={activeInputs[key] ?? ''}
+                                  onChange={(e)=>{
+                                    if (!activeJob) return;
+                                    const val = e.target.value;
+                                    updateJob(activeJob.id, (job) => ({
+                                      ...job,
+                                      inputValues: { ...job.inputValues, [key]: val },
+                                    }));
+                                  }}
                                   placeholder={schema?.description || ''}
                                 />
                               </div>
@@ -880,7 +1071,13 @@ export default function VeoPage() {
                     <div className="options" style={{marginTop:0}}>
                       <div>
                         <div className="small">Resolution</div>
-                        <select className="select" value={resolution} onChange={(e)=>setResolution(e.target.value as any)}>
+                        <select
+                          className="select"
+                          value={activeJob?.resolution ?? '720p'}
+                          onChange={(e)=>{
+                            if (activeJob) patchJob(activeJob.id, { resolution: e.target.value as '720p' | '1080p' });
+                          }}
+                        >
                           <option value="720p">720p</option>
                           <option value="1080p">1080p</option>
                         </select>
@@ -888,7 +1085,15 @@ export default function VeoPage() {
 
                       <div>
                         <div className="small">Seed (optional)</div>
-                        <input className="input" type="number" value={seed} onChange={(e)=>setSeed(e.target.value)} placeholder="Random if empty" />
+                        <input
+                          className="input"
+                          type="number"
+                          value={activeJob?.seed ?? ''}
+                          onChange={(e)=>{
+                            if (activeJob) patchJob(activeJob.id, { seed: e.target.value });
+                          }}
+                          placeholder="Random if empty"
+                        />
                       </div>
                     </div>
                   </section>
@@ -904,14 +1109,14 @@ export default function VeoPage() {
                     className="btn"
                     style={{ width: '100%' }}
                     disabled={
-                      isLoading ||
-                      (model !== 'wan-video/wan-2.2-animate-replace' && !prompt.trim()) ||
+                      isBatchRunning ||
+                      (model !== 'wan-video/wan-2.2-animate-replace' && jobs.every((job) => !jobPromptValue(job))) ||
                       animateMissingRequired ||
                       klingStartMissing
                     }
-                    onClick={runVeo}
+                    onClick={()=>runBatch()}
                   >
-                    {isLoading ? 'Generating…' : 'Generate video'}
+                    {isBatchRunning ? 'Generating…' : 'Generate videos'}
                   </button>
                 </section>
               </div>
@@ -926,7 +1131,7 @@ export default function VeoPage() {
               <div>Model</div><div>{selectedModelMeta?.label || model}</div>
               <div>Negative prompt</div><div>{supportsNegativePrompt ? 'Yes' : 'Not exposed'}</div>
               <div>Schema</div><div>{schemaLoading ? 'Loading…' : (schemaError ? 'Error' : 'Loaded')}</div>
-              <div>Inputs set</div><div>{Object.keys(inputValues).length}</div>
+              <div>Inputs set</div><div>{Object.keys(activeInputs).length}</div>
             </div>
           </div>
 

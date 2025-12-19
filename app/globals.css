@@ -882,6 +882,83 @@ input[type="range"]::-moz-range-thumb:hover {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+  position: relative;
+}
+
+.dashboard-section.dashboard-panel,
+.panel-surface {
+  border: 1px solid var(--border);
+  border-radius: 32px;
+  background: radial-gradient(circle at top, rgba(255, 255, 255, 0.03), rgba(10, 10, 10, 0.9));
+  padding: var(--space-8);
+  box-shadow: var(--shadow-soft);
+}
+
+.dashboard-spotlight {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: stretch;
+}
+
+.dashboard-hero-grid {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.dashboard-welcome-card {
+  border: none;
+  border-radius: 28px;
+  padding: var(--space-8);
+  background: linear-gradient(135deg, rgba(73, 82, 255, 0.12), rgba(13, 13, 13, 0.85));
+  min-height: 240px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-welcome-card::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24px;
+  pointer-events: none;
+}
+
+.dashboard-highlight-grid {
+  display: grid;
+  gap: var(--space-4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  padding: var(--space-6);
+  background: rgba(12, 12, 12, 0.8);
+}
+
+.dashboard-highlight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.dashboard-highlight-label {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+}
+
+.dashboard-highlight-value {
+  font-size: var(--font-2xl);
+  font-weight: 600;
+}
+
+.dashboard-highlight-helper {
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+}
+
+@media (max-width: 1100px) {
+  .dashboard-spotlight {
+    grid-template-columns: 1fr;
+  }
 }
 
 .dashboard-section-half {
@@ -1465,7 +1542,7 @@ input[type="range"]::-moz-range-thumb:hover {
 .sidebar {
   border: 1px solid var(--border);
   border-radius: var(--radius-2xl);
-  padding: var(--space-5);
+  padding: var(--space-6);
   background: linear-gradient(180deg, rgba(14, 14, 14, 0.98), rgba(6, 6, 6, 0.92));
   position: sticky;
   top: var(--space-6);
@@ -1489,14 +1566,15 @@ input[type="range"]::-moz-range-thumb:hover {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-6);
   height: 100%;
 }
 
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
-  padding-right: var(--space-1);
+  padding-right: var(--space-2);
+  padding-left: var(--space-1);
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
@@ -1942,14 +2020,14 @@ input[type="range"]::-moz-range-thumb:hover {
 .workspace-content {
   flex: 1;
   overflow: auto;
-  padding: var(--space-8) var(--space-10);
+  padding: var(--space-10) var(--space-12);
 }
 
 .page-shell {
   width: 100%;
   max-width: 1320px;
   margin: 0 auto;
-  padding: 0 var(--space-6) var(--space-8);
+  padding: 0 var(--space-8) var(--space-10);
 }
 
 @media (max-width: 768px) {
@@ -3126,6 +3204,105 @@ input[type="range"]::-moz-range-thumb:hover {
   padding: var(--space-3);
   background: rgba(204, 255, 0, 0.1);
   color: var(--accent);
+  font-size: var(--font-sm);
+}
+
+.veo-job-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.veo-job-tab {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: var(--font-sm);
+}
+
+.veo-job-tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.veo-job-tab.add {
+  border-style: dashed;
+}
+
+.veo-job-tab.remove {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.apply-all-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+}
+
+.apply-all-toggle input {
+  accent-color: var(--accent);
+}
+
+.status-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--border);
+}
+
+.status-pill.success {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.status-pill.running {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.status-pill.error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.veo-output-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-4);
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: var(--space-4);
+}
+
+.veo-output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.veo-output-title {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-weight: 600;
+}
+
+.tiny-link {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
   font-size: var(--font-sm);
 }
 

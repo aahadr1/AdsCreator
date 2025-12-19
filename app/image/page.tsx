@@ -1,7 +1,7 @@
 'use client';
 
 import '../globals.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 const FLUX_KONTEXT_ASPECT_RATIOS = ['match_input_image','1:1','16:9','9:16','4:3','3:4','3:2','2:3','4:5','5:4','21:9','9:21','2:1','1:2'] as const;
@@ -9,6 +9,7 @@ const GENERIC_ASPECT_RATIOS = ['1:1','16:9','21:9','3:2','2:3','4:5','5:4','3:4'
 const MULTI_IMAGE_MODELS = new Set(['google/nano-banana','google/nano-banana-pro','openai/gpt-image-1.5']);
 
 type ReplicateStatus = 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'queued' | 'unknown';
+type ImageJobStatus = 'idle' | 'running' | 'success' | 'error';
 
 type ModelDocExample = {
   title: string;
@@ -95,6 +96,36 @@ const IMAGE_MODEL_DOCS: Record<string, ModelDoc> = {
 
 type ImageResponse = { id?: string | null; status?: string | null };
 
+type ImageJobRecord = {
+  id: string;
+  label: string;
+  prompt: string;
+  inputImages: string[];
+  status: ImageJobStatus;
+  outputUrl: string | null;
+  rawOutputUrl: string | null;
+  error: string | null;
+  kvTaskId: string | null;
+  supabaseTaskId: string | null;
+  predictionId: string | null;
+};
+
+const DEFAULT_IMAGE_PROMPT = 'A stunning digital artwork of a futuristic cityscape at sunset, with neon lights reflecting on wet streets';
+
+const makeImageJob = (index: number): ImageJobRecord => ({
+  id: `image-job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  label: `Generation ${index}`,
+  prompt: DEFAULT_IMAGE_PROMPT,
+  inputImages: [],
+  status: 'idle',
+  outputUrl: null,
+  rawOutputUrl: null,
+  error: null,
+  kvTaskId: null,
+  supabaseTaskId: null,
+  predictionId: null,
+});
+
 export default function ImagePage() {
   const [model, setModel] = useState<
     | 'black-forest-labs/flux-kontext-max'
@@ -105,7 +136,10 @@ export default function ImagePage() {
     | 'bytedance/hyper-sd'
     | 'openai/gpt-image-1.5'
   >('black-forest-labs/flux-kontext-max');
-  const [prompt, setPrompt] = useState('A stunning digital artwork of a futuristic cityscape at sunset, with neon lights reflecting on wet streets');
+  const [jobs, setJobs] = useState<ImageJobRecord[]>(() => [makeImageJob(1)]);
+  const [activeJobId, setActiveJobId] = useState<string>(jobs[0]?.id || '');
+  const [applyPromptToAll, setApplyPromptToAll] = useState(true);
+  const [sharedPrompt, setSharedPrompt] = useState(DEFAULT_IMAGE_PROMPT);
   const [negativePrompt, setNegativePrompt] = useState('blurry, low quality, distorted, ugly');
   const [aspectRatio, setAspectRatio] = useState('match_input_image');
   const [outputFormat, setOutputFormat] = useState<'jpg' | 'png' | 'webp'>('png');
@@ -129,38 +163,62 @@ export default function ImagePage() {
   const [steps, setSteps] = useState<number>(25);
   const [strength, setStrength] = useState<number>(0.8);
 
-  const [inputImageUrl, setInputImageUrl] = useState<string>('');
-  const [inputImageUrls, setInputImageUrls] = useState<string[]>([]);
   const [dragInput, setDragInput] = useState(false);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [rawImageUrl, setRawImageUrl] = useState<string | null>(null);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [kvTaskId, setKvTaskId] = useState<string | null>(null);
-  const [status, setStatus] = useState<ReplicateStatus>('unknown');
-  const [logLines, setLogLines] = useState<string[]>([]);
-  const [predictionId, setPredictionId] = useState<string | null>(null);
+  const [isBatchRunning, setIsBatchRunning] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const supportsMultipleInputImages = MULTI_IMAGE_MODELS.has(model);
   const maxImageOutputs = model === 'openai/gpt-image-1.5' ? 10 : 4;
 
-  const pollRef = useRef<NodeJS.Timeout | null>(null);
-  const lastStatusRef = useRef<ReplicateStatus | null>(null);
-  const hasPersistedOutputRef = useRef(false);
+  const selectedDoc = useMemo(() => IMAGE_MODEL_DOCS[model] || null, [model]);
+const activeJob = useMemo(() => jobs.find((job) => job.id === activeJobId) ?? jobs[0], [jobs, activeJobId]);
+const sharedPromptValue = useMemo(
+  () => (applyPromptToAll ? sharedPrompt : activeJob?.prompt ?? sharedPrompt),
+  [applyPromptToAll, sharedPrompt, activeJob],
+);
 
-  const pushLog = useCallback((line: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogLines((prev) => [...prev, `${timestamp}  ${line}`]);
+  const updateJob = useCallback((jobId: string, updater: (prev: ImageJobRecord) => ImageJobRecord) => {
+    setJobs((prev) => prev.map((job) => (job.id === jobId ? updater(job) : job)));
   }, []);
 
-  const selectedDoc = useMemo(() => IMAGE_MODEL_DOCS[model] || null, [model]);
+  const patchJob = useCallback(
+    (jobId: string, patch: Partial<ImageJobRecord>) => {
+      updateJob(jobId, (job) => ({ ...job, ...patch }));
+    },
+    [updateJob],
+  );
+
+  const addJob = useCallback(() => {
+    setJobs((prev) => {
+      const base = makeImageJob(prev.length + 1);
+      const jobToAdd = applyPromptToAll ? { ...base, prompt: sharedPrompt } : base;
+      const next = [...prev, jobToAdd];
+      setActiveJobId(jobToAdd.id);
+      return next;
+    });
+  }, [applyPromptToAll, sharedPrompt]);
+
+  const removeJob = useCallback(
+    (jobId: string) => {
+      setJobs((prev) => {
+        if (prev.length === 1) return prev;
+        const filtered = prev.filter((job) => job.id !== jobId);
+        const relabeled = filtered.map((job, index) => ({ ...job, label: `Generation ${index + 1}` }));
+        if (!relabeled.find((job) => job.id === activeJobId)) {
+          setActiveJobId(relabeled[0].id);
+        }
+        return relabeled;
+      });
+    },
+    [activeJobId],
+  );
 
   useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
+    const first = makeImageJob(1);
+    setJobs([first]);
+    setActiveJobId(first.id);
+    setSharedPrompt(DEFAULT_IMAGE_PROMPT);
+  }, [model]);
 
   const uploadImage = useCallback(async (file: File): Promise<string> => {
     const form = new FormData();
@@ -187,80 +245,120 @@ export default function ImagePage() {
     }
   }
 
-  async function runImage() {
-    let kvIdLocal: string | null = null;
-    let supabaseTaskId: string | null = null;
-    hasPersistedOutputRef.current = false;
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    setIsLoading(true);
-    setError(null);
-    setImageUrl(null);
-    setRawImageUrl(null);
-    setPredictionId(null);
-    setStatus('queued');
-    setLogLines([]);
-    setTaskId(null);
-    setKvTaskId(null);
+  const buildModelOptionsForJob = (job: ImageJobRecord, includeSensitive = false): Record<string, any> => {
+    const promptValue = applyPromptToAll ? sharedPrompt : job.prompt;
+    const normalizedFormat = model === 'openai/gpt-image-1.5' && outputFormat === 'jpg' ? 'jpeg' : outputFormat;
+    const sanitizedFluxAspect = FLUX_KONTEXT_ASPECT_RATIOS.includes(aspectRatio as (typeof FLUX_KONTEXT_ASPECT_RATIOS)[number])
+      ? aspectRatio
+      : 'match_input_image';
+    const sanitizedGenericAspect = GENERIC_ASPECT_RATIOS.includes(aspectRatio as (typeof GENERIC_ASPECT_RATIOS)[number])
+      ? aspectRatio
+      : '1:1';
+    const seedNumber = seed.trim() === '' ? undefined : Number(seed);
+    const clampOutputs = (max: number) => Math.min(max, Math.max(1, Number(numOutputs) || 1));
+    const base: Record<string, any> = { model, prompt: promptValue, output_format: normalizedFormat };
 
+    if (model === 'black-forest-labs/flux-kontext-max') {
+      Object.assign(base, {
+        input_image: job.inputImages[0] || undefined,
+        aspect_ratio: sanitizedFluxAspect,
+        seed: seedNumber,
+        safety_tolerance: typeof safetyTolerance === 'number' ? safetyTolerance : undefined,
+        prompt_upsampling: promptUpsampling,
+      });
+    } else if (model === 'google/nano-banana') {
+      base.image_input = job.inputImages.length ? job.inputImages : undefined;
+    } else if (model === 'google/nano-banana-pro') {
+      base.image_input = job.inputImages.length ? job.inputImages : undefined;
+      base.aspect_ratio = sanitizedGenericAspect;
+      base.resolution = resolution;
+      base.safety_filter_level = safetyFilterLevel;
+    } else if (model === 'black-forest-labs/flux-krea-dev') {
+      base.input_image = job.inputImages[0] || undefined;
+      base.aspect_ratio = sanitizedGenericAspect;
+      base.seed = seedNumber;
+      (base as any).guidance = guidance;
+      (base as any).num_outputs = clampOutputs(4);
+      (base as any).output_quality = Math.min(100, Math.max(0, Number(outputQuality) || 80));
+    } else if (model === 'openai/gpt-image-1.5') {
+      base.aspect_ratio = sanitizedGenericAspect;
+      if (job.inputImages.length) base.input_images = job.inputImages;
+      base.input_fidelity = inputFidelity;
+      base.quality = qualityPreset;
+      base.background = backgroundSetting;
+      base.number_of_images = clampOutputs(10);
+      base.output_compression = Math.min(100, Math.max(0, Number(outputCompression) || 0));
+      base.moderation = moderationSetting;
+      if (userId.trim()) base.user_id = userId.trim();
+      if (includeSensitive && openAiApiKey.trim()) base.openai_api_key = openAiApiKey.trim();
+    }
+
+    return base;
+  };
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function pollPrediction(jobId: string, predictionId: string, kvId: string | null, supabaseTaskId: string | null) {
+    while (true) {
+      const statusRes = await fetch(`/api/replicate/status?id=${encodeURIComponent(predictionId)}`);
+      if (!statusRes.ok) break;
+      const payload = await statusRes.json();
+      const st: ReplicateStatus = payload.status || 'unknown';
+
+      patchJob(jobId, { status: st === 'succeeded' ? 'success' : st === 'failed' || st === 'canceled' ? 'error' : 'running' });
+
+      const supabaseUpdate: Record<string, any> = { status: st };
+      if (payload.outputUrl && typeof payload.outputUrl === 'string') {
+        const persisted = await persistUrlIfPossible(payload.outputUrl);
+        const proxied = `/api/proxy?url=${encodeURIComponent(persisted)}`;
+        patchJob(jobId, { rawOutputUrl: persisted, outputUrl: proxied });
+        supabaseUpdate.output_url = proxied;
+        if (kvId) {
+          try {
+            await fetch('/api/tasks/update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: kvId, status: st, output_url: persisted }),
+            });
+          } catch {}
+        }
+      } else if (kvId) {
+        try {
+          await fetch('/api/tasks/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: kvId, status: st }),
+          });
+        } catch {}
+      }
+      if (supabaseTaskId) {
+        await supabase.from('tasks').update(supabaseUpdate).eq('id', supabaseTaskId);
+      }
+
+      if (st === 'succeeded' || st === 'failed' || st === 'canceled') {
+        if (st !== 'succeeded' && payload.error) {
+          patchJob(jobId, { error: typeof payload.error === 'string' ? payload.error : 'Generation failed' });
+        }
+        break;
+      }
+      await sleep(2000);
+    }
+  }
+
+  async function runSingleJob(job: ImageJobRecord) {
+    const promptValue = applyPromptToAll ? sharedPrompt : job.prompt;
+    if (!promptValue.trim()) {
+      patchJob(job.id, { status: 'error', error: 'Prompt required' });
+      return;
+    }
+    patchJob(job.id, { status: 'running', error: null, outputUrl: null, rawOutputUrl: null });
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Please sign in at /auth before creating a task.');
 
-      const buildModelOptions = (includeSensitive = false): Record<string, any> => {
-        const normalizedFormat = model === 'openai/gpt-image-1.5' && outputFormat === 'jpg' ? 'jpeg' : outputFormat;
-        const sanitizedFluxAspect = FLUX_KONTEXT_ASPECT_RATIOS.includes(aspectRatio as (typeof FLUX_KONTEXT_ASPECT_RATIOS)[number])
-          ? aspectRatio
-          : 'match_input_image';
-        const sanitizedGenericAspect = GENERIC_ASPECT_RATIOS.includes(aspectRatio as (typeof GENERIC_ASPECT_RATIOS)[number])
-          ? aspectRatio
-          : '1:1';
-        const seedNumber = seed.trim() === '' ? undefined : Number(seed);
-        const uploadedImages = inputImageUrls.length ? inputImageUrls : (inputImageUrl ? [inputImageUrl] : undefined);
-        const clampOutputs = (max: number) => Math.min(max, Math.max(1, Number(numOutputs) || 1));
-        const base: Record<string, any> = { model, prompt, output_format: normalizedFormat };
-
-        if (model === 'black-forest-labs/flux-kontext-max') {
-          Object.assign(base, {
-            input_image: inputImageUrl || undefined,
-            aspect_ratio: sanitizedFluxAspect,
-            seed: seedNumber,
-            safety_tolerance: typeof safetyTolerance === 'number' ? safetyTolerance : undefined,
-            prompt_upsampling: promptUpsampling,
-          });
-        } else if (model === 'google/nano-banana') {
-          base.image_input = uploadedImages;
-        } else if (model === 'google/nano-banana-pro') {
-          base.image_input = uploadedImages;
-          base.aspect_ratio = sanitizedGenericAspect;
-          base.resolution = resolution;
-          base.safety_filter_level = safetyFilterLevel;
-        } else if (model === 'black-forest-labs/flux-krea-dev') {
-          base.input_image = inputImageUrl || undefined;
-          base.aspect_ratio = sanitizedGenericAspect;
-          base.seed = seedNumber;
-          (base as any).guidance = guidance;
-          (base as any).num_outputs = clampOutputs(4);
-          (base as any).output_quality = Math.min(100, Math.max(0, Number(outputQuality) || 80));
-        } else if (model === 'openai/gpt-image-1.5') {
-          base.aspect_ratio = sanitizedGenericAspect;
-          if (uploadedImages && uploadedImages.length) base.input_images = uploadedImages;
-          base.input_fidelity = inputFidelity;
-          base.quality = qualityPreset;
-          base.background = backgroundSetting;
-          base.number_of_images = clampOutputs(10);
-          base.output_compression = Math.min(100, Math.max(0, Number(outputCompression) || 0));
-          base.moderation = moderationSetting;
-          if (userId.trim()) base.user_id = userId.trim();
-          if (includeSensitive && openAiApiKey.trim()) base.openai_api_key = openAiApiKey.trim();
-        }
-
-        return base;
-      };
-
-      const options = buildModelOptions(false);
+      const optionsPublic = buildModelOptionsForJob(job, false);
+      let kvIdLocal: string | null = null;
+      let supabaseTaskId: string | null = null;
 
       try {
         const createRes = await fetch('/api/tasks/create', {
@@ -272,15 +370,15 @@ export default function ImagePage() {
             status: 'queued',
             provider: 'replicate',
             model_id: model,
-            options_json: options,
-            text_input: prompt,
-            image_url: inputImageUrl || (inputImageUrls[0] || null),
-          })
+            options_json: optionsPublic,
+            text_input: promptValue,
+            image_url: job.inputImages[0] || null,
+          }),
         });
         if (createRes.ok) {
           const created = await createRes.json();
           kvIdLocal = created?.id || null;
-          setKvTaskId(kvIdLocal);
+          patchJob(job.id, { kvTaskId: kvIdLocal });
         }
       } catch {}
 
@@ -292,117 +390,53 @@ export default function ImagePage() {
           status: 'queued',
           provider: 'replicate',
           model_id: model,
-          options_json: options,
-          text_input: prompt,
+          options_json: optionsPublic,
+          text_input: promptValue,
         })
         .select('*')
         .single();
       if (insertErr || !inserted) throw new Error(insertErr?.message || 'Failed to create task');
       supabaseTaskId = inserted.id;
-      setTaskId(inserted.id);
+      patchJob(job.id, { supabaseTaskId });
 
-      pushLog(`Submitting ${model}`);
       const res = await fetch('/api/image/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildModelOptions(true)),
+        body: JSON.stringify(buildModelOptionsForJob(job, true)),
       });
       if (!res.ok) throw new Error(await res.text());
       const json = (await res.json()) as ImageResponse;
       if (!json.id) throw new Error('No prediction ID returned');
-      setPredictionId(json.id);
-      const initialStatus: ReplicateStatus = (json.status as ReplicateStatus) || 'queued';
-      setStatus(initialStatus);
-      pushLog(`Prediction created: ${json.id}`);
-      if (supabaseTaskId) {
-        await supabase.from('tasks').update({ status: initialStatus, job_id: json.id }).eq('id', supabaseTaskId);
-      }
-      if (kvIdLocal) {
-        try {
-          await fetch('/api/tasks/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: kvIdLocal, status: initialStatus, job_id: json.id })
-          });
-        } catch {}
-      }
+      patchJob(job.id, { predictionId: json.id });
 
-      pollRef.current = setInterval(async () => {
-        if (!json.id) return;
-        try {
-          const statusRes = await fetch(`/api/replicate/status?id=${encodeURIComponent(json.id)}`);
-          if (!statusRes.ok) return;
-          const payload = await statusRes.json();
-          const st: ReplicateStatus = payload.status || 'unknown';
-          if (st !== lastStatusRef.current) {
-            pushLog(`Status: ${st}`);
-            lastStatusRef.current = st;
-          }
-          setStatus(st);
-
-          const supabaseUpdate: Record<string, any> = { status: st };
-          if (payload.outputUrl && typeof payload.outputUrl === 'string' && !hasPersistedOutputRef.current) {
-            hasPersistedOutputRef.current = true;
-            const persisted = await persistUrlIfPossible(payload.outputUrl);
-            const proxied = `/api/proxy?url=${encodeURIComponent(persisted)}`;
-            setRawImageUrl(persisted);
-            setImageUrl(proxied);
-            supabaseUpdate.output_url = proxied;
-            if (kvIdLocal) {
-              try {
-                await fetch('/api/tasks/update', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: kvIdLocal, status: st, output_url: persisted })
-                });
-              } catch {}
-            }
-          } else if (kvIdLocal) {
-            try {
-              await fetch('/api/tasks/update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: kvIdLocal, status: st })
-              });
-            } catch {}
-          }
-          if (supabaseTaskId) {
-            await supabase.from('tasks').update(supabaseUpdate).eq('id', supabaseTaskId);
-          }
-
-          if (st === 'succeeded' || st === 'failed' || st === 'canceled') {
-            clearInterval(pollRef.current!);
-            pollRef.current = null;
-            setIsLoading(false);
-            if (st !== 'succeeded' && payload.error) {
-              const errMsg = typeof payload.error === 'string' ? payload.error : 'Generation failed';
-              setError(errMsg);
-              pushLog(`Error: ${errMsg}`);
-            }
-          }
-        } catch {
-          // Ignore transient polling failures
-        }
-      }, 2000);
+      await pollPrediction(job.id, json.id, kvIdLocal, supabaseTaskId);
     } catch (e: any) {
-      setIsLoading(false);
-      setStatus('failed');
       const message = e?.message || 'Failed to generate image';
-      setError(message);
-      pushLog(`Error: ${message}`);
-      if (supabaseTaskId) {
-        await supabase.from('tasks').update({ status: 'error' }).eq('id', supabaseTaskId);
-      }
-      const kvTarget = kvIdLocal || kvTaskId;
-      if (kvTarget) {
+      patchJob(job.id, { status: 'error', error: message });
+      const targetKv = job.kvTaskId;
+      if (targetKv) {
         try {
           await fetch('/api/tasks/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: kvTarget, status: 'error' })
+            body: JSON.stringify({ id: targetKv, status: 'error' }),
           });
         } catch {}
       }
+    }
+  }
+
+  async function runBatch(jobIds?: string[]) {
+    const targets = jobs.filter((job) => (jobIds ? jobIds.includes(job.id) : true));
+    if (!targets.length) return;
+    setIsBatchRunning(true);
+    setGlobalError(null);
+    try {
+      for (const job of targets) {
+        await runSingleJob(job);
+      }
+    } finally {
+      setIsBatchRunning(false);
     }
   }
 
@@ -429,38 +463,49 @@ export default function ImagePage() {
               <div className="header">
                 <div style={{display:'flex', alignItems:'center', gap:8}}>
                   <h2 style={{margin:0}}>Output</h2>
-                  <span className="badge">{status.toUpperCase?.() || status}</span>
                 </div>
-                <div className="small">Prediction ID: {predictionId ?? '—'}</div>
+                <div className="small">Bulk-ready previews</div>
               </div>
               <div className="outputArea">
-                {imageUrl ? (
-                  <div>
-                    <img
-                      src={imageUrl}
-                      alt="Generated image"
-                      style={{ maxWidth: '100%', borderRadius: 8 }}
-                      onError={()=> setError('Failed to load image. Try the direct link below.')}
-                    />
-                    <div className="small" style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                      <a href={imageUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open via proxy</a>
-                      {rawImageUrl ? (
-                        <a href={rawImageUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open direct</a>
-                      ) : null}
-                      <a href={`${imageUrl}${imageUrl.includes('?') ? '&' : '?'}download=true`} style={{padding:'8px 12px', background:'var(--accent)', color:'var(--color-black)', borderRadius:'6px', textDecoration:'none'}}>Download</a>
+                {jobs.map((job) => (
+                  <div key={job.id} className="veo-output-card">
+                    <div className="veo-output-header">
+                      <div className="veo-output-title">
+                        <span>{job.label}</span>
+                        <span className={`status-pill ${job.status}`}>{job.status}</span>
+                      </div>
+                      <button className="tiny-link" onClick={() => runBatch([job.id])} disabled={isBatchRunning}>
+                        Rerun
+                      </button>
                     </div>
+                    {job.outputUrl ? (
+                      <>
+                        <img
+                          src={job.outputUrl}
+                          alt="Generated image"
+                          style={{ maxWidth: '100%', borderRadius: 8 }}
+                          onError={()=> patchJob(job.id, { error: 'Failed to load image. Try the direct link below.' })}
+                        />
+                        <div className="small" style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
+                          <a href={job.outputUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open via proxy</a>
+                          {job.rawOutputUrl ? (
+                            <a href={job.rawOutputUrl} target="_blank" rel="noreferrer" style={{padding:'8px 12px', background:'var(--panel-elevated)', borderRadius:'6px', textDecoration:'none'}}>Open direct</a>
+                          ) : null}
+                          <a href={`${job.outputUrl}${job.outputUrl.includes('?') ? '&' : '?'}download=true`} style={{padding:'8px 12px', background:'var(--accent)', color:'var(--color-black)', borderRadius:'6px', textDecoration:'none'}}>Download</a>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{fontSize:16, color:'#b7c2df'}}>Generated image will appear here.</div>
+                    )}
+                    {job.error && (
+                      <div className="small" style={{ marginTop: 'var(--space-2)', color: '#ff7878' }}>{job.error}</div>
+                    )}
                   </div>
-                ) : (
-                  <div style={{fontSize:16, color:'#b7c2df'}}>Generated image will appear here.</div>
-                )}
+                ))}
               </div>
-              {error && (
-                <div className="small" style={{ color: '#ff7878', marginTop:8 }}>{error}</div>
+              {globalError && (
+                <div className="small" style={{ color: '#ff7878', marginTop:8 }}>{globalError}</div>
               )}
-              <div>
-                <div className="small" style={{margin:'8px 0 6px'}}>Log</div>
-                <pre className="log">{logLines.length ? logLines.join('\n') : 'Waiting for events…'}</pre>
-              </div>
             </div>
 
             <div className="panel">
@@ -484,13 +529,45 @@ export default function ImagePage() {
                 </div>
               </div>
 
+              <section className="veo-control-card">
+                <div className="veo-job-tabs">
+                  {jobs.map((job) => (
+                    <button
+                      key={job.id}
+                      type="button"
+                      className={`veo-job-tab ${job.id === activeJobId ? 'active' : ''}`}
+                      onClick={()=>setActiveJobId(job.id)}
+                    >
+                      <span>{job.label}</span>
+                      <span className={`status-pill ${job.status}`}>{job.status}</span>
+                    </button>
+                  ))}
+                  <button type="button" className="veo-job-tab add" onClick={addJob}>+ Add</button>
+                  {jobs.length > 1 && (
+                    <button type="button" className="veo-job-tab remove" onClick={()=>removeJob(activeJobId)}>Remove</button>
+                  )}
+                </div>
+                <label className="apply-all-toggle">
+                  <input
+                    type="checkbox"
+                    checked={applyPromptToAll}
+                    onChange={(e)=>setApplyPromptToAll(e.target.checked)}
+                  />
+                  Apply prompt to all jobs
+                </label>
+              </section>
+
               <div className="options">
                 <div style={{gridColumn: 'span 2'}}>
                   <div className="small">Prompt</div>
                   <textarea
                     className="input"
-                    value={prompt}
-                    onChange={(e)=>setPrompt(e.target.value)}
+                    value={applyPromptToAll ? sharedPrompt : (activeJob?.prompt ?? '')}
+                    onChange={(e)=>{
+                      const next = e.target.value;
+                      if (applyPromptToAll) setSharedPrompt(next);
+                      else if (activeJob) patchJob(activeJob.id, { prompt: next });
+                    }}
                     rows={4}
                     placeholder="Describe the image you want to generate or edit..."
                   />
@@ -510,6 +587,9 @@ export default function ImagePage() {
 
               <div>
                 <div className="small">Input image (optional)</div>
+                {supportsMultipleInputImages && (
+                  <div className="small" style={{color:'var(--text-muted)', marginBottom:4}}>Per-job references: each generation can have its own stack of input images.</div>
+                )}
                 <div
                   className={`dnd ${dragInput ? 'drag' : ''}`}
                   onDragOver={(e)=>{e.preventDefault(); setDragInput(true);}}
@@ -521,10 +601,13 @@ export default function ImagePage() {
                     if (!files.length) return;
                     try {
                       const urls = await Promise.all(files.map(f=>uploadImage(f)));
-                      if (supportsMultipleInputImages) setInputImageUrls(prev => [...prev, ...urls]);
-                      else setInputImageUrl(urls[0]);
+                      if (supportsMultipleInputImages) {
+                        if (activeJob) patchJob(activeJob.id, { inputImages: [...(activeJob.inputImages || []), ...urls] });
+                      } else if (activeJob) {
+                        patchJob(activeJob.id, { inputImages: [urls[0]] });
+                      }
                     } catch (err: any) {
-                      setError(err?.message || 'Upload failed');
+                      setGlobalError(err?.message || 'Upload failed');
                     }
                   }}
                   onClick={()=>{
@@ -537,10 +620,13 @@ export default function ImagePage() {
                       if (!files.length) return;
                       try {
                         const urls = await Promise.all(files.map(f=>uploadImage(f)));
-                        if (supportsMultipleInputImages) setInputImageUrls(prev => [...prev, ...urls]);
-                        else setInputImageUrl(urls[0]);
+                        if (supportsMultipleInputImages) {
+                          if (activeJob) patchJob(activeJob.id, { inputImages: [...(activeJob.inputImages || []), ...urls] });
+                        } else if (activeJob) {
+                          patchJob(activeJob.id, { inputImages: [urls[0]] });
+                        }
                       } catch (err: any) {
-                        setError(err?.message || 'Upload failed');
+                        setGlobalError(err?.message || 'Upload failed');
                       }
                     };
                     input.click();
@@ -550,33 +636,33 @@ export default function ImagePage() {
                   <div className="dnd-title">Reference Image</div>
                   <div className="dnd-subtitle">PNG/JPG/GIF/WebP • Optional for image editing</div>
                   {supportsMultipleInputImages ? (
-                    inputImageUrls.length > 0 && (
+                    activeJob?.inputImages?.length ? (
                       <div className="fileInfo" style={{marginTop:'var(--space-3)', display:'flex', flexWrap:'wrap', gap:'var(--space-2)'}}>
-                        {inputImageUrls.map((url, idx) => (
+                        {activeJob.inputImages.map((url, idx) => (
                           <div key={url+idx}>
                             <img src={url} alt={`input-${idx}`} style={{maxWidth:120, borderRadius:'var(--radius-lg)'}} />
                             <div className="small" style={{marginTop:'var(--space-1)'}}><a href={url} target="_blank" rel="noreferrer">Open</a></div>
                           </div>
                         ))}
                       </div>
-                    )
+                    ) : null
                   ) : (
-                    inputImageUrl && (
+                    activeJob?.inputImages?.[0] && (
                       <div className="fileInfo" style={{marginTop:'var(--space-3)'}}>
-                        <img src={inputImageUrl} alt="input" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
-                        <div className="small" style={{marginTop:'var(--space-2)'}}><a href={inputImageUrl} target="_blank" rel="noreferrer">Open image</a></div>
+                        <img src={activeJob.inputImages[0]} alt="input" style={{maxWidth:240, borderRadius:'var(--radius-lg)'}} />
+                        <div className="small" style={{marginTop:'var(--space-2)'}}><a href={activeJob.inputImages[0]} target="_blank" rel="noreferrer">Open image</a></div>
                       </div>
                     )
                   )}
                 </div>
                 {supportsMultipleInputImages ? (
-                  inputImageUrls.length > 0 && (
-                    <button className="btn" style={{marginTop:8}} onClick={()=>setInputImageUrls([])}>Clear images</button>
-                  )
+                  activeJob?.inputImages?.length ? (
+                    <button className="btn" style={{marginTop:8}} onClick={()=>activeJob && patchJob(activeJob.id, { inputImages: [] })}>Clear images</button>
+                  ) : null
                 ) : (
-                  inputImageUrl && (
-                    <button className="btn" style={{marginTop:8}} onClick={()=>setInputImageUrl('')}>Clear image</button>
-                  )
+                  activeJob?.inputImages?.[0] ? (
+                    <button className="btn" style={{marginTop:8}} onClick={()=>activeJob && patchJob(activeJob.id, { inputImages: [] })}>Clear image</button>
+                  ) : null
                 )}
               </div>
 
@@ -628,7 +714,7 @@ export default function ImagePage() {
                   <input className="input" type="number" min={1} max={100} value={steps} onChange={(e)=>setSteps(parseInt(e.target.value || '25'))} />
                 </div>
 
-                {inputImageUrl && (
+                {activeJob?.inputImages?.[0] && (
                   <div>
                     <div className="small">Strength</div>
                     <input className="input" type="number" step={0.1} min={0} max={1} value={strength} onChange={(e)=>setStrength(parseFloat(e.target.value || '0.8'))} />
@@ -744,32 +830,40 @@ export default function ImagePage() {
                         placeholder="user-123"
                       />
                     </div>
-                  </div>
-                </>
-              )}
+              </div>
+            </>
+          )}
 
-              <button className="btn" style={{ marginTop: 12 }} disabled={!prompt.trim() || isLoading} onClick={runImage}>
-                {isLoading ? 'Generating…' : 'Generate image'}
-              </button>
-            </div>
-          </div>
+          <button
+            className="btn"
+            style={{ marginTop: 12 }}
+            disabled={
+              isBatchRunning ||
+              (applyPromptToAll ? !sharedPrompt.trim() : jobs.some((job) => !(job.prompt || '').trim()))
+            }
+            onClick={()=>runBatch()}
+          >
+            {isBatchRunning ? 'Generating…' : 'Generate images'}
+          </button>
         </div>
+      </div>
+    </div>
 
-        <div className="page-side-panel">
-          <div className="side-panel-card">
-            <h3>Status</h3>
-            <div className="kv">
-              <div>State</div><div className="badge">{status.toUpperCase?.() || status}</div>
-              <div>Prediction</div><div className="small">{predictionId ?? '—'}</div>
-              <div>Task (DB)</div><div className="small">{taskId ?? '—'}</div>
-              <div>Task (KV)</div><div className="small">{kvTaskId ?? '—'}</div>
-            </div>
-            <p className="small" style={{marginTop:12}}>
-              Jobs now run asynchronously so the route never times out, even while Nano Banana Pro or GPT Image take their time.
-            </p>
-          </div>
+    <div className="page-side-panel">
+      <div className="side-panel-card">
+        <h3>Status</h3>
+        <div className="kv">
+          <div>Jobs</div><div>{jobs.length}</div>
+          <div>Running</div><div>{jobs.filter((j)=>j.status === 'running').length}</div>
+          <div>Completed</div><div>{jobs.filter((j)=>j.status === 'success').length}</div>
+          <div>Model</div><div>{model}</div>
+        </div>
+        <p className="small" style={{marginTop:12}}>
+          Bulk generation applies your prompt across multiple image references. Use the job tabs to attach different inputs, then run them in one click.
+        </p>
+      </div>
 
-          {selectedDoc ? (
+      {selectedDoc ? (
             <div className="side-panel-card model-doc-card">
               <h3>{selectedDoc.title}</h3>
               <p className="small">{selectedDoc.description}</p>
