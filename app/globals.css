@@ -1606,18 +1606,6 @@ input[type="range"]::-moz-range-thumb:hover {
   gap: var(--space-3);
 }
 
-.sidebar-logo-mark {
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--accent);
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-  transition: transform var(--motion-duration) var(--motion-glide);
-}
-
 .sidebar-logo-text {
   display: flex;
   flex-direction: column;
@@ -1631,10 +1619,6 @@ input[type="range"]::-moz-range-thumb:hover {
   font-size: 0.6rem;
   letter-spacing: 0.3em;
   color: var(--gray-500);
-}
-
-.sidebar-logo:hover .sidebar-logo-mark {
-  transform: rotate(-6deg) scale(1.05);
 }
 
 .sidebar-signal {
@@ -1652,6 +1636,34 @@ input[type="range"]::-moz-range-thumb:hover {
   height: 10px;
   background: var(--accent);
   animation: pulse 1.6s ease infinite;
+}
+
+.brand-chip {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  background: rgba(255,255,255,0.05);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+}
+
+.brand-chip img {
+  width: 80%;
+  height: 80%;
+  object-fit: contain;
+}
+
+.brand-chip.tiny {
+  width: 24px;
+  height: 24px;
+  margin-right: var(--space-2);
+}
+
+.brand-chip.tiny.inline {
+  margin-right: var(--space-3);
 }
 
 @keyframes pulse {

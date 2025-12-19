@@ -99,8 +99,18 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
       <main className="workspace-main">
         <header className="workspace-header">
           <div className="workspace-title-block">
-            <p className="workspace-eyebrow">{pageMeta.category}</p>
-            <h1 className="workspace-title">{pageMeta.title}</h1>
+            <p className="workspace-eyebrow">
+              <span className="brand-chip tiny">
+                <img src="/icon.png" alt="AdzCreator favicon" />
+              </span>
+              {pageMeta.category}
+            </p>
+            <h1 className="workspace-title">
+              <span className="brand-chip tiny inline">
+                <img src="/icon.png" alt="AdzCreator favicon" />
+              </span>
+              {pageMeta.title}
+            </h1>
             <p className="workspace-description">{pageMeta.description}</p>
           </div>
           <div className="workspace-tools">

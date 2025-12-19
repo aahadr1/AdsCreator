@@ -105,7 +105,9 @@ export function Sidebar() {
       <div className="sidebar-inner">
         <div className="sidebar-brand-card">
           <div className="sidebar-logo" title="AdzCreator">
-            <div className="sidebar-logo-mark">AC</div>
+            <div className="brand-chip">
+              <img src="/icon.png" alt="AdzCreator favicon" />
+            </div>
             <div className="sidebar-logo-text">
               <span>AdzCreator</span>
               <span className="sidebar-logo-tagline">Minimal Lab</span>
