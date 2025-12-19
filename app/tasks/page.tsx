@@ -15,6 +15,7 @@ import {
   Search,
   Calendar,
   Play,
+  RefreshCcw,
   Volume2,
   Image as ImageIcon,
   Video,
@@ -22,7 +23,11 @@ import {
   RefreshCw,
   BarChart3,
   Trash2,
-  Eye
+  Eye,
+  Wand2,
+  Scissors,
+  Type,
+  Mic
 } from 'lucide-react';
 
 type TaskStatus = 'finished' | 'completed' | 'succeeded' | 'running' | 'processing' | 'queued' | 'error' | 'failed' | 'cancelled' | 'unknown';
@@ -37,6 +42,72 @@ export default function TasksPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all');
   const [refreshing, setRefreshing] = useState(false);
+
+  const normalizeUrl = (kind: 'video' | 'audio' | 'image', url: string, opts?: { download?: boolean }) => {
+    const encoded = encodeURIComponent(url);
+    if (kind === 'video') {
+      return `/api/proxy?type=video${opts?.download ? '&download=true' : ''}&url=${encoded}`;
+    }
+    return `/api/proxy?${opts?.download ? 'download=true&' : ''}url=${encoded}`;
+  };
+
+  const buildSecondaryActions = (kind: 'video' | 'audio' | 'image', url: string, text?: string) => {
+    const actions: Array<{ href: string; label: string; icon: JSX.Element }> = [];
+    if (kind === 'video') {
+      actions.push(
+        { href: `/lipsync?source=${encodeURIComponent(url)}`, label: 'Use in Lipsync', icon: <Play size={14} /> },
+        { href: `/veo?reference_video=${encodeURIComponent(url)}`, label: 'Use in Video Gen', icon: <RefreshCcw size={14} /> },
+        { href: `/auto-edit?source=${encodeURIComponent(url)}`, label: 'Refine Video', icon: <Scissors size={14} /> },
+      );
+    }
+    if (kind === 'image') {
+      actions.push(
+        { href: `/veo?start_image=${encodeURIComponent(url)}`, label: 'Animate to Video', icon: <Video size={14} /> },
+        { href: `/image?input_image=${encodeURIComponent(url)}`, label: 'Remix in Image Gen', icon: <Wand2 size={14} /> },
+        { href: `/enhance?image=${encodeURIComponent(url)}`, label: 'Enhance', icon: <Wand2 size={14} /> },
+        { href: `/background-remove?image=${encodeURIComponent(url)}`, label: 'Remove Background', icon: <Scissors size={14} /> },
+      );
+    }
+    if (kind === 'audio') {
+      actions.push(
+        { href: `/lipsync?audio=${encodeURIComponent(url)}`, label: 'Use in Lipsync', icon: <Play size={14} /> },
+        { href: `/transcription?audio=${encodeURIComponent(url)}`, label: 'Transcribe', icon: <Type size={14} /> },
+        { href: `/transcription/bulk?audio=${encodeURIComponent(url)}`, label: 'Bulk Transcribe', icon: <Mic size={14} /> },
+      );
+    }
+    if (text) {
+      actions.push(
+        { href: `/tts?text=${encodeURIComponent(text)}`, label: 'Send to TTS', icon: <Volume2 size={14} /> },
+        { href: `/adscript?script=${encodeURIComponent(text)}`, label: 'Use in Script', icon: <Type size={14} /> },
+      );
+    }
+    return actions;
+  };
+
+  const renderMediaActions = (kind: 'video' | 'audio' | 'image', url: string, textForExtras?: string) => {
+    const openUrl = normalizeUrl(kind, url);
+    const downloadUrl = normalizeUrl(kind, url, { download: true });
+    const extras = buildSecondaryActions(kind, url, textForExtras);
+
+    return (
+      <div className="task-media-actions">
+        <a href={openUrl} target="_blank" rel="noreferrer" className="media-action">
+          <ExternalLink size={14} />
+          Open
+        </a>
+        <a href={downloadUrl} className="media-action">
+          <Download size={14} />
+          Download
+        </a>
+        {extras.map((action) => (
+          <a key={action.href} href={action.href} className="media-action">
+            {action.icon}
+            {action.label}
+          </a>
+        ))}
+      </div>
+    );
+  };
 
   const getBackendLabel = (task: Task): string => {
     const candidates: Array<unknown> = [task.backend, task.model_id, task.provider];
@@ -338,19 +409,7 @@ export default function TasksPage() {
                         <h4>Input Video</h4>
                         <div className="task-media">
                           <video src={task.video_url} controls className="task-video" />
-                          <div className="task-media-actions">
-                            <a href={task.video_url} target="_blank" rel="noreferrer" className="media-action">
-                              <ExternalLink size={14} />
-                              Open
-                            </a>
-                            <a 
-                              href={`/api/proxy?type=video&download=true&url=${encodeURIComponent(task.video_url)}`}
-                              className="media-action"
-                            >
-                              <Download size={14} />
-                              Download
-                            </a>
-                          </div>
+                          {renderMediaActions('video', task.video_url)}
                         </div>
                       </div>
                     )}
@@ -361,19 +420,7 @@ export default function TasksPage() {
                         <h4>Input Audio</h4>
                         <div className="task-media">
                           <audio src={task.audio_url} controls className="task-audio" />
-                          <div className="task-media-actions">
-                            <a href={task.audio_url} target="_blank" rel="noreferrer" className="media-action">
-                              <ExternalLink size={14} />
-                              Open
-                            </a>
-                            <a 
-                              href={`/api/proxy?download=true&url=${encodeURIComponent(task.audio_url)}`}
-                              className="media-action"
-                            >
-                              <Download size={14} />
-                              Download
-                            </a>
-                          </div>
+                          {renderMediaActions('audio', task.audio_url)}
                         </div>
                       </div>
                     )}
@@ -384,19 +431,7 @@ export default function TasksPage() {
                         <h4>Input Image</h4>
                         <div className="task-media">
                           <img src={(task as any).image_url || (task.options_json as any).input_image} alt="Input" className="task-image" />
-                          <div className="task-media-actions">
-                            <a href={(task as any).image_url || (task.options_json as any).input_image} target="_blank" rel="noreferrer" className="media-action">
-                              <ExternalLink size={14} />
-                              Open
-                            </a>
-                            <a 
-                              href={`/api/proxy?download=true&url=${encodeURIComponent(((task as any).image_url || (task.options_json as any).input_image) as string)}`}
-                              className="media-action"
-                            >
-                              <Download size={14} />
-                              Download
-                            </a>
-                          </div>
+                          {renderMediaActions('image', ((task as any).image_url || (task.options_json as any).input_image) as string)}
                         </div>
                       </div>
                     ) : null}
@@ -424,10 +459,7 @@ export default function TasksPage() {
                             {videos.slice(0,3).map(v => (
                               <div key={v} style={{marginBottom:8}}>
                                 <video src={v} controls className="task-video" />
-                                <div className="task-media-actions">
-                                  <a href={v} target="_blank" rel="noreferrer" className="media-action"><ExternalLink size={14} />Open</a>
-                                  <a href={`/api/proxy?type=video&download=true&url=${encodeURIComponent(v)}`} className="media-action"><Download size={14} />Download</a>
-                                </div>
+                                {renderMediaActions('video', v)}
                               </div>
                             ))}
                           </div>
@@ -440,10 +472,7 @@ export default function TasksPage() {
                             {images.slice(0,6).map(img => (
                               <div key={img} style={{marginBottom:8}}>
                                 <img src={img} alt="reference" className="task-image" />
-                                <div className="task-media-actions">
-                                  <a href={img} target="_blank" rel="noreferrer" className="media-action"><ExternalLink size={14} />Open</a>
-                                  <a href={`/api/proxy?download=true&url=${encodeURIComponent(img)}`} className="media-action"><Download size={14} />Download</a>
-                                </div>
+                                {renderMediaActions('image', img)}
                               </div>
                             ))}
                           </div>
@@ -456,10 +485,7 @@ export default function TasksPage() {
                             {audios.slice(0,3).map(a => (
                               <div key={a} style={{marginBottom:8}}>
                                 <audio src={a} controls className="task-audio" />
-                                <div className="task-media-actions">
-                                  <a href={a} target="_blank" rel="noreferrer" className="media-action"><ExternalLink size={14} />Open</a>
-                                  <a href={`/api/proxy?download=true&url=${encodeURIComponent(a)}`} className="media-action"><Download size={14} />Download</a>
-                                </div>
+                                {renderMediaActions('audio', a)}
                               </div>
                             ))}
                           </div>
@@ -485,6 +511,14 @@ export default function TasksPage() {
                             <Copy size={14} />
                           Copy Text
                         </button>
+                        <a className="media-action" href={`/tts?text=${encodeURIComponent(task.output_text)}`}>
+                          <Volume2 size={14} />
+                          Send to TTS
+                        </a>
+                        <a className="media-action" href={`/adscript?script=${encodeURIComponent(task.output_text)}`}>
+                          <Type size={14} />
+                          Use in Script
+                        </a>
                           <span className="output-text-length">
                             {task.output_text.length} characters
                           </span>
@@ -517,19 +551,7 @@ export default function TasksPage() {
                           return (
                               <>
                                 <audio src={preferred} controls className="task-audio" onError={persistAndSwap} />
-                                <div className="task-media-actions">
-                                  <a href={preferred} target="_blank" rel="noreferrer" className="media-action">
-                                    <ExternalLink size={14} />
-                                    Open
-                                  </a>
-                                  <a 
-                                    href={`/api/proxy?download=true&url=${encodeURIComponent(preferred)}`}
-                                    className="media-action"
-                                  >
-                                    <Download size={14} />
-                                    Download
-                                  </a>
-                              </div>
+                                {renderMediaActions('audio', preferred)}
                               </>
                             );
                           }
@@ -543,24 +565,7 @@ export default function TasksPage() {
                                   className="task-image" 
                                   onError={persistAndSwap}
                                 />
-                                <div className="task-media-actions">
-                                  <a 
-                                    href={preferred.startsWith('/api/proxy') ? preferred : `/api/proxy?url=${encodeURIComponent(preferred)}`}
-                                    target="_blank" 
-                                    rel="noreferrer" 
-                                    className="media-action"
-                                  >
-                                    <ExternalLink size={14} />
-                                    Open
-                                  </a>
-                                  <a 
-                                    href={`/api/proxy?download=true&url=${encodeURIComponent(preferred)}`}
-                                    className="media-action"
-                                  >
-                                    <Download size={14} />
-                                    Download
-                                  </a>
-                            </div>
+                                {renderMediaActions('image', preferred)}
                                 {/* Database functionality removed */}
                               </>
                           );
@@ -581,24 +586,7 @@ export default function TasksPage() {
                                 />
                                 <source src={preferred} />
                               </video>
-                              <div className="task-media-actions">
-                                <a 
-                                  href={preferred.startsWith('/api/proxy') ? preferred : `/api/proxy?type=video&url=${encodeURIComponent(preferred)}`}
-                                  target="_blank" 
-                                  rel="noreferrer" 
-                                  className="media-action"
-                                >
-                                  <ExternalLink size={14} />
-                                  Open
-                                </a>
-                                <a 
-                                  href={`${preferred.startsWith('/api/proxy') ? preferred : `/api/proxy?type=video&url=${encodeURIComponent(preferred)}`}&download=true`}
-                                  className="media-action"
-                                >
-                                  <Download size={14} />
-                                  Download
-                                </a>
-                              </div>
+                              {renderMediaActions('video', preferred)}
                               {/* Database functionality removed */}
                             </>
                           );
