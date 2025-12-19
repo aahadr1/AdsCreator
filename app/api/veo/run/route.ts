@@ -6,6 +6,8 @@ type VeoInput = {
   model?:
     | 'google/veo-3'
     | 'google/veo-3-fast'
+    | 'google/veo-3.1'
+    | 'google/veo-3.1-fast'
     | 'bytedance/seedance-1-pro'
     | 'bytedance/seedance-1-lite'
     | 'wan-video/wan-2.2-i2v-fast'
@@ -34,6 +36,8 @@ export async function POST(req: NextRequest) {
     const allowedModels = new Set([
       'google/veo-3',
       'google/veo-3-fast',
+      'google/veo-3.1',
+      'google/veo-3.1-fast',
       'bytedance/seedance-1-pro',
       'bytedance/seedance-1-lite',
       'wan-video/wan-2.2-i2v-fast',
@@ -118,4 +122,3 @@ export async function POST(req: NextRequest) {
     return new Response(`Error: ${err.message}`, { status: 500 });
   }
 }
-

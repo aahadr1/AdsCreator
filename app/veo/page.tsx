@@ -7,6 +7,8 @@ import { supabaseClient as supabase } from '../../lib/supabaseClient';
 type VideoModelValue =
   | 'google/veo-3-fast'
   | 'google/veo-3'
+  | 'google/veo-3.1-fast'
+  | 'google/veo-3.1'
   | 'openai/sora-2'
   | 'openai/sora-2-pro'
   | 'bytedance/seedance-1-pro'
@@ -34,6 +36,18 @@ const VIDEO_MODELS: readonly VideoModelMeta[] = [
     label: 'Google VEO 3',
     badge: 'Premium',
     description: 'Highest fidelity version of VEO with longer queue times but incredible detail.',
+  },
+  {
+    value: 'google/veo-3.1-fast',
+    label: 'Google VEO 3.1 Fast',
+    badge: 'New',
+    description: 'Latest 3.1 release with upgraded motion intelligence at production-ready speeds.',
+  },
+  {
+    value: 'google/veo-3.1',
+    label: 'Google VEO 3.1',
+    badge: 'Ultra',
+    description: 'Top-tier VEO quality with cinematic depth, better camera reasoning, and longer durations.',
   },
   {
     value: 'openai/sora-2',
