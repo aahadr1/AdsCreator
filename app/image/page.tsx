@@ -602,7 +602,10 @@ const sharedPromptValue = useMemo(
                     try {
                       const urls = await Promise.all(files.map(f=>uploadImage(f)));
                       if (supportsMultipleInputImages) {
-                        if (activeJob) patchJob(activeJob.id, { inputImages: [...(activeJob.inputImages || []), ...urls] });
+                        if (activeJob) {
+                          const merged = [...(activeJob.inputImages || []), ...urls].slice(0, 10);
+                          patchJob(activeJob.id, { inputImages: merged });
+                        }
                       } else if (activeJob) {
                         patchJob(activeJob.id, { inputImages: [urls[0]] });
                       }
@@ -621,7 +624,10 @@ const sharedPromptValue = useMemo(
                       try {
                         const urls = await Promise.all(files.map(f=>uploadImage(f)));
                         if (supportsMultipleInputImages) {
-                          if (activeJob) patchJob(activeJob.id, { inputImages: [...(activeJob.inputImages || []), ...urls] });
+                          if (activeJob) {
+                            const merged = [...(activeJob.inputImages || []), ...urls].slice(0, 10);
+                            patchJob(activeJob.id, { inputImages: merged });
+                          }
                         } else if (activeJob) {
                           patchJob(activeJob.id, { inputImages: [urls[0]] });
                         }
