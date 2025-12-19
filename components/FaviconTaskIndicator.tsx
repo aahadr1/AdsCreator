@@ -16,6 +16,9 @@ const RUNNING_COLOR = '#fb923c'; // orange
 const SUCCESS_COLOR = '#22c55e'; // green
 const POLL_INTERVAL_MS = 6000;
 const SUCCESS_FLASH_MS = 8000;
+const ICON_SIZE = 64;
+const DOT_RADIUS = 9;
+const DOT_CENTER_Y = ICON_SIZE - 2; // place dot slightly below the base icon
 
 export function FaviconTaskIndicator() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -24,7 +27,7 @@ export function FaviconTaskIndicator() {
   const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(false);
   const baseIconRef = useRef<HTMLImageElement | null>(null);
-  const iconCacheRef = useRef<Map<string, string>>(new Map());
+const iconCacheRef = useRef<Map<string, string>>(new Map());
 const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: string }>>([]);
 
   useEffect(() => {
@@ -64,7 +67,7 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
       if (cache.has(color)) return cache.get(color)!;
 
       const base = await ensureBaseImage();
-      const size = 64;
+      const size = ICON_SIZE;
       const canvas = document.createElement('canvas');
       canvas.width = size;
       canvas.height = size;
@@ -99,15 +102,15 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
       }
 
       const centerX = size / 2;
-      const centerY = size - 12;
+      const centerY = DOT_CENTER_Y;
       ctx.fillStyle = '#0f0f0fd4';
       ctx.beginPath();
-      ctx.arc(centerX, centerY, 12, 0, Math.PI * 2);
+      ctx.arc(centerX, centerY, DOT_RADIUS + 3, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(centerX, centerY, 9, 0, Math.PI * 2);
+      ctx.arc(centerX, centerY, DOT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
 
       const dataUrl = canvas.toDataURL('image/png');
@@ -146,19 +149,16 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
         const running = tasks.some((task) =>
           Boolean(task?.status && /running|processing|queued/i.test(task.status)),
         );
-        const hasRecent = tasks.some((task) =>
-          Boolean(task?.status && /finished|completed|succeeded/i.test(task.status)),
-        );
 
         if (running) {
           hadRunningRef.current = true;
           setFaviconState('running');
-        } else if (hadRunningRef.current && hasRecent) {
+        } else if (hadRunningRef.current) {
           hadRunningRef.current = false;
           setFaviconState('success');
           if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
           successTimeoutRef.current = setTimeout(() => setFaviconState('idle'), SUCCESS_FLASH_MS);
-        } else if (!hadRunningRef.current) {
+        } else {
           setFaviconState('idle');
         }
       } catch {
