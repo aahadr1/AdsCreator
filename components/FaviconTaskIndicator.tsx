@@ -1,6 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from 'react';
 import { supabaseClient as supabase } from '../lib/supabaseClient';
 
 type FaviconState = 'idle' | 'running' | 'success';
@@ -18,6 +25,7 @@ export function FaviconTaskIndicator() {
   const mountedRef = useRef(false);
   const baseIconRef = useRef<HTMLImageElement | null>(null);
   const iconCacheRef = useRef<Map<string, string>>(new Map());
+const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: string }>>([]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -79,7 +87,7 @@ export function FaviconTaskIndicator() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [userId]);
+  }, [userId, setFaviconState]);
 
   const generateIcon = useMemo(() => {
     const ensureBaseImage = async (): Promise<HTMLImageElement | null> => {
@@ -153,39 +161,75 @@ export function FaviconTaskIndicator() {
     };
   }, []);
 
-  const setFaviconState = (next: FaviconState) => {
+  const setFaviconState = useCallback((next: FaviconState) => {
     if (stateRef.current === next) return;
     stateRef.current = next;
 
     if (next === 'idle') {
-      removeDynamicFavicon();
+      removeDynamicFavicon(iconElementsRef);
       return;
     }
 
     const color = next === 'running' ? RUNNING_COLOR : SUCCESS_COLOR;
-    void generateIcon(color).then((dataUrl) => applyDynamicFavicon(dataUrl));
-  };
+    void generateIcon(color).then((dataUrl) => applyDynamicFavicon(dataUrl, iconElementsRef));
+  }, [generateIcon]);
 
   return null;
 }
 
-function applyDynamicFavicon(href: string) {
-  const head = document.head;
-  if (!head) return;
-  let link = document.getElementById('favicon-status-indicator') as HTMLLinkElement | null;
-  if (!link) {
-    link = document.createElement('link');
-    link.id = 'favicon-status-indicator';
-    link.rel = 'icon';
-    link.type = 'image/png';
-    head.appendChild(link);
-  }
-  link.href = href;
+function collectIconElements(cacheRef: MutableRefObject<Array<{ element: HTMLLinkElement; original: string }>>) {
+  if (cacheRef.current.length > 0) return cacheRef.current;
+  const nodes = document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]');
+  const collected: Array<{ element: HTMLLinkElement; original: string }> = [];
+  nodes.forEach((el) => {
+    const existing = collected.find((entry) => entry.element === el);
+    if (existing) return;
+    collected.push({ element: el, original: el.href });
+  });
+  cacheRef.current = collected;
+  return cacheRef.current;
 }
 
-function removeDynamicFavicon() {
-  const link = document.getElementById('favicon-status-indicator');
-  if (link && link.parentNode) {
-    link.parentNode.removeChild(link);
+function applyDynamicFavicon(
+  href: string,
+  iconRef: MutableRefObject<Array<{ element: HTMLLinkElement; original: string }>>,
+) {
+  const icons = collectIconElements(iconRef);
+  if (icons.length === 0) {
+    const head = document.head;
+    if (!head) return;
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.type = 'image/png';
+    link.href = href;
+    head.appendChild(link);
+    link.setAttribute('data-original-href', '__remove__');
+    iconRef.current.push({ element: link, original: href });
+    return;
   }
+  icons.forEach(({ element, original }) => {
+    if (!element.getAttribute('data-original-href')) {
+      element.setAttribute('data-original-href', original);
+    }
+    element.type = 'image/png';
+    element.href = href;
+  });
+}
+
+function removeDynamicFavicon(
+  iconRef: MutableRefObject<Array<{ element: HTMLLinkElement; original: string }>>,
+) {
+  const icons = iconRef.current;
+  icons.forEach(({ element, original }) => {
+    if (!element.parentNode) return;
+    const originalHrefAttr = element.getAttribute('data-original-href');
+    if (originalHrefAttr === '__remove__') {
+      element.parentNode.removeChild(element);
+      return;
+    }
+    if (originalHrefAttr) {
+      element.href = original;
+      element.removeAttribute('data-original-href');
+    }
+  });
 }

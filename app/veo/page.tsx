@@ -15,7 +15,8 @@ type VideoModelValue =
   | 'bytedance/seedance-1-lite'
   | 'wan-video/wan-2.2-i2v-fast'
   | 'wan-video/wan-2.2-animate-replace'
-  | 'kwaivgi/kling-v2.5-turbo-pro';
+  | 'kwaivgi/kling-v2.5-turbo-pro'
+  | 'kwaivgi/kling-v2.1';
 
 type VideoModelMeta = {
   value: VideoModelValue;
@@ -87,6 +88,12 @@ const VIDEO_MODELS: readonly VideoModelMeta[] = [
     badge: 'New',
     description: 'Pro-level text-to-video and image-to-video with silky motion and cinematic depth.',
   },
+  {
+    value: 'kwaivgi/kling-v2.1',
+    label: 'Kling 2.1 (Image-to-Video)',
+    description: 'Use a start image to animate 5s or 10s clips in 720p or 1080p.',
+    badge: 'Image-to-Video',
+  },
 ];
 
 type ModelDocExample = {
@@ -143,6 +150,53 @@ const VIDEO_MODEL_DOCS: Record<string, ModelDoc> = {
       'Designed for marketing, creators, studios, and education teams needing smooth, cinematic loops.',
     ],
   },
+  'kwaivgi/kling-v2.1': {
+    title: 'Kling v2.1 (Image-to-Video)',
+    description: 'Upload a start image and let Kling v2.1 animate a 5s or 10s clip at 24fps in 720p (standard) or 1080p (pro).',
+    inputs: [
+      'prompt (required) — describe the movement, gestures, or context for the animation',
+      'start_image (required) — first frame; Kling v2.1 always needs a reference',
+      'mode — standard (720p) or pro (1080p). Use pro when also providing an end_image.',
+      'duration — 5 or 10 seconds today',
+      'negative_prompt — elements to keep out of the render',
+      'end_image — optional final frame; requires mode="pro"',
+    ],
+    outputSchema: `{
+  "type": "string",
+  "title": "Output",
+  "format": "uri"
+}`,
+    examples: [
+      {
+        title: 'Point at words',
+        link: 'https://replicate.com/p/7v2d7djbn1rma0cqh6rbxwpxv0',
+        input: {
+          mode: 'standard',
+          prompt: 'a woman points at the words',
+          duration: 5,
+          start_image: 'https://replicate.delivery/xezq/rfKExHkg7L2UAyYNJj3p1YrW1M3ZROTQQXupJSOyM5RkwQcKA/tmpowaafuyw.png',
+        },
+        output: 'https://replicate.delivery/xezq/ueemmhGfowaxnp2zx4rQAwZWkIGMkeoEFGwDMB8FJDDUPGiTB/tmpsam6b5v3.mp4',
+      },
+      {
+        title: 'Gestures in the rain',
+        link: 'https://replicate.com/p/a5fszgjzvdrmc0cqh6srsz53g4',
+        input: {
+          mode: 'standard',
+          prompt: 'a woman takes her hands out her pockets and gestures to the words with both hands, she is excited, behind her it is raining',
+          duration: 5,
+          start_image: 'https://replicate.delivery/xezq/rfKExHkg7L2UAyYNJj3p1YrW1M3ZROTQQXupJSOyM5RkwQcKA/tmpowaafuyw.png',
+        },
+        output: 'https://replicate.delivery/xezq/yitkxodvCK7eJK9BFufsMBaHIfnHgJhlNNIiaQi8g8QebGiTB/tmpby0sgn7w.mp4',
+      },
+    ],
+    tips: [
+      'Always provide a crisp start image; Kling v2.1 refuses to run without one.',
+      'Use mode="pro" for 1080p or when supplying an end_image to control the final pose.',
+      'Stick to 5s clips for fastest turnaround; 10s generations may wait in queue longer.',
+      'Pair negative prompts with precise gestures to keep hands and products framed cleanly.',
+    ],
+  },
 };
 
 type VideoModel = VideoModelValue;
@@ -150,6 +204,7 @@ const DEFAULT_MODEL: VideoModel = 'google/veo-3-fast';
 const GOOGLE_MODELS = new Set<VideoModel>(
   VIDEO_MODELS.filter((m) => m.value.startsWith('google/veo')).map((m) => m.value as VideoModel)
 );
+const KLING_MODELS = new Set<VideoModel>(['kwaivgi/kling-v2.5-turbo-pro', 'kwaivgi/kling-v2.1']);
 
 type VeoResponse = { url?: string | null; raw?: any };
 
@@ -181,7 +236,8 @@ export default function VeoPage() {
   const selectedModelMeta = useMemo(() => VIDEO_MODELS.find((m) => m.value === model), [model]);
   const selectedModelDoc = useMemo(() => VIDEO_MODEL_DOCS[model] || null, [model]);
   const isGoogleModel = useMemo(() => GOOGLE_MODELS.has(model), [model]);
-  const isKlingModel = model === 'kwaivgi/kling-v2.5-turbo-pro';
+  const isKlingModel = useMemo(() => KLING_MODELS.has(model), [model]);
+  const klingRequiresStartImage = model === 'kwaivgi/kling-v2.1';
   const supportsNegativePrompt = isGoogleModel || Boolean(inputSchema?.properties?.negative_prompt);
 
   const uploadImage = useCallback(async (file: File): Promise<string> => {
@@ -384,6 +440,7 @@ export default function VeoPage() {
 
   const isAnimateReplace = model === 'wan-video/wan-2.2-animate-replace';
   const animateMissingRequired = isAnimateReplace && (!inputValues.video || !inputValues.character_image);
+  const klingStartMissing = klingRequiresStartImage && !inputValues.start_image;
 
   return (
     <div className="page-template generator fade-in">
@@ -463,7 +520,10 @@ export default function VeoPage() {
 
                 {isKlingModel && (
                   <section className="veo-info-banner">
-                    <strong>Kling tip:</strong> Provide a crisp start image for the best likeness and keep prompts focused on motion.
+                    <strong>Kling tip:</strong>{' '}
+                    {klingRequiresStartImage
+                      ? 'Upload a sharp start image (required) and use mode="pro" for 1080p or when supplying an end frame.'
+                      : 'Provide a crisp start image for the best likeness and keep prompts focused on motion.'}
                   </section>
                 )}
 
@@ -835,7 +895,22 @@ export default function VeoPage() {
                 )}
 
                 <section className="veo-control-card">
-                  <button className="btn" style={{ width: '100%' }} disabled={isLoading || (model !== 'wan-video/wan-2.2-animate-replace' && !prompt.trim()) || animateMissingRequired} onClick={runVeo}>
+                  {klingStartMissing && (
+                    <p className="small" style={{ marginBottom: 'var(--space-3)', color: '#fbbf24' }}>
+                      Kling v2.1 requires a start image. Upload one under “Reference media & required files”.
+                    </p>
+                  )}
+                  <button
+                    className="btn"
+                    style={{ width: '100%' }}
+                    disabled={
+                      isLoading ||
+                      (model !== 'wan-video/wan-2.2-animate-replace' && !prompt.trim()) ||
+                      animateMissingRequired ||
+                      klingStartMissing
+                    }
+                    onClick={runVeo}
+                  >
                     {isLoading ? 'Generating…' : 'Generate video'}
                   </button>
                 </section>

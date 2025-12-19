@@ -174,6 +174,13 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
     provider: 'Kwaivgi',
     description: 'Premium text-to-video & image-to-video creation with smooth cinematic motion',
   },
+  'kwaivgi/kling-v2.1': {
+    name: 'Kling v2.1',
+    category: 'other',
+    credits: 32,
+    provider: 'Kwaivgi',
+    description: 'Image-to-video generation that requires a start image (720p/1080p)',
+  },
 };
 
 // Helper functions
