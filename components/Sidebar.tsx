@@ -104,7 +104,7 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-inner">
         <div className="sidebar-brand-card">
-          <div className="sidebar-logo" title="AdzCreator">
+          <a className="sidebar-logo" title="AdzCreator" href="/">
             <div className="brand-chip">
               <img src="/icon.png" alt="AdzCreator favicon" />
             </div>
@@ -112,7 +112,7 @@ export function Sidebar() {
               <span>AdzCreator</span>
               <span className="sidebar-logo-tagline">Minimal Lab</span>
             </div>
-          </div>
+          </a>
           <div className="sidebar-signal">
             <span className="sidebar-signal-dot" />
             <span>Systems nominal</span>
