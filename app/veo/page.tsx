@@ -259,6 +259,22 @@ export default function VeoPage() {
 
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const promptReadyAll = useMemo(
+    () => (applyPromptToAll ? !!sharedPrompt.trim() : jobs.every((job) => (job.prompt || '').trim().length > 0)),
+    [applyPromptToAll, sharedPrompt, jobs],
+  );
+  const promptReadyActive = useMemo(
+    () => (applyPromptToAll ? !!sharedPrompt.trim() : !!(jobs.find((job) => job.id === activeJobId)?.prompt || '').trim()),
+    [applyPromptToAll, sharedPrompt, jobs, activeJobId],
+  );
+  const promptRequirementMet = useMemo(
+    () => (model === 'wan-video/wan-2.2-animate-replace' ? true : promptReadyAll),
+    [model, promptReadyAll],
+  );
+  const promptRequirementActive = useMemo(
+    () => (model === 'wan-video/wan-2.2-animate-replace' ? true : promptReadyActive),
+    [model, promptReadyActive],
+  );
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [inputSchema, setInputSchema] = useState<any | null>(null);
@@ -387,7 +403,7 @@ export default function VeoPage() {
   const jobPromptValue = (job: VideoJobRecord) =>
     (applyPromptToAll ? sharedPrompt : job.prompt).trim();
 
-  async function runBatch(jobIds?: string[]) {
+  const runBatch = async (jobIds?: string[]) => {
     const targets = jobs.filter((job) => (jobIds ? jobIds.includes(job.id) : true));
     if (!targets.length) return;
     setIsBatchRunning(true);
@@ -399,7 +415,11 @@ export default function VeoPage() {
     } finally {
       setIsBatchRunning(false);
     }
-  }
+  };
+  const runActiveJob = () => {
+    if (!activeJobId) return;
+    runBatch([activeJobId]);
+  };
 
   async function runSingleJob(job: VideoJobRecord) {
     const promptValue = jobPromptValue(job);
@@ -548,6 +568,73 @@ export default function VeoPage() {
           <a href="/credits" className="hero-link">Check credits</a>
         </div>
       </header>
+      <div className="action-dock">
+        <div className="action-dock-grid">
+          <div className="dock-field">
+            <div className="small">Prompt control</div>
+            <textarea
+              className="input"
+              rows={3}
+              value={applyPromptToAll ? sharedPrompt : (activeJob?.prompt ?? '')}
+              onChange={(e)=>{
+                const next = e.target.value;
+                if (applyPromptToAll) setSharedPrompt(next);
+                else if (activeJob) patchJob(activeJob.id, { prompt: next });
+              }}
+              placeholder="Keep your main prompt in reach while you configure the job."
+            />
+            <label className="apply-all-toggle" style={{marginTop:'var(--space-2)'}}>
+              <input
+                type="checkbox"
+                checked={applyPromptToAll}
+                onChange={(e)=>setApplyPromptToAll(e.target.checked)}
+              />
+              Apply prompt to all jobs
+            </label>
+          </div>
+          <div className="dock-meta">
+            <div className="dock-stats">
+              <div><strong>Jobs</strong><span>{jobs.length}</span></div>
+              <div><strong>Running</strong><span>{jobs.filter((j)=>j.status === 'running').length}</span></div>
+              <div><strong>Model</strong><span>{model}</span></div>
+            </div>
+            <div className="dock-tabs">
+              {jobs.map((job) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  className={`veo-job-tab ${job.id === activeJobId ? 'active' : ''}`}
+                  onClick={()=>setActiveJobId(job.id)}
+                >
+                  <span>{job.label}</span>
+                  <span className={`status-pill ${job.status}`}>{job.status}</span>
+                </button>
+              ))}
+              <button type="button" className="veo-job-tab add" onClick={addJob}>+ Add</button>
+              {jobs.length > 1 && (
+                <button type="button" className="veo-job-tab remove" onClick={()=>removeJob(activeJobId)}>Remove</button>
+              )}
+            </div>
+          </div>
+          <div className="action-dock-actions">
+            <div className="small" style={{color:'var(--text-muted)'}}>Active: {activeJob?.label || 'n/a'}</div>
+            <button
+              className="btn inline"
+              onClick={runActiveJob}
+              disabled={isBatchRunning || !promptRequirementActive || klingStartMissing}
+            >
+              Run active
+            </button>
+            <button
+              className="btn"
+              onClick={()=>runBatch()}
+              disabled={isBatchRunning || !promptRequirementMet || klingStartMissing}
+            >
+              {isBatchRunning ? 'Generating…' : 'Run all jobs'}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="page-grid">
         <div className="page-main">
@@ -647,14 +734,6 @@ export default function VeoPage() {
                       <button type="button" className="veo-job-tab remove" onClick={()=>removeJob(activeJobId)}>Remove</button>
                     )}
                   </div>
-                  <label className="apply-all-toggle">
-                    <input
-                      type="checkbox"
-                      checked={applyPromptToAll}
-                      onChange={(e)=>setApplyPromptToAll(e.target.checked)}
-                    />
-                    Apply shared prompt to all jobs
-                  </label>
                 </section>
 
                 {isKlingModel && (
@@ -1108,12 +1187,7 @@ export default function VeoPage() {
                   <button
                     className="btn"
                     style={{ width: '100%' }}
-                    disabled={
-                      isBatchRunning ||
-                      (model !== 'wan-video/wan-2.2-animate-replace' && jobs.every((job) => !jobPromptValue(job))) ||
-                      animateMissingRequired ||
-                      klingStartMissing
-                    }
+                    disabled={isBatchRunning || !promptRequirementMet || animateMissingRequired || klingStartMissing}
                     onClick={()=>runBatch()}
                   >
                     {isBatchRunning ? 'Generating…' : 'Generate videos'}

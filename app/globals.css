@@ -4612,6 +4612,71 @@ body[data-page="billing"] .pricing-card.current-plan {
   flex-wrap: wrap;
 }
 
+.action-dock {
+  position: sticky;
+  top: var(--space-4);
+  z-index: 6;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-soft);
+}
+
+.action-dock-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr auto;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.dock-field textarea {
+  min-height: 88px;
+}
+
+.dock-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+  background: var(--panel-elevated);
+  border: 1px solid var(--border);
+  padding: var(--space-3);
+}
+
+.dock-stats div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-sm);
+}
+
+.dock-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.action-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1024px) {
+  .action-dock {
+    top: 0;
+  }
+  .action-dock-grid {
+    grid-template-columns: 1fr;
+  }
+  .action-dock-actions {
+    justify-content: flex-start;
+  }
+}
+
 .hero-link {
   font-size: var(--font-xs);
   letter-spacing: 0.2em;

@@ -167,11 +167,19 @@ export default function ImagePage() {
 
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const promptReadyAll = useMemo(
+    () => (applyPromptToAll ? !!sharedPrompt.trim() : jobs.every((job) => (job.prompt || '').trim().length > 0)),
+    [applyPromptToAll, sharedPrompt, jobs],
+  );
   const supportsMultipleInputImages = MULTI_IMAGE_MODELS.has(model);
   const maxImageOutputs = model === 'openai/gpt-image-1.5' ? 10 : 4;
 
   const selectedDoc = useMemo(() => IMAGE_MODEL_DOCS[model] || null, [model]);
 const activeJob = useMemo(() => jobs.find((job) => job.id === activeJobId) ?? jobs[0], [jobs, activeJobId]);
+  const promptReadyActive = useMemo(
+    () => (applyPromptToAll ? !!sharedPrompt.trim() : !!(activeJob?.prompt || '').trim()),
+    [applyPromptToAll, sharedPrompt, activeJob],
+  );
 const sharedPromptValue = useMemo(
   () => (applyPromptToAll ? sharedPrompt : activeJob?.prompt ?? sharedPrompt),
   [applyPromptToAll, sharedPrompt, activeJob],
@@ -426,7 +434,7 @@ const sharedPromptValue = useMemo(
     }
   }
 
-  async function runBatch(jobIds?: string[]) {
+  const runBatch = async (jobIds?: string[]) => {
     const targets = jobs.filter((job) => (jobIds ? jobIds.includes(job.id) : true));
     if (!targets.length) return;
     setIsBatchRunning(true);
@@ -438,7 +446,11 @@ const sharedPromptValue = useMemo(
     } finally {
       setIsBatchRunning(false);
     }
-  }
+  };
+  const runActiveJob = () => {
+    if (!activeJobId) return;
+    runBatch([activeJobId]);
+  };
 
   return (
     <div className="page-template generator fade-in">
@@ -455,6 +467,75 @@ const sharedPromptValue = useMemo(
           <a href="/credits" className="hero-link">Credit status</a>
         </div>
       </header>
+      <div className="action-dock">
+        <div className="action-dock-grid">
+          <div className="dock-field">
+            <div className="small">Prompt control</div>
+            <textarea
+              className="input"
+              rows={3}
+              value={applyPromptToAll ? sharedPrompt : (activeJob?.prompt ?? '')}
+              onChange={(e)=>{
+                const next = e.target.value;
+                if (applyPromptToAll) setSharedPrompt(next);
+                else if (activeJob) patchJob(activeJob.id, { prompt: next });
+              }}
+              placeholder="Type your prompt once and keep the run controls in reach."
+            />
+            <label className="apply-all-toggle" style={{marginTop: 'var(--space-2)'}}>
+              <input
+                type="checkbox"
+                checked={applyPromptToAll}
+                onChange={(e)=>setApplyPromptToAll(e.target.checked)}
+              />
+              Apply prompt to all jobs
+            </label>
+          </div>
+          <div className="dock-meta">
+            <div className="dock-stats">
+              <div><strong>Jobs</strong><span>{jobs.length}</span></div>
+              <div><strong>Running</strong><span>{jobs.filter((j)=>j.status === 'running').length}</span></div>
+              <div><strong>Model</strong><span>{model}</span></div>
+            </div>
+            <div className="dock-tabs">
+              {jobs.map((job) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  className={`veo-job-tab ${job.id === activeJobId ? 'active' : ''}`}
+                  onClick={()=>setActiveJobId(job.id)}
+                >
+                  <span>{job.label}</span>
+                  <span className={`status-pill ${job.status}`}>{job.status}</span>
+                </button>
+              ))}
+              <button type="button" className="veo-job-tab add" onClick={addJob}>+ Add</button>
+              {jobs.length > 1 && (
+                <button type="button" className="veo-job-tab remove" onClick={()=>removeJob(activeJobId)}>Remove</button>
+              )}
+            </div>
+          </div>
+          <div className="action-dock-actions">
+            <div className="small" style={{color:'var(--text-muted)'}}>
+              Active: {activeJob?.label || 'n/a'}
+            </div>
+            <button
+              className="btn inline"
+              onClick={runActiveJob}
+              disabled={isBatchRunning || !promptReadyActive}
+            >
+              Run active
+            </button>
+            <button
+              className="btn"
+              onClick={()=>runBatch()}
+              disabled={isBatchRunning || !promptReadyAll}
+            >
+              {isBatchRunning ? 'Generating…' : 'Run all jobs'}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="page-grid">
         <div className="page-main">
@@ -547,14 +628,6 @@ const sharedPromptValue = useMemo(
                     <button type="button" className="veo-job-tab remove" onClick={()=>removeJob(activeJobId)}>Remove</button>
                   )}
                 </div>
-                <label className="apply-all-toggle">
-                  <input
-                    type="checkbox"
-                    checked={applyPromptToAll}
-                    onChange={(e)=>setApplyPromptToAll(e.target.checked)}
-                  />
-                  Apply prompt to all jobs
-                </label>
               </section>
 
               <div className="options">
@@ -843,10 +916,7 @@ const sharedPromptValue = useMemo(
           <button
             className="btn"
             style={{ marginTop: 12 }}
-            disabled={
-              isBatchRunning ||
-              (applyPromptToAll ? !sharedPrompt.trim() : jobs.some((job) => !(job.prompt || '').trim()))
-            }
+            disabled={isBatchRunning || !promptReadyAll}
             onClick={()=>runBatch()}
           >
             {isBatchRunning ? 'Generating…' : 'Generate images'}
