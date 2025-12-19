@@ -110,13 +110,8 @@ export function Sidebar() {
             </div>
             <div className="sidebar-logo-text">
               <span>AdzCreator</span>
-              <span className="sidebar-logo-tagline">Minimal Lab</span>
             </div>
           </a>
-          <div className="sidebar-signal">
-            <span className="sidebar-signal-dot" />
-            <span>Systems nominal</span>
-          </div>
         </div>
 
         <div className="sidebar-scroll">

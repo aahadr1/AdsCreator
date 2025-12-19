@@ -60,7 +60,7 @@ export default function TasksPage() {
         setLoading(false);
         return; 
       }
-      const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}&limit=all`);
+      const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(user.id)}&limit=10000&timeout_ms=8000`);
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         setError(txt || 'Failed to load tasks');

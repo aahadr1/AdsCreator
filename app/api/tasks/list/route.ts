@@ -16,22 +16,23 @@ export async function GET(req: NextRequest) {
     const userId = (searchParams.get('user_id') || '').trim();
     const limitParamRaw = (searchParams.get('limit') || '').trim().toLowerCase();
     let requestedLimit: number;
+    const maxAllowed = 10000;
     if (!limitParamRaw || limitParamRaw === 'all') {
-      requestedLimit = Number.POSITIVE_INFINITY;
+      requestedLimit = maxAllowed;
     } else {
       const parsed = parseInt(limitParamRaw, 10);
       if (!Number.isNaN(parsed) && parsed > 0) {
-        requestedLimit = Math.min(parsed, 5000);
+        requestedLimit = Math.min(parsed, maxAllowed);
       } else {
-        requestedLimit = Number.POSITIVE_INFINITY;
+        requestedLimit = maxAllowed;
       }
     }
     const isUnlimited = !Number.isFinite(requestedLimit);
     const cursor = searchParams.get('cursor');
     const controller = new AbortController();
 
-    // Hard overall timeout to avoid blocking UI
-    const timeoutMs = Math.min(Math.max(parseInt(searchParams.get('timeout_ms') || '2500', 10) || 2500, 500), 5000);
+    // Hard overall timeout to avoid blocking UI (allow more time for large lists)
+    const timeoutMs = Math.min(Math.max(parseInt(searchParams.get('timeout_ms') || '8000', 10) || 8000, 500), 10000);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     const maxPageSize = 100;
@@ -143,4 +144,3 @@ export async function GET(req: NextRequest) {
     return new Response(`Error: ${e.message}`, { status: 500 });
   }
 }
-
