@@ -16,9 +16,11 @@ const RUNNING_COLOR = '#fb923c'; // orange
 const SUCCESS_COLOR = '#22c55e'; // green
 const POLL_INTERVAL_MS = 6000;
 const SUCCESS_FLASH_MS = 8000;
-const ICON_SIZE = 64;
+const ICON_BASE_SIZE = 64;
 const DOT_RADIUS = 9;
-const DOT_CENTER_Y = ICON_SIZE - 2; // place dot slightly below the base icon
+const DOT_VERTICAL_OFFSET = 6;
+const CANVAS_HEIGHT = ICON_BASE_SIZE + DOT_RADIUS * 2 + DOT_VERTICAL_OFFSET;
+const RECENT_TASK_WINDOW_MS = 5 * 60 * 1000;
 
 export function FaviconTaskIndicator() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -67,21 +69,28 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
       if (cache.has(color)) return cache.get(color)!;
 
       const base = await ensureBaseImage();
-      const size = ICON_SIZE;
+      const size = ICON_BASE_SIZE;
       const canvas = document.createElement('canvas');
       canvas.width = size;
-      canvas.height = size;
+      canvas.height = CANVAS_HEIGHT;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         const fallbackCanvas = document.createElement('canvas');
-        fallbackCanvas.width = 32;
-        fallbackCanvas.height = 32;
+        fallbackCanvas.width = size;
+        fallbackCanvas.height = CANVAS_HEIGHT;
         const fallbackCtx = fallbackCanvas.getContext('2d');
         if (fallbackCtx) {
-          fallbackCtx.clearRect(0, 0, 32, 32);
+          fallbackCtx.clearRect(0, 0, size, CANVAS_HEIGHT);
+          fallbackCtx.fillStyle = '#0a0a0a';
+          fallbackCtx.fillRect(0, 0, size, size);
+          fallbackCtx.fillStyle = '#ffffff';
+          fallbackCtx.font = 'bold 28px sans-serif';
+          fallbackCtx.textAlign = 'center';
+          fallbackCtx.textBaseline = 'middle';
+          fallbackCtx.fillText('AC', size / 2, size / 2);
           fallbackCtx.fillStyle = color;
           fallbackCtx.beginPath();
-          fallbackCtx.arc(16, 16, 10, 0, Math.PI * 2);
+          fallbackCtx.arc(size / 2, size + DOT_VERTICAL_OFFSET, DOT_RADIUS, 0, Math.PI * 2);
           fallbackCtx.fill();
         }
         const url = fallbackCanvas.toDataURL('image/png');
@@ -102,7 +111,7 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
       }
 
       const centerX = size / 2;
-      const centerY = DOT_CENTER_Y;
+      const centerY = size + DOT_VERTICAL_OFFSET;
       ctx.fillStyle = '#0f0f0fd4';
       ctx.beginPath();
       ctx.arc(centerX, centerY, DOT_RADIUS + 3, 0, Math.PI * 2);
@@ -144,23 +153,41 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
       try {
         const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=15`, { cache: 'no-store' });
         if (!res.ok) throw new Error();
-        const json = (await res.json()) as { tasks?: Array<{ status?: string | null }> };
+        const json = (await res.json()) as {
+          tasks?: Array<{ status?: string | null; created_at?: string | null }>;
+        };
         const tasks = Array.isArray(json.tasks) ? json.tasks : [];
-        const running = tasks.some((task) =>
-          Boolean(task?.status && /running|processing|queued/i.test(task.status)),
-        );
+        const now = Date.now();
+        const recentThreshold = now - RECENT_TASK_WINDOW_MS;
+
+        const parseTime = (value?: string | null): number => {
+          if (!value) return Number.NaN;
+          const ts = new Date(value).getTime();
+          return Number.isFinite(ts) ? ts : Number.NaN;
+        };
+
+        const running = tasks.some((task) => {
+          const ts = parseTime(task.created_at);
+          if (!Number.isFinite(ts) || ts < recentThreshold) return false;
+          const status = String(task?.status || '').toLowerCase();
+          return /running|processing|queued|pending|in_progress/.test(status);
+        });
 
         if (running) {
           hadRunningRef.current = true;
           setFaviconState('running');
-        } else if (hadRunningRef.current) {
+          return;
+        }
+
+        if (hadRunningRef.current) {
           hadRunningRef.current = false;
           setFaviconState('success');
           if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
           successTimeoutRef.current = setTimeout(() => setFaviconState('idle'), SUCCESS_FLASH_MS);
-        } else {
-          setFaviconState('idle');
+          return;
         }
+
+        setFaviconState('idle');
       } catch {
         if (!cancelled) setFaviconState('idle');
       }
