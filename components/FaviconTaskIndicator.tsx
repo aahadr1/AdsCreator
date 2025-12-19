@@ -44,51 +44,6 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
     };
   }, []);
 
-  useEffect(() => {
-    if (!userId) {
-      setFaviconState('idle');
-      return;
-    }
-
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=15`, { cache: 'no-store' });
-        if (!res.ok) throw new Error();
-        const json = (await res.json()) as { tasks?: Array<{ status?: string | null }> };
-        const tasks = Array.isArray(json.tasks) ? json.tasks : [];
-        const running = tasks.some((task) =>
-          Boolean(task?.status && /running|processing|queued/i.test(task.status)),
-        );
-        const hasRecent = tasks.some((task) =>
-          Boolean(task?.status && /finished|completed|succeeded/i.test(task.status)),
-        );
-
-        if (running) {
-          hadRunningRef.current = true;
-          setFaviconState('running');
-        } else if (hadRunningRef.current && hasRecent) {
-          hadRunningRef.current = false;
-          setFaviconState('success');
-          if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
-          successTimeoutRef.current = setTimeout(() => setFaviconState('idle'), SUCCESS_FLASH_MS);
-        } else if (!hadRunningRef.current) {
-          setFaviconState('idle');
-        }
-      } catch {
-        if (!cancelled) setFaviconState('idle');
-      }
-    };
-
-    void poll();
-    const interval = setInterval(() => { void poll(); }, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [userId, setFaviconState]);
-
   const generateIcon = useMemo(() => {
     const ensureBaseImage = async (): Promise<HTMLImageElement | null> => {
       if (baseIconRef.current) return baseIconRef.current;
@@ -173,6 +128,51 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
     const color = next === 'running' ? RUNNING_COLOR : SUCCESS_COLOR;
     void generateIcon(color).then((dataUrl) => applyDynamicFavicon(dataUrl, iconElementsRef));
   }, [generateIcon]);
+
+  useEffect(() => {
+    if (!userId) {
+      setFaviconState('idle');
+      return;
+    }
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=15`, { cache: 'no-store' });
+        if (!res.ok) throw new Error();
+        const json = (await res.json()) as { tasks?: Array<{ status?: string | null }> };
+        const tasks = Array.isArray(json.tasks) ? json.tasks : [];
+        const running = tasks.some((task) =>
+          Boolean(task?.status && /running|processing|queued/i.test(task.status)),
+        );
+        const hasRecent = tasks.some((task) =>
+          Boolean(task?.status && /finished|completed|succeeded/i.test(task.status)),
+        );
+
+        if (running) {
+          hadRunningRef.current = true;
+          setFaviconState('running');
+        } else if (hadRunningRef.current && hasRecent) {
+          hadRunningRef.current = false;
+          setFaviconState('success');
+          if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+          successTimeoutRef.current = setTimeout(() => setFaviconState('idle'), SUCCESS_FLASH_MS);
+        } else if (!hadRunningRef.current) {
+          setFaviconState('idle');
+        }
+      } catch {
+        if (!cancelled) setFaviconState('idle');
+      }
+    };
+
+    void poll();
+    const interval = setInterval(() => { void poll(); }, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [userId, setFaviconState]);
 
   return null;
 }
