@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Sidebar } from './Sidebar';
 import { CommandPalette, type Command } from './CommandPalette';
 import { useCredits } from '../lib/creditContext';
+import { FaviconTaskIndicator } from './FaviconTaskIndicator';
 
 type LayoutWrapperProps = {
   children: React.ReactNode;
@@ -93,6 +94,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
 
   return (
     <div className={`workspace-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <FaviconTaskIndicator />
       <Sidebar />
       <main className="workspace-main">
         <header className="workspace-header">
