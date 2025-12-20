@@ -32,7 +32,11 @@ function parseJSONFromString(raw: string): any | null {
 
 function normalizeMessages(msgs: any[]): AssistantPlanMessage[] {
   return (Array.isArray(msgs) ? msgs : [])
-    .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user', content: String(m.content || '') }))
+    .map((m) => {
+      const role: AssistantPlanMessage['role'] =
+        m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user';
+      return { role, content: String(m.content || '') };
+    })
     .filter((m) => m.content.trim().length > 0);
 }
 
