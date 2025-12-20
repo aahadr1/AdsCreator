@@ -427,6 +427,91 @@ function normalizeInputs(step: AssistantPlanStep): AssistantPlanStep {
   };
 }
 
+function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): AssistantPlan {
+  const imageUrls = media.filter((m) => m.type === 'image').map((m) => m.url).filter(Boolean);
+  const videoUrls = media.filter((m) => m.type === 'video').map((m) => m.url).filter(Boolean);
+  const audioUrls = media.filter((m) => m.type === 'audio').map((m) => m.url).filter(Boolean);
+
+  let lastImageStep: string | null = null;
+  let lastVideoStep: string | null = null;
+  let lastAudioStep: string | null = null;
+
+  const ensureArrayField = (inputs: Record<string, any>, key: string, value: string | string[]) => {
+    if (Array.isArray(value)) {
+      inputs[key] = value;
+    } else {
+      inputs[key] = [value];
+    }
+  };
+
+  const steps = plan.steps.map((step, index) => {
+    const inputs = { ...(step.inputs || {}) };
+    const deps = new Set(step.dependencies || []);
+
+    const linkFromPrevious = (
+      priorId: string | null,
+      attachmentUrls: string[],
+      key: string,
+      isArray?: boolean,
+    ) => {
+      if (inputs[key]) return;
+      if (priorId) {
+        const token = `{{steps.${priorId}.output}}`;
+        if (isArray) ensureArrayField(inputs, key, token);
+        else inputs[key] = token;
+        deps.add(priorId);
+      } else if (attachmentUrls.length) {
+        if (isArray) ensureArrayField(inputs, key, attachmentUrls);
+        else inputs[key] = attachmentUrls[0];
+      }
+    };
+
+    const imageArrayKeys = ['input_images', 'image_input'];
+    const imageScalarKeys = ['input_image', 'image', 'start_image', 'end_image'];
+    const videoKeys = ['video', 'video_url', 'start_video', 'reference_video'];
+    const audioKeys = ['audio', 'audio_url', 'voice'];
+
+    if (['image', 'background_remove', 'enhance', 'video'].includes(step.tool)) {
+      for (const key of imageArrayKeys) {
+        linkFromPrevious(lastImageStep, imageUrls, key, true);
+      }
+      for (const key of imageScalarKeys) {
+        linkFromPrevious(lastImageStep, imageUrls, key, false);
+      }
+    }
+
+    if (['background_remove', 'lipsync'].includes(step.tool)) {
+      for (const key of videoKeys) {
+        linkFromPrevious(lastVideoStep, videoUrls, key, false);
+      }
+    }
+
+    if (['lipsync'].includes(step.tool)) {
+      for (const key of audioKeys) {
+        linkFromPrevious(lastAudioStep, audioUrls, key, false);
+      }
+    }
+
+    const updatedStep: AssistantPlanStep = {
+      ...step,
+      inputs,
+      dependencies: Array.from(deps),
+    };
+
+    const isImageLike = step.outputType === 'image' || ['image', 'enhance'].includes(step.tool);
+    const isVideoLike = step.outputType === 'video' || ['video', 'lipsync', 'background_remove'].includes(step.tool);
+    const isAudioLike = step.outputType === 'audio' || ['tts'].includes(step.tool);
+
+    if (isImageLike) lastImageStep = step.id;
+    if (isVideoLike) lastVideoStep = step.id;
+    if (isAudioLike) lastAudioStep = step.id;
+
+    return updatedStep;
+  });
+
+  return { ...plan, steps };
+}
+
 export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media: AssistantMedia[]): AssistantPlan {
   const lastUser = messages.slice().reverse().find((m) => m.role === 'user');
   const hasVideo = media.some((m) => m.type === 'video');
@@ -446,7 +531,7 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
         : 'Hero shot of the product in good lighting, cinematic aesthetic, 35mm lens, shallow depth of field.',
       aspect_ratio: '1:1',
       number_of_images: 1,
-      input_images: firstImage ? [firstImage.url] : [],
+      input_images: firstImage ? [firstImage.url] : undefined,
     },
     suggestedParams: {},
   });
@@ -475,10 +560,13 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
     );
   }
 
-  return {
-    summary,
-    steps,
-  };
+  return attachMediaToPlan(
+    {
+      summary,
+      steps,
+    },
+    media,
+  );
 }
 
 export function normalizePlannerOutput(raw: any, messages: AssistantPlanMessage[], media: AssistantMedia[]): AssistantPlan {
@@ -501,8 +589,11 @@ export function normalizePlannerOutput(raw: any, messages: AssistantPlanMessage[
       validations: s.validations,
     }),
   );
-  return {
-    summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
-    steps,
-  };
+  return attachMediaToPlan(
+    {
+      summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
+      steps,
+    },
+    media,
+  );
 }
