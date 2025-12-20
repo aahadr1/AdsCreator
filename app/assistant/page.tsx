@@ -13,6 +13,69 @@ type StepState = { status: 'idle' | 'running' | 'complete' | 'error'; outputUrl?
 
 const EMPTY_PLAN: AssistantPlan = { summary: 'No plan yet', steps: [] };
 
+const ACTION_DESCRIPTIONS: Record<string, { base: string; withUpload?: string }> = {
+  image: { base: 'create the hero still image', withUpload: 'modify your uploaded image' },
+  video: { base: 'animate the approved still into a video spot' },
+  enhance: { base: 'enhance and upscale the imagery' },
+  background_remove: { base: 'remove the background from the clip' },
+  lipsync: { base: 'apply lipsync using the prepared audio' },
+  transcription: { base: 'transcribe the audio' },
+  tts: { base: 'generate narration audio' },
+};
+
+const stepIntro = (idx: number, total: number): string => {
+  if (idx === 0) return 'First,';
+  if (idx === total - 1) return 'Finally,';
+  return 'Then,';
+};
+
+const inputsContainUrl = (inputs: Record<string, any> | undefined, url: string | undefined): boolean => {
+  if (!inputs || !url) return false;
+  try {
+    return JSON.stringify(inputs).includes(url);
+  } catch {
+    return false;
+  }
+};
+
+const describePlanIntent = (
+  plan: AssistantPlan,
+  media: AssistantMedia[],
+  history: AssistantPlanMessage[],
+): string => {
+  if (!plan.steps.length) return 'No workflow planned yet.';
+  const lastUser = [...history].reverse().find((m) => m.role === 'user');
+  const requestLine = lastUser ? `You asked: "${lastUser.content.trim()}".` : '';
+  const counts = media.reduce<Record<string, number>>((acc, item) => {
+    acc[item.type] = (acc[item.type] || 0) + 1;
+    return acc;
+  }, {});
+  const attachmentParts = Object.entries(counts)
+    .filter(([, count]) => count > 0)
+    .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`);
+  const attachmentLine = attachmentParts.length ? `I detected ${attachmentParts.join(' and ')} attached.` : '';
+  const stepLookup = new Map(plan.steps.map((s) => [s.id, s]));
+  const total = plan.steps.length;
+  const sentences = plan.steps.map((step, idx) => {
+    const intro = stepIntro(idx, total);
+    const usesUpload = media.some((m) => inputsContainUrl(step.inputs, m.url || ''));
+    const desc = ACTION_DESCRIPTIONS[step.tool] || { base: step.title ? step.title.toLowerCase() : `run ${step.tool}` };
+    const action = usesUpload && desc.withUpload ? desc.withUpload : desc.base;
+    const dependencyTitles = (step.dependencies || [])
+      .map((depId) => stepLookup.get(depId))
+      .filter(Boolean)
+      .map((dep) => `"${dep!.title || dep!.id}"`);
+    const dependencyText = dependencyTitles.length
+      ? ` using the output from ${dependencyTitles.join(' and ')}`
+      : usesUpload
+        ? ' using your provided asset'
+        : '';
+    const modelText = step.model ? ` with ${step.model}` : '';
+    return `${intro} I will ${action}${dependencyText}${modelText}.`.replace(/\s+/g, ' ').trim();
+  });
+  return [requestLine, attachmentLine, 'Here is the workflow I will run:', ...sentences].filter(Boolean).join(' ');
+};
+
 export default function AssistantPage() {
   const [userId, setUserId] = useState<string>('');
   const [messages, setMessages] = useState<AssistantPlanMessage[]>([{ role: 'user', content: 'Create a short product hero video with a voiceover.' }]);
@@ -125,8 +188,8 @@ export default function AssistantPage() {
       }
       setStepConfigs(nextConfigs);
       setStepStates(nextStates);
-      const summaryText = `Plan ready: ${nextPlan.steps.map((s) => `${s.title} (${s.model})`).join(' → ')}`;
-      setMessages((prev) => [...prev, { role: 'assistant', content: summaryText }]);
+      const narrative = describePlanIntent(nextPlan, attachments, finalMessages);
+      setMessages((prev) => [...prev, { role: 'assistant', content: narrative }]);
     } catch (err: any) {
       setRunError(err?.message || 'Failed to plan.');
     } finally {
