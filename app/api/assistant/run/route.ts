@@ -80,8 +80,19 @@ function enforceDefaults(step: AssistantPlanStep, inputs: Record<string, any>): 
   if (step.tool === 'image' && step.model === 'openai/gpt-image-1.5') {
     if (inputs.number_of_images === undefined) inputs.number_of_images = 1;
   }
-  if (step.tool === 'tts' && !inputs.provider) {
-    inputs.provider = 'replicate';
+  if (step.tool === 'tts') {
+    if (!inputs.provider) {
+      // Default provider based on model
+      if (step.model?.includes('elevenlabs')) {
+        inputs.provider = 'elevenlabs';
+      } else if (step.model?.includes('dia')) {
+        inputs.provider = 'dia';
+      } else {
+        inputs.provider = 'replicate';
+      }
+    }
+    // Ensure user_id is passed (required by TTS API)
+    // This will be added in executeStep
   }
   return coerceNumeric(inputs);
 }

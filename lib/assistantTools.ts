@@ -218,6 +218,17 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     ],
   },
   {
+    model: 'wan-video/wan-2.2-animate-replace',
+    defaults: { aspect_ratio: '16:9', refert_num: 1 },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'video', label: 'Video URL (required)', type: 'url', required: true, helper: 'Source video to replace character in' },
+      { key: 'character_image', label: 'Character image URL (required)', type: 'url', required: true, helper: 'Image of character to insert' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
+      { key: 'refert_num', label: 'Reference number', type: 'select', options: [{ value: '1', label: '1' }, { value: '5', label: '5' }], helper: 'Number of reference frames (1 or 5)' },
+    ],
+  },
+  {
     model: 'minimax-speech-02-hd',
     fields: [
       { key: 'text', label: 'Text', type: 'textarea', required: true },
@@ -267,12 +278,15 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { id: 'google/veo-3.1-fast', label: 'VEO 3.1 Fast', defaultInputs: { resolution: '720p' } },
       { id: 'google/veo-3-fast', label: 'VEO 3 Fast', defaultInputs: { resolution: '720p' } },
       { id: 'google/veo-3.1', label: 'VEO 3.1', defaultInputs: { resolution: '1080p' } },
+      { id: 'google/veo-3', label: 'VEO 3', defaultInputs: { resolution: '720p' } },
       { id: 'openai/sora-2', label: 'Sora 2', defaultInputs: { resolution: '720p' } },
       { id: 'openai/sora-2-pro', label: 'Sora 2 Pro', defaultInputs: { resolution: '1080p' } },
       { id: 'kwaivgi/kling-v2.5-turbo-pro', label: 'Kling v2.5 Turbo Pro', defaultInputs: { duration: 5, aspect_ratio: '16:9' } },
       { id: 'kwaivgi/kling-v2.1', label: 'Kling v2.1', defaultInputs: { duration: 4, aspect_ratio: '16:9', mode: 'default' } },
       { id: 'wan-video/wan-2.2-i2v-fast', label: 'WAN 2.2 i2v Fast', defaultInputs: { aspect_ratio: '16:9' } },
+      { id: 'wan-video/wan-2.2-animate-replace', label: 'WAN 2.2 Animate Replace', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'bytedance/seedance-1-lite', label: 'Seedance 1 Lite', defaultInputs: { aspect_ratio: '16:9' } },
+      { id: 'bytedance/seedance-1-pro', label: 'Seedance 1 Pro', defaultInputs: { aspect_ratio: '16:9' } },
     ],
   },
   lipsync: {
@@ -334,16 +348,34 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
   tts: {
     id: 'tts',
     label: 'Text to Speech',
-    description: 'Synthesize speech from scripts.',
+    description: 'Synthesize speech from text scripts. Generate voiceovers, narrations, and spoken audio.',
     outputType: 'audio',
     fields: [
-      { key: 'text', label: 'Text', type: 'textarea', required: true },
-      { key: 'voice_id', label: 'Voice ID', type: 'text', required: false },
+      { key: 'text', label: 'Text', type: 'textarea', required: true, helper: 'The text to convert to speech' },
+      { key: 'provider', label: 'Provider', type: 'select', options: [
+        { value: 'replicate', label: 'Replicate (Minimax)' },
+        { value: 'elevenlabs', label: 'ElevenLabs' },
+        { value: 'dia', label: 'Dia TTS' },
+      ], required: false, helper: 'TTS provider to use' },
+      { key: 'voice_id', label: 'Voice ID', type: 'text', required: false, helper: 'Voice identifier (varies by provider)' },
+      { key: 'speed', label: 'Speed', type: 'number', required: false, helper: 'Speech speed (0.5-2.0)' },
+      { key: 'pitch', label: 'Pitch', type: 'number', required: false, helper: 'Voice pitch adjustment' },
+      { key: 'volume', label: 'Volume', type: 'number', required: false, helper: 'Volume level' },
+      { key: 'emotion', label: 'Emotion', type: 'select', options: [
+        { value: 'auto', label: 'Auto' },
+        { value: 'neutral', label: 'Neutral' },
+        { value: 'happy', label: 'Happy' },
+        { value: 'sad', label: 'Sad' },
+        { value: 'angry', label: 'Angry' },
+        { value: 'fearful', label: 'Fearful' },
+        { value: 'disgusted', label: 'Disgusted' },
+        { value: 'surprised', label: 'Surprised' },
+      ], required: false, helper: 'Emotional tone' },
     ],
     models: [
-      { id: 'minimax-speech-02-hd', label: 'Minimax Speech 02 HD' },
-      { id: 'elevenlabs-tts', label: 'ElevenLabs TTS' },
-      { id: 'dia-tts', label: 'Dia TTS' },
+      { id: 'minimax-speech-02-hd', label: 'Minimax Speech 02 HD', defaultInputs: { provider: 'replicate' } },
+      { id: 'elevenlabs-tts', label: 'ElevenLabs TTS', defaultInputs: { provider: 'elevenlabs' } },
+      { id: 'dia-tts', label: 'Dia TTS', defaultInputs: { provider: 'dia' } },
     ],
   },
 };
@@ -400,8 +432,14 @@ export function buildUnifiedPlannerSystemPrompt(): string {
 
   return `You are an expert workflow planner. Create executable plans with detailed, specific prompts ready for immediate use.
 
-AVAILABLE TOOLS:
+YOU HAVE ACCESS TO ALL THESE TOOLS AND MODELS - USE THEM FREELY:
 ${toolSections}
+
+IMPORTANT: You can use ANY of the models listed above. Choose the best model for each task:
+- For images: GPT Image 1.5 (best quality), Flux Kontext Max (wide format), Flux Krea Dev (square), Nano Banana (fast)
+- For videos: VEO 3.1 Fast (balanced), Sora 2 Pro (premium), Kling v2.5 (short clips), Wan i2v Fast (image-to-video), Seedance (character motion)
+- For TTS: Minimax (fast), ElevenLabs (premium voices), Dia (customizable)
+- For lipsync: Sieve Sync 1.1 (fast), LatentSync (quality), Wan 2.2 S2V (cinematic from images)
 
 OUTPUT FORMAT (JSON only, no markdown):
 {
@@ -454,13 +492,48 @@ Plan:
 }
 NOTE: Each video uses its corresponding image! Video 1→Image 1, Video 2→Image 2, etc.
 
-Example 3: Lipsync with Wan 2.2 S2V (Cinematic Audio-Driven Video)
+Example 3: Text-to-Speech (TTS) Generation
+User: "Generate a voiceover saying 'Welcome to our amazing product'"
+Plan:
+{
+  "steps": [
+    {
+      "id": "tts1",
+      "tool": "tts",
+      "model": "minimax-speech-02-hd",
+      "inputs": {
+        "text": "Welcome to our amazing product",
+        "provider": "replicate"
+      }
+    }
+  ]
+}
+
+User: "Create a happy narration for my video"
+Plan:
+{
+  "steps": [
+    {
+      "id": "tts1",
+      "tool": "tts",
+      "model": "minimax-speech-02-hd",
+      "inputs": {
+        "text": "This is the most exciting product launch ever!",
+        "provider": "replicate",
+        "emotion": "happy",
+        "speed": 1.1
+      }
+    }
+  ]
+}
+
+Example 4: Lipsync with Wan 2.2 S2V (Cinematic Audio-Driven Video)
 User: "Create an image of a person, generate voiceover, then make them speak it"
 Plan:
 {
   "steps": [
     {"id": "img1", "tool": "image", "inputs": {"prompt": "Professional portrait of a business person, front-facing, clear face"}},
-    {"id": "tts1", "tool": "tts", "inputs": {"text": "Welcome to our company. We offer the best solutions."}},
+    {"id": "tts1", "tool": "tts", "inputs": {"text": "Welcome to our company. We offer the best solutions.", "provider": "replicate"}},
     {
       "id": "lipsync1", 
       "tool": "lipsync", 
