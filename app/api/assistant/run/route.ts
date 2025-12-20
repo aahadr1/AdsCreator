@@ -95,7 +95,7 @@ async function updateTask(origin: string, id: string | null, patch: Record<strin
   }
 }
 
-async function createTask(origin: string, userId: string, summary?: string): Promise<string | null> {
+async function createTask(origin: string, userId: string, summary?: string, steps?: AssistantPlanStep[]): Promise<string | null> {
   try {
     const res = await fetch(`${origin}/api/tasks/create`, {
       method: 'POST',
@@ -106,7 +106,15 @@ async function createTask(origin: string, userId: string, summary?: string): Pro
         status: 'running',
         backend: 'assistant',
         provider: 'assistant',
-        options_json: { source: 'assistant', summary },
+        text_input: summary || '',
+        output_text: summary || '',
+        options_json: {
+          source: 'assistant',
+          summary,
+          steps: Array.isArray(steps)
+            ? steps.map((s) => ({ id: s.id, title: s.title, model: s.model, tool: s.tool }))
+            : undefined,
+        },
       }),
     });
     if (!res.ok) return null;
@@ -252,8 +260,14 @@ async function runTtsStep(origin: string, inputs: Record<string, any>): Promise<
   return { url: json?.url || json?.audio || null };
 }
 
-async function executeStep(origin: string, step: AssistantPlanStep, outputs: Record<string, StepResult>, userId: string): Promise<StepResult> {
-  const injected = resolvePlaceholders(enforceDefaults(step, { ...step.inputs }), outputs);
+async function executeStep(
+  origin: string,
+  step: AssistantPlanStep,
+  outputs: Record<string, StepResult>,
+  userId: string,
+  resolvedInputs?: Record<string, any>,
+): Promise<StepResult> {
+  const injected = resolvedInputs || resolvePlaceholders(enforceDefaults(step, { ...step.inputs }), outputs);
   if (step.tool === 'image') return runImageStep(origin, step, injected);
   if (step.tool === 'video') return runVideoStep(origin, step, injected);
   if (step.tool === 'lipsync') return runLipsyncStep(origin, step, injected);
@@ -273,6 +287,21 @@ function validateSteps(steps: AssistantPlanStep[]): string | null {
   return null;
 }
 
+function buildAssistantOptions(summary: string | undefined, steps: AssistantPlanStep[], outputs: Record<string, StepResult>, inputs: Record<string, Record<string, any>>) {
+  return {
+    source: 'assistant',
+    summary: summary || '',
+    steps: steps.map((s) => ({
+      id: s.id,
+      title: s.title,
+      model: s.model,
+      tool: s.tool,
+      inputs: inputs[s.id] || s.inputs || {},
+      output: outputs[s.id] || null,
+    })),
+  };
+}
+
 export async function POST(req: NextRequest) {
   let body: RunRequestBody | null = null;
   try {
@@ -289,34 +318,43 @@ export async function POST(req: NextRequest) {
 
   (async () => {
     const outputs: Record<string, StepResult> = { ...(body.previous_outputs || {}) };
+    const usedInputs: Record<string, Record<string, any>> = {};
     let taskId: string | null = null;
     try {
-      taskId = await createTask(origin, body.user_id, body.plan_summary);
+      taskId = await createTask(origin, body.user_id, body.plan_summary, body.steps);
       if (taskId) write({ type: 'task', taskId });
 
       for (const step of body.steps) {
         write({ type: 'step_start', stepId: step.id, title: step.title });
         try {
-          const result = await executeStep(origin, step, outputs, body!.user_id);
+          const injected = resolvePlaceholders(enforceDefaults(step, { ...step.inputs }), outputs);
+          usedInputs[step.id] = injected;
+          const result = await executeStep(origin, step, outputs, body!.user_id, injected);
           outputs[step.id] = { url: result.url || null, text: result.text || null };
           write({ type: 'step_complete', stepId: step.id, outputUrl: result.url || null, outputText: result.text || null });
           await updateTask(origin, taskId, {
             status: 'running',
-            options_json: { source: 'assistant', step: step.id, output: result },
+            options_json: buildAssistantOptions(body.plan_summary, body.steps, outputs, usedInputs),
             output_url: result.url || null,
             output_text: result.text || null,
           });
         } catch (stepErr: any) {
           const message = stepErr?.message || 'Step failed';
           write({ type: 'step_error', stepId: step.id, error: message });
-          await updateTask(origin, taskId, { status: 'error', options_json: { source: 'assistant', error: message } });
+          await updateTask(origin, taskId, {
+            status: 'error',
+            options_json: buildAssistantOptions(body.plan_summary, body.steps, outputs, usedInputs),
+          });
           write({ type: 'done', status: 'error', outputs });
           close();
           return;
         }
       }
 
-      await updateTask(origin, taskId, { status: 'finished', options_json: { source: 'assistant', outputs } });
+      await updateTask(origin, taskId, {
+        status: 'finished',
+        options_json: buildAssistantOptions(body.plan_summary, body.steps, outputs, usedInputs),
+      });
       write({ type: 'done', status: 'success', outputs });
       close();
     } catch (err: any) {

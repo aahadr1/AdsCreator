@@ -5061,6 +5061,58 @@ body[data-page="billing"] .pricing-card.current-plan {
   gap: var(--space-2);
 }
 
+/* Tasks assistant details */
+.assistant-summary {
+  border: 1px solid var(--separator);
+  background: var(--panel-elevated);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.assistant-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--accent-light);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  border: 1px solid var(--separator);
+  width: fit-content;
+}
+
+.assistant-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.assistant-step-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--separator);
+  padding: var(--space-2);
+  background: var(--panel);
+  gap: var(--space-2);
+}
+
+.assistant-step-title {
+  font-weight: 600;
+}
+
+.assistant-step-sub {
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}
+
+.assistant-step-prompt {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
 .chat-composer {
   padding: var(--space-4);
   border-top: 1px solid var(--separator);

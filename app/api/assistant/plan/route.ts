@@ -8,6 +8,34 @@ import type { AssistantPlan, AssistantPlanMessage, AssistantMedia } from '@/type
 
 const DEFAULT_PLANNER_MODEL = process.env.REPLICATE_PLANNER_MODEL || 'anthropic/claude-3.5-sonnet';
 
+async function recordPlanTask(origin: string, userId: string, plan: AssistantPlan, messages: AssistantPlanMessage[]) {
+  try {
+    const lastUser = messages.slice().reverse().find((m) => m.role === 'user');
+    const res = await fetch(`${origin}/api/tasks/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        type: 'assistant-plan',
+        status: 'finished',
+        backend: 'assistant',
+        provider: 'assistant',
+        text_input: lastUser?.content || '',
+        output_text: plan.summary,
+        options_json: {
+          source: 'assistant',
+          steps: plan.steps.map((s) => ({ id: s.id, title: s.title, model: s.model, tool: s.tool })),
+        },
+      }),
+    });
+    if (!res.ok) {
+      await res.text();
+    }
+  } catch {
+    // best-effort; ignore errors
+  }
+}
+
 function parseJSONFromString(raw: string): any | null {
   if (!raw) return null;
   try {
@@ -111,6 +139,9 @@ export async function POST(req: NextRequest) {
   }
 
   const plan: AssistantPlan = parsed || fallbackPlanFromMessages(messages, media);
+
+  const origin = new URL(req.url).origin;
+  recordPlanTask(origin, userId, plan, messages).catch(() => {});
 
   return Response.json({
     plan,
