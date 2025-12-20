@@ -8,7 +8,7 @@ import type { AssistantPlan, AssistantPlanMessage, AssistantMedia, AssistantPlan
 import { TOOL_SPECS, fieldsForModel, defaultsForModel } from '../../lib/assistantTools';
 import MessageBubble from './components/MessageBubble';
 import ChatInput from './components/ChatInput';
-import PlanWidget from './components/PlanWidget';
+import CompactPlanWidget from './components/CompactPlanWidget';
 import StepWidget from './components/StepWidget';
 import ProgressWidget from './components/ProgressWidget';
 import OutputPreview from './components/OutputPreview';
@@ -106,6 +106,7 @@ export default function AssistantPage() {
   const [stepStates, setStepStates] = useState<Record<string, StepState>>({});
   const [runState, setRunState] = useState<'idle' | 'running' | 'done'>('idle');
   const [runError, setRunError] = useState<string | null>(null);
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -222,7 +223,7 @@ export default function AssistantPage() {
       setStepStates(nextStates);
 
       const narrative = describePlanIntent(nextPlan, currentAttachments, userMessages);
-      addAssistantMessage(narrative, 'plan', { plan: nextPlan, stepConfigs: nextConfigs, stepStates: nextStates });
+      addAssistantMessage(narrative);
     } catch (err: any) {
       addAssistantMessage(err?.message || 'Failed to generate plan. Please try again.', 'error');
     } finally {
@@ -364,23 +365,55 @@ export default function AssistantPage() {
                 ...prev,
                 [event.stepId]: { ...(prev[event.stepId] || { status: 'idle' }), status: 'running' },
               }));
-              // Add step widget message
-              const step = stepMap[event.stepId];
-              if (step) {
-                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-                const state = { status: 'running' as const };
-                const deps = (step.dependencies || [])
-                  .map((id) => stepMap[id])
-                  .filter(Boolean)
-                  .map((s) => ({ id: s.id, title: s.title }));
-                addAssistantMessage(`Starting: ${step.title}`, 'step', {
-                  step,
-                  config: cfg,
-                  state,
-                  stepIndex: plan.steps.findIndex((s) => s.id === step.id),
-                  dependencies: deps,
-                });
-              }
+              // Update or create step widget message (avoid duplicates)
+              setChatMessages((prev) => {
+                const existingStepMsg = prev.find(
+                  (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === event.stepId
+                );
+                if (existingStepMsg) {
+                  // Update existing message
+                  return prev.map((msg) => {
+                    if (msg.id === existingStepMsg.id) {
+                      return {
+                        ...msg,
+                        widgetData: {
+                          ...msg.widgetData,
+                          state: { status: 'running' as const },
+                        },
+                      };
+                    }
+                    return msg;
+                  });
+                } else {
+                  // Create new message only if it doesn't exist
+                  const step = stepMap[event.stepId];
+                  if (step) {
+                    const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+                    const deps = (step.dependencies || [])
+                      .map((id) => stepMap[id])
+                      .filter(Boolean)
+                      .map((s) => ({ id: s.id, title: s.title }));
+                    return [
+                      ...prev,
+                      {
+                        id: `step-${event.stepId}`,
+                        role: 'assistant' as const,
+                        content: `Starting: ${step.title}`,
+                        timestamp: new Date(),
+                        widgetType: 'step' as const,
+                        widgetData: {
+                          step,
+                          config: cfg,
+                          state: { status: 'running' as const },
+                          stepIndex: plan.steps.findIndex((s) => s.id === step.id),
+                          dependencies: deps,
+                        },
+                      },
+                    ];
+                  }
+                }
+                return prev;
+              });
               // Update progress
               setChatMessages((prev) =>
                 prev.map((msg) => {
@@ -407,30 +440,34 @@ export default function AssistantPage() {
                   outputText: event.outputText ?? prev[event.stepId]?.outputText,
                 },
               }));
-              const step = stepMap[event.stepId];
-              if (step) {
-                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-                const state = {
-                  status: 'complete' as const,
-                  outputUrl: event.outputUrl,
-                  outputText: event.outputText,
-                };
-                const deps = (step.dependencies || [])
-                  .map((id) => stepMap[id])
-                  .filter(Boolean)
-                  .map((s) => ({ id: s.id, title: s.title }));
-                addAssistantMessage(
-                  `✓ ${step.title} complete${event.outputUrl ? '' : '.'}`,
-                  'output',
-                  {
-                    step,
-                    config: cfg,
-                    state,
-                    stepIndex: plan.steps.findIndex((s) => s.id === step.id),
-                    dependencies: deps,
-                  }
+              // Update existing step message instead of creating new one
+              setChatMessages((prev) => {
+                const existingStepMsg = prev.find(
+                  (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === event.stepId
                 );
-              }
+                if (existingStepMsg) {
+                  return prev.map((msg) => {
+                    if (msg.id === existingStepMsg.id) {
+                      const step = stepMap[event.stepId];
+                      const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+                      return {
+                        ...msg,
+                        content: `✓ ${step?.title || 'Step'} complete${event.outputUrl ? '' : '.'}`,
+                        widgetData: {
+                          ...msg.widgetData,
+                          state: {
+                            status: 'complete' as const,
+                            outputUrl: event.outputUrl,
+                            outputText: event.outputText,
+                          },
+                        },
+                      };
+                    }
+                    return msg;
+                  });
+                }
+                return prev;
+              });
               // Update progress
               setChatMessages((prev) =>
                 prev.map((msg) => {
@@ -451,23 +488,29 @@ export default function AssistantPage() {
                 ...prev,
                 [event.stepId]: { status: 'error', error: event.error },
               }));
-              const step = stepMap[event.stepId];
-              if (step) {
-                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-                const state = { status: 'error' as const, error: event.error };
-                const deps = (step.dependencies || [])
-                  .map((id) => stepMap[id])
-                  .filter(Boolean)
-                  .map((s) => ({ id: s.id, title: s.title }));
-                addAssistantMessage(`✗ ${step.title} failed: ${event.error}`, 'step', {
-                  step,
-                  config: cfg,
-                  state,
-                  stepIndex: plan.steps.findIndex((s) => s.id === step.id),
-                  dependencies: deps,
-                });
-              }
-              addAssistantMessage(`Error in step: ${event.error}`, 'error');
+              // Update existing step message instead of creating new one
+              setChatMessages((prev) => {
+                const existingStepMsg = prev.find(
+                  (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === event.stepId
+                );
+                if (existingStepMsg) {
+                  return prev.map((msg) => {
+                    if (msg.id === existingStepMsg.id) {
+                      const step = stepMap[event.stepId];
+                      return {
+                        ...msg,
+                        content: `✗ ${step?.title || 'Step'} failed: ${event.error}`,
+                        widgetData: {
+                          ...msg.widgetData,
+                          state: { status: 'error' as const, error: event.error },
+                        },
+                      };
+                    }
+                    return msg;
+                  });
+                }
+                return prev;
+              });
             } else if (event.type === 'done') {
               setRunState(event.status === 'success' ? 'done' : 'idle');
               if (event.status === 'success') {
@@ -516,11 +559,13 @@ export default function AssistantPage() {
   };
 
   const handleStepClick = (stepId: string) => {
-    // Find the step in the plan
+    // Toggle expanded state in compact widget
+    setExpandedStepId(expandedStepId === stepId ? null : stepId);
+    
+    // Also find or create step widget message in chat for full details
     const step = plan.steps.find((s) => s.id === stepId);
     if (!step) return;
 
-    // Find or create step widget message
     const stepWidgetMsg = chatMessages.find(
       (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === stepId
     );
@@ -530,7 +575,6 @@ export default function AssistantPage() {
       const element = document.getElementById(`step-widget-${stepId}`);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // Trigger expansion by updating the message
         setChatMessages((prev) =>
           prev.map((msg) => {
             if (msg.id === stepWidgetMsg.id && msg.widgetType === 'step') {
@@ -564,7 +608,6 @@ export default function AssistantPage() {
         forceExpanded: true,
       });
       
-      // Scroll to the new message after a brief delay
       setTimeout(() => {
         const element = document.getElementById(`step-widget-${stepId}`);
         if (element) {
@@ -574,24 +617,18 @@ export default function AssistantPage() {
     }
   };
 
+  const handleStepExpand = (stepId: string) => {
+    // Open full step widget in chat
+    handleStepClick(stepId);
+  };
+
   return (
     <div className="chat-container">
       <div className="chat-messages" ref={chatEndRef}>
         {chatMessages.map((msg) => {
           let widgetContent: React.ReactNode = null;
 
-          if (msg.widgetType === 'plan' && msg.widgetData?.plan) {
-            widgetContent = (
-              <PlanWidget
-                plan={msg.widgetData.plan}
-                onRun={() => runWorkflow()}
-                canRun={planReady}
-                isRunning={runState === 'running'}
-                defaultExpanded={true}
-                onStepClick={handleStepClick}
-              />
-            );
-          } else if (msg.widgetType === 'step' && msg.widgetData?.step) {
+          if (msg.widgetType === 'step' && msg.widgetData?.step) {
             const stepData = msg.widgetData;
             // Always use latest state and config from main state
             const currentConfig = stepConfigs[stepData.step.id] || stepData.config || { model: stepData.step.model, inputs: stepData.step.inputs };
@@ -667,18 +704,35 @@ export default function AssistantPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="chat-input-wrapper-fixed">
-        <ChatInput
-          value={draft}
-          onChange={setDraft}
-          attachments={attachments}
-          onAttachmentsChange={setAttachments}
-          onSend={generatePlan}
-          disabled={!userId}
-          loading={planLoading}
-          placeholder={userId ? 'Send a message...' : 'Sign in to continue...'}
-        />
+      <div className="chat-input-area">
+        {plan.steps.length > 0 && (
+          <div className="compact-plan-widget-sticky">
+            <CompactPlanWidget
+              plan={plan}
+              stepConfigs={stepConfigs}
+              stepStates={stepStates}
+              onRun={() => runWorkflow()}
+              canRun={planReady}
+              isRunning={runState === 'running'}
+              onStepClick={handleStepClick}
+              onStepExpand={handleStepExpand}
+              expandedStepId={expandedStepId}
+            />
+          </div>
+        )}
+        <div className="chat-input-wrapper-fixed">
+          <ChatInput
+            value={draft}
+            onChange={setDraft}
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            onSend={generatePlan}
+            disabled={!userId}
+            loading={planLoading}
+            placeholder={userId ? 'Send a message...' : 'Sign in to continue...'}
+          />
         </div>
+      </div>
     </div>
   );
 }
