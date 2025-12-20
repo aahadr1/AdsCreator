@@ -262,11 +262,11 @@ export default function AssistantPage() {
           <p className="muted">Upload media, let the planner propose a toolchain, confirm parameters, then run the workflow with live status.</p>
         </div>
         <div className="assistant-actions">
-          <button className="ghost" type="button" onClick={generatePlan} disabled={planLoading || !userId}>
+          <button className="ghost" type="button" onClick={() => generatePlan()} disabled={planLoading || !userId}>
             {planLoading ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
             Generate plan
           </button>
-          <button className="primary" type="button" onClick={runWorkflow} disabled={!planReady || runState === 'running' || !userId}>
+          <button className="primary" type="button" onClick={() => runWorkflow()} disabled={!planReady || runState === 'running' || !userId}>
             {runState === 'running' ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
             Run workflow
           </button>
@@ -325,7 +325,7 @@ export default function AssistantPage() {
                 type="button"
                 className="chip"
                 onClick={() => {
-                  const nextMessages = [...messages, { role: 'user', content: tpl.prompt }];
+                  const nextMessages: AssistantPlanMessage[] = [...messages, { role: 'user', content: tpl.prompt }];
                   setMessages(nextMessages);
                   generatePlan(nextMessages);
                 }}
