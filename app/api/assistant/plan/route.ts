@@ -112,18 +112,17 @@ async function analyzeRequest(
 
     const parsed = parseJSONFromString(rawText);
     if (parsed && typeof parsed === 'object') {
-      // Clean the motion description to ensure it has no text content
-      let motionDesc = parsed.motionDescription || undefined;
-      if (motionDesc) {
-        // Remove any quoted text or text content that shouldn't be in motion
-        motionDesc = motionDesc
-          .replace(/["'][^"']*["']/g, '') // Remove quoted strings
-          .replace(/\b(text|card|image|showing|displaying|with|content)\b[^,.]*/gi, '') // Remove visual terms
+      // Clean the video scene description to ensure it has no text content
+      let sceneDesc = parsed.videoSceneDescription || parsed.motionDescription || undefined;
+      if (sceneDesc) {
+        // Remove any quoted text content that shouldn't be in video prompts
+        sceneDesc = sceneDesc
+          .replace(/["«»''"""][^"«»''"""]*["«»''""]/g, '') // Remove quoted strings
           .replace(/\s+/g, ' ')
           .trim();
         // If it became too short, use a sensible default
-        if (motionDesc.length < 20) {
-          motionDesc = 'Static camera, subject in frame, subtle natural motion, stable and smooth';
+        if (sceneDesc.length < 30) {
+          sceneDesc = 'A person holds the card in their hands, showing it to the camera. Hands steady with subtle natural trembling. Static camera, 4 seconds.';
         }
       }
 
@@ -137,7 +136,7 @@ async function analyzeRequest(
         totalBackgroundRemoveSteps: parsed.totalBackgroundRemoveSteps || 0,
         contentVariations: Array.isArray(parsed.contentVariations) ? parsed.contentVariations : [],
         imageModificationInstruction: parsed.imageModificationInstruction || undefined,
-        motionDescription: motionDesc,
+        videoSceneDescription: sceneDesc,
         imageToVideoMapping: parsed.imageToVideoMapping || 'none',
         hasUploadedMedia: parsed.hasUploadedMedia || media.length > 0,
         uploadedMediaUsage: parsed.uploadedMediaUsage || 'none',
@@ -171,16 +170,16 @@ function buildEnhancedUserPrompt(
 ### IMAGE PROMPT CONSTRUCTION
 ${analysis.imageModificationInstruction ? `Base instruction: "${analysis.imageModificationInstruction}"` : 'No modification instruction - create new images'}
 ${analysis.contentVariations.length > 0 ? `Content variations (one per image step):${analysis.contentVariations.map((c, i) => `\n  Image ${i + 1}: "${c}"`).join('')}` : 'No content variations'}
-${analysis.hasUploadedMedia && analysis.uploadedMediaUsage === 'to-modify' ? 'User uploaded an image to MODIFY - reference it in prompts' : ''}
+${analysis.hasUploadedMedia && analysis.uploadedMediaUsage === 'to-modify' ? '\n**IMPORTANT: ALL image steps must use the SAME original uploaded image as input_images. Do NOT chain image outputs!**' : ''}
 
-**FOR EACH IMAGE STEP, use this format:**
-"${analysis.imageModificationInstruction || 'Create image with'}: '[content variation for this step]'"
+**FOR EACH IMAGE STEP, prompt format:**
+"${analysis.imageModificationInstruction || 'Modify this image to change the text to'}: '[content variation]'"
 
-### VIDEO PROMPT (USE THIS EXACTLY FOR ALL VIDEOS)
-${analysis.motionDescription ? `"${analysis.motionDescription}"` : '"Static camera, subject in frame, subtle natural motion, smooth and stable, 4 seconds"'}
+### VIDEO SCENE PROMPT (USE THIS FOR ALL VIDEOS)
+${analysis.videoSceneDescription ? `"${analysis.videoSceneDescription}"` : '"A person holds the card in their hands, showing it to the camera. Hands steady with subtle natural trembling. Static camera, 4 seconds."'}
 
-**CRITICAL: ALL video steps use the SAME motion prompt above. Only start_image differs.**
-**NEVER put text content, visual descriptions, or the user's original message in video prompts.**
+**CRITICAL: ALL video steps use the SAME scene prompt above. Only start_image differs (each video uses its corresponding image output).**
+**NEVER copy the user's original message into video prompts!**
 
 ### RELATIONSHIPS
 - Image-to-video mapping: ${analysis.imageToVideoMapping}
