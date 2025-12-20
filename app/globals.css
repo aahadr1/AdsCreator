@@ -6048,6 +6048,8 @@ body[data-page="billing"] .pricing-card.current-plan {
   border-bottom: 1px solid var(--separator);
   max-height: 400px;
   overflow-y: auto;
+  display: flex;
+  justify-content: center;
 }
 
 /* Compact Plan Widget */
@@ -6057,6 +6059,9 @@ body[data-page="billing"] .pricing-card.current-plan {
   border-radius: 12px;
   padding: var(--space-3);
   margin-bottom: var(--space-3);
+  width: 50%;
+  max-width: 600px;
+  min-width: 400px;
 }
 
 .compact-plan-widget-header {
@@ -6264,6 +6269,123 @@ body[data-page="billing"] .pricing-card.current-plan {
   padding: var(--space-2);
   background: var(--panel);
   border-radius: 6px;
+}
+
+.compact-plan-step-value {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  padding: var(--space-2);
+  background: var(--panel);
+  border-radius: 6px;
+  word-break: break-word;
+  font-family: ui-monospace, monospace;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.compact-plan-step-actions {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--separator);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.compact-plan-step-edit-button {
+  padding: var(--space-1) var(--space-3);
+  background: var(--accent);
+  color: var(--color-black);
+  border: none;
+  border-radius: 6px;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-duration-fast);
+}
+
+.compact-plan-step-edit-button:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+/* Compact Step Editor */
+.compact-step-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.compact-step-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.compact-step-editor-field label {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.compact-step-editor-field input,
+.compact-step-editor-field textarea,
+.compact-step-editor-field select {
+  padding: var(--space-2);
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: var(--font-xs);
+  font-family: inherit;
+}
+
+.compact-step-editor-field textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.compact-step-editor-helper {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: -var(--space-1);
+}
+
+.compact-step-editor-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--separator);
+}
+
+.compact-step-editor-actions button {
+  padding: var(--space-1) var(--space-3);
+  border-radius: 6px;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-duration-fast);
+}
+
+.compact-step-editor-actions button:first-child {
+  background: transparent;
+  border: 1px solid var(--separator);
+  color: var(--text-secondary);
+}
+
+.compact-step-editor-actions button.primary {
+  background: var(--accent);
+  color: var(--color-black);
+  border: none;
+}
+
+.compact-step-editor-actions button:hover {
+  transform: translateY(-1px);
+}
+
+.required {
+  color: var(--status-critical);
 }
 
 .compact-plan-widget-footer {

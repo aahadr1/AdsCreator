@@ -716,6 +716,7 @@ export default function AssistantPage() {
               isRunning={runState === 'running'}
               onStepClick={handleStepClick}
               onStepExpand={handleStepExpand}
+              onConfigChange={updateStepConfig}
               expandedStepId={expandedStepId}
             />
           </div>

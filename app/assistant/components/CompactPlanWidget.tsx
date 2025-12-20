@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { AssistantPlan, AssistantPlanStep } from '../../../types/assistant';
+import { fieldsForModel, defaultsForModel, TOOL_SPECS } from '../../../lib/assistantTools';
 import { Play, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
 
 type StepState = {
@@ -22,6 +23,7 @@ type CompactPlanWidgetProps = {
   isRunning?: boolean;
   onStepClick?: (stepId: string) => void;
   onStepExpand?: (stepId: string) => void;
+  onConfigChange?: (stepId: string, config: StepConfig) => void;
   expandedStepId?: string | null;
 };
 
@@ -34,9 +36,12 @@ export default function CompactPlanWidget({
   isRunning = false,
   onStepClick,
   onStepExpand,
+  onConfigChange,
   expandedStepId,
 }: CompactPlanWidgetProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [editingStepId, setEditingStepId] = useState<string | null>(null);
+  const [editConfigs, setEditConfigs] = useState<Record<string, StepConfig>>({});
 
   if (!plan.steps.length) return null;
 
@@ -128,21 +133,77 @@ export default function CompactPlanWidget({
                   </div>
                   {isExpanded && (
                     <div className="compact-plan-step-details">
-                      <div className="compact-plan-step-detail-row">
-                        <strong>Prompt:</strong>
-                        <div className="compact-plan-step-prompt">
-                          {config.inputs?.prompt || 'No prompt set'}
-                        </div>
-                      </div>
-                      {state.error && (
-                        <div className="compact-plan-step-error">
-                          Error: {state.error}
-                        </div>
-                      )}
-                      {(state.outputUrl || state.outputText) && (
-                        <div className="compact-plan-step-output">
-                          Output: {state.outputUrl ? 'Media generated' : state.outputText}
-                        </div>
+                      {editingStepId === step.id ? (
+                        <CompactStepEditor
+                          step={step}
+                          config={editConfigs[step.id] || config}
+                          onConfigChange={(newConfig) => {
+                            setEditConfigs((prev) => ({ ...prev, [step.id]: newConfig }));
+                          }}
+                          onSave={() => {
+                            const editedConfig = editConfigs[step.id] || config;
+                            onConfigChange?.(step.id, editedConfig);
+                            setEditingStepId(null);
+                            setEditConfigs((prev) => {
+                              const next = { ...prev };
+                              delete next[step.id];
+                              return next;
+                            });
+                          }}
+                          onCancel={() => {
+                            setEditingStepId(null);
+                            setEditConfigs((prev) => {
+                              const next = { ...prev };
+                              delete next[step.id];
+                              return next;
+                            });
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <div className="compact-plan-step-detail-row">
+                            <strong>Model:</strong>
+                            <div className="compact-plan-step-value">{config.model}</div>
+                          </div>
+                          {(() => {
+                            const fields = fieldsForModel(config.model || step.model, step.tool);
+                            return fields.map((field) => {
+                              const value = config.inputs?.[field.key] ?? '';
+                              if (!value && !field.required) return null;
+                              return (
+                                <div key={field.key} className="compact-plan-step-detail-row">
+                                  <strong>{field.label}:</strong>
+                                  <div className="compact-plan-step-value">
+                                    {typeof value === 'object' ? JSON.stringify(value) : String(value || '—')}
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
+                          {state.error && (
+                            <div className="compact-plan-step-error">
+                              Error: {state.error}
+                            </div>
+                          )}
+                          {(state.outputUrl || state.outputText) && (
+                            <div className="compact-plan-step-output">
+                              Output: {state.outputUrl ? 'Media generated' : state.outputText}
+                            </div>
+                          )}
+                          <div className="compact-plan-step-actions">
+                            <button
+                              className="compact-plan-step-edit-button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingStepId(step.id);
+                                setEditConfigs((prev) => ({ ...prev, [step.id]: { ...config } }));
+                              }}
+                              type="button"
+                            >
+                              Edit Parameters
+                            </button>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
@@ -165,6 +226,102 @@ export default function CompactPlanWidget({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+type CompactStepEditorProps = {
+  step: AssistantPlanStep;
+  config: StepConfig;
+  onConfigChange: (config: StepConfig) => void;
+  onSave: () => void;
+  onCancel: () => void;
+};
+
+function CompactStepEditor({ step, config, onConfigChange, onSave, onCancel }: CompactStepEditorProps) {
+  const fields = fieldsForModel(config.model || step.model, step.tool);
+  const availableModels = step.modelOptions || TOOL_SPECS[step.tool]?.models.map(m => m.id) || [];
+
+  const handleModelChange = (newModel: string) => {
+    const defaults = defaultsForModel(newModel);
+    const preservedPrompt = config.inputs?.prompt || '';
+    onConfigChange({
+      model: newModel,
+      inputs: { ...defaults, prompt: preservedPrompt },
+    });
+  };
+
+  return (
+    <div className="compact-step-editor">
+      <div className="compact-step-editor-field">
+        <label>Model</label>
+        <select
+          value={config.model}
+          onChange={(e) => handleModelChange(e.target.value)}
+        >
+          {availableModels.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+      </div>
+      {fields.map((field) => {
+        const value = config.inputs?.[field.key] ?? '';
+        return (
+          <div key={field.key} className="compact-step-editor-field">
+            <label>
+              {field.label} {field.required && <span className="required">*</span>}
+            </label>
+            {field.type === 'textarea' ? (
+              <textarea
+                rows={3}
+                value={value}
+                onChange={(e) =>
+                  onConfigChange({
+                    ...config,
+                    inputs: { ...config.inputs, [field.key]: e.target.value },
+                  })
+                }
+              />
+            ) : field.type === 'select' && field.options ? (
+              <select
+                value={value}
+                onChange={(e) =>
+                  onConfigChange({
+                    ...config,
+                    inputs: { ...config.inputs, [field.key]: e.target.value },
+                  })
+                }
+              >
+                {field.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={field.type === 'number' ? 'number' : 'text'}
+                value={value}
+                onChange={(e) =>
+                  onConfigChange({
+                    ...config,
+                    inputs: { ...config.inputs, [field.key]: e.target.value },
+                  })
+                }
+              />
+            )}
+            {field.helper && (
+              <div className="compact-step-editor-helper">{field.helper}</div>
+            )}
+          </div>
+        );
+      })}
+      <div className="compact-step-editor-actions">
+        <button onClick={onCancel} type="button">Cancel</button>
+        <button onClick={onSave} className="primary" type="button">Save</button>
+      </div>
     </div>
   );
 }
