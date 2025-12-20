@@ -19,6 +19,7 @@ type PageMeta = {
 
 const pageDictionary: Record<string, PageMeta> = {
   '/': { title: 'Dashboard', description: 'Insight into production velocity and recent wins.', category: 'Overview' },
+  '/assistant': { title: 'Assistant', description: 'Plan and run multimodal workflows.', category: 'Assistant' },
   '/lipsync-new': { title: 'Lipsync Studio', description: 'Upload a clip and synchronize audio with AI precision.', category: 'Generator' },
   '/veo': { title: 'Video Generation', description: 'Storyboard and render AI-powered spots.', category: 'Generator' },
   '/image': { title: 'Image Creation', description: 'Produce brand-ready visuals from text prompts.', category: 'Generator' },
@@ -31,6 +32,7 @@ const pageDictionary: Record<string, PageMeta> = {
 
 const commandCatalog: Command[] = [
   { label: 'Dashboard', href: '/', description: 'Overview & insights', shortcut: 'G D' },
+  { label: 'Assistant', href: '/assistant', description: 'Plan + execute workflows', shortcut: 'G A' },
   { label: 'New Lipsync', href: '/lipsync-new', description: 'Generator workflow', shortcut: 'C L' },
   { label: 'New Video', href: '/veo', description: 'Generate ads from scripts', shortcut: 'C V' },
   { label: 'Image Lab', href: '/image', description: 'Create ad-ready imagery', shortcut: 'C I' },

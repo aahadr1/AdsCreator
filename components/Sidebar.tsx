@@ -50,6 +50,7 @@ const quickActions: QuickAction[] = [
   { href: '/veo', label: 'Generate Video', description: 'VEO · Sora · Kling', icon: <Video size={18} /> },
   { href: '/image', label: 'Create Image', description: 'Flux · GPT Image 1.5', icon: <ImageIcon size={18} /> },
   { href: '/tasks', label: 'View Tasks', description: 'Live production queue', icon: <Activity size={18} /> },
+  { href: '/assistant', label: 'Assistant', description: 'Planned workflows', icon: <Sparkles size={18} /> },
 ];
 
 const navSections: NavSection[] = [
@@ -61,6 +62,7 @@ const navSections: NavSection[] = [
       { href: '/tasks', label: 'Tasks', icon: <Activity size={18} />, description: 'Track progress' },
       { href: '/library', label: 'Library', icon: <Database size={18} />, description: 'Asset archive' },
       { href: '/spy', label: 'Spy Tool', icon: <Search size={18} />, description: 'Competitor insights', badge: 'Pro' },
+      { href: '/assistant', label: 'Assistant', icon: <Sparkles size={18} />, description: 'Plan + run workflows', badge: 'New' },
     ],
   },
   {
