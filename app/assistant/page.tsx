@@ -27,7 +27,7 @@ type ChatMessage = {
   content?: string;
   timestamp: Date;
   attachments?: AssistantMedia[];
-  widgetType?: 'plan' | 'step' | 'progress' | 'output';
+  widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error';
   widgetData?: any;
 };
 
