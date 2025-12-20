@@ -6,9 +6,11 @@ import Replicate from 'replicate';
 import {
   buildUnifiedPlannerSystemPrompt,
   normalizePlannerOutput,
+  buildHeuristicPlan,
 } from '@/lib/assistantTools';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia } from '@/types/assistant';
 
+// Claude 4.5 Sonnet - returns array of strings that need concatenation
 const SONNET_4_5_MODEL = 'anthropic/claude-4.5-sonnet';
 const DEFAULT_PLANNER_MODEL = process.env.REPLICATE_PLANNER_MODEL || SONNET_4_5_MODEL;
 
@@ -270,6 +272,8 @@ export async function POST(req: NextRequest) {
   let usedModel = DEFAULT_PLANNER_MODEL;
   let parsed: AssistantPlan | null = null;
   let rawText = '';
+  const heuristicContext = buildHeuristicPlan(messages, media);
+  const requestAnalysis = heuristicContext?.analysis || null;
 
   const token = process.env.REPLICATE_API_TOKEN;
   if (token) {
@@ -298,35 +302,78 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
       console.log(`[Plan] System prompt length: ${plannerSystem.length} chars`);
       console.log(`[Plan] User prompt length: ${plannerUser.length} chars`);
 
-      const planOutput = await replicate.run(usedModel as `${string}/${string}`, {
-        input: {
-          system_prompt: plannerSystem,
-          prompt: plannerUser,
-          max_tokens: maxTokens,
-        },
-      });
+      let planOutput: any;
+      try {
+        planOutput = await replicate.run(usedModel as `${string}/${string}`, {
+          input: {
+            system_prompt: plannerSystem,
+            prompt: plannerUser,
+            max_tokens: maxTokens,
+          },
+        });
+        console.log('[Plan] Replicate API call succeeded');
+        console.log('[Plan] Output type:', typeof planOutput);
+        console.log('[Plan] Output is array:', Array.isArray(planOutput));
+        if (planOutput && typeof planOutput === 'object' && !Array.isArray(planOutput)) {
+          console.log('[Plan] Output keys:', Object.keys(planOutput));
+        }
+      } catch (replicateErr: any) {
+        console.error('[Plan] Replicate API call failed:', replicateErr);
+        console.error('[Plan] Replicate error details:', {
+          message: replicateErr?.message,
+          status: replicateErr?.status,
+          response: replicateErr?.response,
+          body: replicateErr?.body,
+        });
+        throw new Error(`Replicate API error: ${replicateErr?.message || 'unknown error'}`);
+      }
 
+      // Handle Claude 4.5 Sonnet response format: array of strings that need concatenation
       if (Array.isArray(planOutput)) {
-        rawText = planOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
+        // Claude 4.5 returns an iterator/array of string chunks - concatenate them
+        rawText = planOutput.map((o: unknown) => (typeof o === 'string' ? o : JSON.stringify(o))).join('');
+        console.log('[Plan] Concatenated array response, total length:', rawText.length);
       } else if (typeof planOutput === 'string') {
         rawText = planOutput;
       } else if (planOutput && typeof planOutput === 'object') {
-        rawText = JSON.stringify(planOutput);
+        // Handle object responses - might have 'output' field or be the JSON directly
+        if (planOutput.output !== undefined) {
+          if (typeof planOutput.output === 'string') {
+            rawText = planOutput.output;
+          } else if (Array.isArray(planOutput.output)) {
+            rawText = planOutput.output.map((o: unknown) => (typeof o === 'string' ? o : JSON.stringify(o))).join('');
+          } else {
+            rawText = JSON.stringify(planOutput.output);
+          }
+        } else {
+          rawText = JSON.stringify(planOutput);
+        }
+      } else {
+        rawText = String(planOutput || '');
+      }
+      
+      if (!rawText || rawText.trim().length === 0) {
+        throw new Error('Empty response from Replicate API');
       }
 
       console.log(`[Plan] Got response (${rawText.length} chars)`);
       console.log(`[Plan] First 500 chars:`, rawText.slice(0, 500));
+      console.log(`[Plan] Last 500 chars:`, rawText.slice(-500));
 
       // Try robust parsing with fallback extraction
       let planJson = parseJSONFromString(rawText);
       
       if (!planJson || !planJson.steps || !Array.isArray(planJson.steps)) {
         console.warn('[Plan] JSON parsing failed or no steps found, attempting extraction...');
+        console.warn('[Plan] Parsed result:', planJson ? JSON.stringify(planJson).slice(0, 500) : 'null');
         planJson = extractPlanFromText(rawText, messages, media, null);
       }
       
       if (!planJson || !planJson.steps || planJson.steps.length === 0) {
-        console.error('[Plan] Could not extract valid plan. Raw output:', rawText.slice(0, 1500));
+        console.error('[Plan] Could not extract valid plan.');
+        console.error('[Plan] Raw output (first 2000 chars):', rawText.slice(0, 2000));
+        console.error('[Plan] Raw output (last 2000 chars):', rawText.slice(-2000));
+        console.error('[Plan] PlanJson after extraction:', planJson ? JSON.stringify(planJson).slice(0, 1000) : 'null');
         throw new Error('Failed to generate valid plan. Please try rephrasing your request.');
       }
       
@@ -341,7 +388,13 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
         console.log(`[Plan] Step ${idx + 1} "${step?.title || step?.id}": ${preview}${prompt.length > 120 ? '...' : ''}`);
       });
       
-      parsed = await normalizePlannerOutput(planJson, messages, media, null);
+      try {
+        parsed = await normalizePlannerOutput(planJson, messages, media, requestAnalysis);
+      } catch (normalizeErr: any) {
+        console.error('[Plan] normalizePlannerOutput failed:', normalizeErr);
+        console.error('[Plan] Error stack:', normalizeErr?.stack);
+        throw new Error(`Failed to normalize plan: ${normalizeErr?.message || 'unknown error'}`);
+      }
       
       // Log final dependencies
       if (parsed?.steps) {
@@ -359,13 +412,40 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
         });
       }
     } catch (err) {
+      console.error('[Plan] Error in planning:', err);
+      console.error('[Plan] Error details:', {
+        message: (err as Error)?.message,
+        stack: (err as Error)?.stack,
+        name: (err as Error)?.name,
+      });
       parsed = null;
       rawText = (err as Error)?.message || 'planner failed';
     }
+  } else if (heuristicContext?.plan) {
+    console.warn('[Plan] No REPLICATE_API_TOKEN configured, using heuristic planner');
+    parsed = heuristicContext.plan;
+    usedModel = 'heuristic-fallback';
+  } else {
+    rawText = 'Planner unavailable: missing Replicate API token';
+  }
+
+  if (!parsed && heuristicContext?.plan) {
+    console.warn('[Plan] Falling back to heuristic planner output');
+    parsed = heuristicContext.plan;
+    usedModel = 'heuristic-fallback';
   }
 
   if (!parsed) {
-    return Response.json({ error: rawText || 'planner failed' }, { status: 500 });
+    // Include debug info in non-production to help diagnose issues
+    const errorResponse: any = { error: rawText || 'planner failed' };
+    if (process.env.NODE_ENV !== 'production' && rawText) {
+      errorResponse.debug = {
+        rawTextLength: rawText.length,
+        rawTextPreview: rawText.slice(0, 1000),
+        rawTextEnd: rawText.slice(-500),
+      };
+    }
+    return Response.json(errorResponse, { status: 500 });
   }
 
   const plan: AssistantPlan = parsed;

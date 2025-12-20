@@ -1429,61 +1429,124 @@ function extractVideoSceneDescription(text: string): string {
 }
 
 // Helper to create an image step with proper prompts
+type ImageStepOptions = {
+  requestContext: string;
+  referenceImageUrl?: string;
+  isModification: boolean;
+};
+
 function createImageStep(
   id: string,
   title: string,
   contentText: string | null,
-  isModification: boolean,
-  originalMediaUrl: string | undefined,
+  options: ImageStepOptions,
 ): AssistantPlanStep {
-  const promptParts: string[] = [];
-  if (isModification) promptParts.push('Use the provided image as the base and integrate the new content cleanly.');
-  if (contentText) promptParts.push(`Highlight the text "${contentText}" with clear, legible placement.`);
-  if (!contentText) promptParts.push('Create a high-quality visual that fits the request and brand tone.');
-  const prompt = promptParts.join(' ').trim();
-  
+  const promptSections: string[] = [];
+
+  if (options.isModification && options.referenceImageUrl) {
+    promptSections.push('Preserve the typography, layout, and finish of the uploaded card while updating only the requested copy.');
+  } else {
+    promptSections.push('Design a premium marketing still with balanced composition, crisp typography, and soft studio lighting.');
+  }
+
+  if (contentText) {
+    promptSections.push(`Render the exact text "${contentText}" in bold, legible lettering with careful kerning and spacing.`);
+  } else if (options.requestContext) {
+    promptSections.push(`Reflect the request details: ${options.requestContext}`);
+  }
+
+  if (!options.isModification && options.referenceImageUrl) {
+    promptSections.push('Use the uploaded reference to match overall style, palette, and material cues.');
+  }
+
+  if (!contentText) {
+    promptSections.push('Include clear hierarchy, product-friendly framing, and a clean studio background.');
+  }
+
+  const prompt = promptSections.join(' ').trim();
+  const inputs: Record<string, any> = {
+    prompt,
+    aspect_ratio: '2:3', // Default to mobile (will be auto-detected)
+    number_of_images: 1,
+  };
+  if (options.referenceImageUrl) {
+    inputs.input_images = [options.referenceImageUrl];
+  }
+
   return normalizeInputs({
     id,
     title,
     tool: 'image',
     model: 'openai/gpt-image-1.5',
-    inputs: {
-      prompt,
-      aspect_ratio: '2:3', // Default to mobile (will be auto-detected)
-      number_of_images: 1,
-      // ALWAYS use the original uploaded image for ALL modification steps
-      // Never chain image outputs - each modification uses the original
-      input_images: originalMediaUrl ? [originalMediaUrl] : undefined,
-    },
+    inputs,
     outputType: 'image',
-    // NO dependencies for image modification - each uses original upload
     dependencies: [],
     suggestedParams: {},
   });
 }
 
 // Helper to create a video step with proper prompts (motion only, no visual design)
+type VideoStepOptions = {
+  dependencyImageId?: string;
+  fallbackStartImageUrl?: string;
+};
+
 function createVideoStep(
   id: string,
   title: string,
   motionDescription: string,
-  sourceImageStepId: string,
+  options: VideoStepOptions,
+): AssistantPlanStep {
+  const hasImageReference = Boolean(options.dependencyImageId || options.fallbackStartImageUrl);
+  const model = hasImageReference ? 'kwaivgi/kling-v2.1' : 'google/veo-3.1-fast';
+  const inputs: Record<string, any> = {
+    prompt: motionDescription,
+  };
+
+  if (hasImageReference) {
+    const startImageValue = options.dependencyImageId
+      ? `{{steps.${options.dependencyImageId}.url}}`
+      : options.fallbackStartImageUrl;
+    if (startImageValue) inputs.start_image = startImageValue;
+    inputs.aspect_ratio = '2:3';
+    inputs.duration = 4;
+    inputs.mode = 'default';
+  } else {
+    inputs.resolution = '720p';
+    inputs.aspect_ratio = '9:16';
+  }
+
+  const dependencies = options.dependencyImageId ? [options.dependencyImageId] : [];
+
+  return normalizeInputs({
+    id,
+    title,
+    tool: 'video',
+    model,
+    inputs,
+    outputType: 'video',
+    dependencies,
+    suggestedParams: {},
+  });
+}
+
+function createTtsStep(
+  id: string,
+  title: string,
+  text: string,
 ): AssistantPlanStep {
   return normalizeInputs({
     id,
     title,
-        tool: 'video',
-    model: 'kwaivgi/kling-v2.1',
-        inputs: {
-      prompt: motionDescription,
-      start_image: `{{steps.${sourceImageStepId}.url}}`,
-      aspect_ratio: '2:3', // Default to mobile (will be auto-detected)
-      duration: 4,
-      mode: 'default',
+    tool: 'tts',
+    model: 'minimax-speech-02-hd',
+    inputs: {
+      text,
+      provider: 'replicate',
     },
-    outputType: 'video',
-    dependencies: [sourceImageStepId],
-        suggestedParams: {},
+    outputType: 'audio',
+    dependencies: [],
+    suggestedParams: {},
   });
 }
 
@@ -1666,6 +1729,159 @@ async function determineAspectRatio(
 
   // 3. Default to mobile (9:16 or 2:3)
   return findClosestAspectRatio(null, availableRatios, true);
+}
+
+function formatWorkSummary(images: number, videos: number, tts: number): string {
+  const parts: string[] = [];
+  const formatPart = (count: number, label: string) =>
+    `${count} ${label}${count === 1 ? '' : 's'}`;
+
+  if (images > 0) parts.push(formatPart(images, 'image'));
+  if (videos > 0) parts.push(formatPart(videos, 'video'));
+  if (tts > 0) parts.push(formatPart(tts, 'voiceover'));
+
+  if (!parts.length) return 'Generated workflow';
+  if (parts.length === 1) return `Workflow to create ${parts[0]}`;
+
+  const last = parts.pop();
+  return `Workflow to create ${parts.join(', ')} and ${last}`;
+}
+
+export function buildHeuristicPlan(
+  messages: AssistantPlanMessage[],
+  media: AssistantMedia[],
+): { plan: AssistantPlan; analysis: AnalyzedRequest } | null {
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user' && m.content?.trim());
+  if (!lastUser) return null;
+
+  const requestText = lastUser.content.trim();
+  if (!requestText) return null;
+
+  const counts = parseRequestCounts(requestText);
+  const normalizedVariations = Array.from(
+    new Set(
+      (counts.contentItems || [])
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  ).slice(0, 8);
+
+  const condensedRequest = requestText.replace(/\s+/g, ' ').trim();
+  if (!normalizedVariations.length && condensedRequest) {
+    normalizedVariations.push(condensedRequest.slice(0, 200));
+  }
+
+  const uploadedImage = media.find((m) => m.type === 'image');
+  const { isModification, instruction } = detectImageModification(requestText);
+  const videoSceneDescription = extractVideoSceneDescription(requestText);
+
+  const imageCount = Math.max(1, Math.min(counts.images, 6));
+  const videoCount = Math.max(0, Math.min(counts.videos, 6));
+  const ttsCount = Math.max(0, Math.min(counts.tts, 6));
+  const requestSummary = condensedRequest.slice(0, 500);
+
+  const steps: AssistantPlanStep[] = [];
+
+  for (let i = 0; i < imageCount; i += 1) {
+    const variation =
+      normalizedVariations[i] ||
+      normalizedVariations[normalizedVariations.length - 1] ||
+      requestSummary;
+    steps.push(
+      createImageStep(
+        `image-${i + 1}`,
+        imageCount > 1 ? `Image Variation ${i + 1}` : 'Generate Image',
+        variation,
+        {
+          requestContext: requestSummary,
+          referenceImageUrl: uploadedImage?.url,
+          isModification,
+        },
+      ),
+    );
+  }
+
+  const imageStepIds = steps.filter((s) => s.tool === 'image').map((s) => s.id);
+
+  if (videoCount > 0) {
+    for (let i = 0; i < videoCount; i += 1) {
+      const depId = imageStepIds.length ? imageStepIds[i % imageStepIds.length] : undefined;
+      steps.push(
+        createVideoStep(
+          `video-${i + 1}`,
+          videoCount > 1 ? `Animate Video ${i + 1}` : 'Animate Video',
+          videoSceneDescription,
+          {
+            dependencyImageId: depId,
+            fallbackStartImageUrl: depId ? undefined : uploadedImage?.url,
+          },
+        ),
+      );
+    }
+  }
+
+  if (ttsCount > 0) {
+    for (let i = 0; i < ttsCount; i += 1) {
+      const textForAudio =
+        normalizedVariations[i] || normalizedVariations[0] || requestSummary;
+      if (!textForAudio) continue;
+      steps.push(
+        createTtsStep(
+          `tts-${i + 1}`,
+          ttsCount > 1 ? `Voiceover ${i + 1}` : 'Voiceover',
+          textForAudio,
+        ),
+      );
+    }
+  }
+
+  if (!steps.length) return null;
+
+  let plan: AssistantPlan = {
+    summary: formatWorkSummary(imageCount, videoCount, ttsCount),
+    steps,
+  };
+
+  plan = correctImageToVideoDependencies(plan);
+  plan = attachMediaToPlan(plan, media);
+
+  const analysis: AnalyzedRequest = {
+    totalImageSteps: imageCount,
+    totalVideoSteps: videoCount,
+    totalTtsSteps: ttsCount,
+    totalTranscriptionSteps: 0,
+    totalLipsyncSteps: 0,
+    totalEnhanceSteps: 0,
+    totalBackgroundRemoveSteps: 0,
+    contentVariations: normalizedVariations,
+    goals: requestSummary,
+    intents: [],
+    styleCues: [],
+    motionCues: [],
+    tone: undefined,
+    risks: [],
+    openQuestions: [],
+    requiredAssets: [],
+    missingInfo: [],
+    imageModificationInstruction: isModification ? instruction : undefined,
+    videoSceneDescription,
+    imageToVideoMapping:
+      imageCount && videoCount
+        ? videoCount === imageCount
+          ? 'one-to-one'
+          : 'one-to-many'
+        : 'none',
+    hasUploadedMedia: media.length > 0,
+    uploadedMediaUsage: uploadedImage
+      ? isModification
+        ? 'to-modify'
+        : videoCount > 0
+          ? 'as-start-frame'
+          : 'as-reference'
+      : 'none',
+  };
+
+  return { plan, analysis };
 }
 
 export async function normalizePlannerOutput(
