@@ -1016,15 +1016,36 @@ export function normalizePlannerOutput(
   media: AssistantMedia[],
   analysis?: AnalyzedRequest | null,
 ): AssistantPlan {
-  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.steps)) {
+  // Coerce common malformed shapes into a plan-like object
+  const coercePlan = (val: any): any | null => {
+    if (!val) return null;
+    if (Array.isArray(val)) {
+      const firstWithSteps = val.find((item) => item && typeof item === 'object' && Array.isArray((item as any).steps));
+      if (firstWithSteps) return firstWithSteps;
+    }
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        return coercePlan(parsed);
+      } catch {
+        return null;
+      }
+    }
+    if (typeof val === 'object' && Array.isArray((val as any).steps)) return val;
+    return null;
+  };
+
+  const planObj = coercePlan(raw);
+
+  if (!planObj || !Array.isArray(planObj.steps)) {
     return fallbackPlanFromMessages(messages, media);
   }
-  
+
   const hasUploadedImage = media.some((m) => m.type === 'image');
   const firstImageUrl = media.find((m) => m.type === 'image')?.url;
   
   // Process and validate each step
-  let steps = (raw.steps as AssistantPlanStep[]).map((s, idx) => {
+  let steps = (planObj.steps as AssistantPlanStep[]).map((s, idx) => {
     const tool = (s.tool as AssistantToolKind) || 'image';
     const rawPrompt = (s as any)?.prompt;
     const inputsFromStep = { ...(s.inputs || {}) };
@@ -1039,7 +1060,7 @@ export function normalizePlannerOutput(
     }
 
     if (!prompt && tool === 'image' && analysis?.imageModificationInstruction) {
-      const stepIndex = (raw.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
+      const stepIndex = (planObj.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
       const contentVariation = analysis.contentVariations[stepIndex];
       prompt = contentVariation
         ? `${analysis.imageModificationInstruction} "${contentVariation}"`
