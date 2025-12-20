@@ -260,7 +260,7 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
     validations: ['GPT Image 1.5 supports up to 10 references.', 'Use quoted text for typography fidelity.'],
     fields: [],
     models: [
-      { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5', defaultInputs: { number_of_images: 1, aspect_ratio: '1:1' } },
+      { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5', defaultInputs: { number_of_images: 1, aspect_ratio: '2:3' } },
       { id: 'black-forest-labs/flux-kontext-max', label: 'Flux Kontext Max', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'black-forest-labs/flux-krea-dev', label: 'Flux Krea Dev', defaultInputs: { aspect_ratio: '1:1' } },
       { id: 'google/nano-banana', label: 'Nano Banana', defaultInputs: { output_format: 'jpg' } },
@@ -1407,7 +1407,13 @@ function findClosestAspectRatio(
   if (desiredValue < 0) {
     // match_input_image - return it if available, otherwise default
     if (availableRatios.includes('match_input_image')) return 'match_input_image';
-    return defaultToMobile && availableRatios.includes('9:16') ? '9:16' : availableRatios[0] || '1:1';
+    // Default to mobile ratios
+    if (defaultToMobile) {
+      if (availableRatios.includes('9:16')) return '9:16';
+      if (availableRatios.includes('2:3')) return '2:3'; // For GPT Image 1.5
+      if (availableRatios.includes('3:4')) return '3:4';
+    }
+    return availableRatios[0] || '1:1';
   }
 
   // Find closest ratio by numeric value
@@ -1424,7 +1430,13 @@ function findClosestAspectRatio(
     }
   }
 
-  return closest || (defaultToMobile && availableRatios.includes('9:16') ? '9:16' : availableRatios[0] || '1:1');
+  // Final fallback: prefer mobile ratios if available
+  if (defaultToMobile) {
+    if (availableRatios.includes('9:16')) return '9:16';
+    if (availableRatios.includes('2:3')) return '2:3'; // For GPT Image 1.5 (9:16 not available)
+    if (availableRatios.includes('3:4')) return '3:4';
+  }
+  return closest || availableRatios[0] || '1:1';
 }
 
 /**
