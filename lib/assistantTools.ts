@@ -460,7 +460,9 @@ Principles:
 
 ${toolSections}
 
-${outputFormat}`;
+${outputFormat}
+
+RULE: Return ONLY valid JSON per the format above. No Markdown, no extra text.`;
 }
 
 export function buildPromptAuthorSystemPrompt(): string {
@@ -472,7 +474,8 @@ Guidelines:
 - For video, write director-style descriptions of action/camera/motion; keep text content out of motion prompts.
 - For image modification, state the exact change and include the specific new text when provided.
 - Avoid placeholders and boilerplate; every prompt must be bespoke to this request.
-- Output the final JSON plan with the same shape: { "summary": string, "steps": [...] }.`;
+- Output the final JSON plan with the same shape: { "summary": string, "steps": [...] }.
+- Output MUST be valid JSON only (no markdown fences, no prose).`;
 }
 
 export function buildDecompositionUserPrompt(
@@ -1023,7 +1026,12 @@ export function normalizePlannerOutput(
   // Process and validate each step
   let steps = (raw.steps as AssistantPlanStep[]).map((s, idx) => {
     const tool = (s.tool as AssistantToolKind) || 'image';
-    const promptFromModel = (s.inputs as any)?.prompt ?? (s.inputs as any)?.prompt_outline ?? '';
+    const rawPrompt = (s as any)?.prompt;
+    const inputsFromStep = { ...(s.inputs || {}) };
+    if (rawPrompt && inputsFromStep.prompt === undefined) {
+      inputsFromStep.prompt = rawPrompt;
+    }
+    const promptFromModel = (inputsFromStep as any)?.prompt ?? (inputsFromStep as any)?.prompt_outline ?? '';
     let prompt = promptFromModel;
 
     if (!prompt && tool === 'video' && analysis?.videoSceneDescription) {
@@ -1043,7 +1051,7 @@ export function normalizePlannerOutput(
       prompt = validateAndCleanPrompt(prompt, tool);
     }
     
-    const inputs: Record<string, any> = { ...(s.inputs || {}) };
+    const inputs: Record<string, any> = { ...inputsFromStep };
     if (prompt) inputs.prompt = prompt;
     
     // Ensure uploaded image is referenced for modification tasks
