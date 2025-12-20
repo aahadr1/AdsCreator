@@ -101,9 +101,10 @@ export default function AssistantPage() {
     }
     setPlanLoading(true);
     setRunError(null);
-    const payloadMessages = overrideMessages || messages;
+    const payloadMessages: AssistantPlanMessage[] = overrideMessages || messages;
     const pendingDraft = draft.trim();
-    const finalMessages = pendingDraft ? [...payloadMessages, { role: 'user', content: pendingDraft }] : payloadMessages;
+    const draftMessage: AssistantPlanMessage | null = pendingDraft ? { role: 'user', content: pendingDraft } : null;
+    const finalMessages: AssistantPlanMessage[] = draftMessage ? [...payloadMessages, draftMessage] : payloadMessages;
     setMessages(finalMessages);
     if (pendingDraft) setDraft('');
     try {
