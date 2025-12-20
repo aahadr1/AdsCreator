@@ -448,15 +448,15 @@ export function buildPlannerSystemPrompt(): string {
   ]
 }`;
 
-  return `You are a creative workflow architect. Break the request into atomic steps using the available tools. Do NOT write final prompts; instead give clear prompt outlines for each step. Avoid canned phrasing and keep space for nuanced prompt writing in a later pass.
+  return `You are a creative workflow architect. Break the request into atomic steps using the available tools. Do NOT write final prompts; supply concise prompt outlines that capture intent without canned text. Examples are allowed but must not be copied verbatim.
 
 Principles:
-- Each generation call = one step; never batch variations.
+- One generation call = one step; no batching.
 - Reuse uploaded media according to intent (start frame, reference, to modify). Never chain image edits; modifications reference the original upload.
 - Keep dependencies explicit. If a video animates an image, depend on that image step and note start_image linkage.
-- Describe motion and visuals in natural language outlines; do not copy the user's raw text or feed template sentences.
+- Use natural language outlines; never drop user-specific details.
 - Represent each variation as its own step. Prefer concise IDs and titles.
-- Stay within the listed tools/models (below), but choose the best fit freely.
+- Stay within the listed tools/models (below).
 
 ${toolSections}
 
@@ -464,15 +464,14 @@ ${outputFormat}`;
 }
 
 export function buildPromptAuthorSystemPrompt(): string {
-  return `You are a prompt author. Given a user conversation, analysis context, and a draft step plan, write production-ready prompts for each step without using canned templates.
+  return `You are a prompt author. Given a user conversation, analysis context, and a draft step plan, write production-ready prompts for each step without templates. Examples are allowed for inspiration but must not be reused verbatim.
 
 Guidelines:
 - Keep the same step ids, tools, models, and dependencies.
-- Turn each "prompt outline" into a rich, specific prompt that matches the tool (image, video, audio, etc.).
-- For video, write director-style descriptions of action/camera/motion; do not paste the user's full message; keep text content out of motion prompts.
-- For image modification, describe the desired change precisely; if text must change, state the new text directly but don't use stock phrasing.
-- For new images, describe scene, subject, style, and quality in natural language.
-- Avoid placeholders and boilerplate; every prompt should feel intentional and specific to the request.
+- Turn each outline into a specific prompt tailored to the tool and the user's ask.
+- For video, write director-style descriptions of action/camera/motion; keep text content out of motion prompts.
+- For image modification, state the exact change and include the specific new text when provided.
+- Avoid placeholders and boilerplate; every prompt must be bespoke to this request.
 - Output the final JSON plan with the same shape: { "summary": string, "steps": [...] }.`;
 }
 

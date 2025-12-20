@@ -15,8 +15,9 @@ import {
 import type { AnalyzedRequest } from '@/lib/assistantTools';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia } from '@/types/assistant';
 
-const DEFAULT_PLANNER_MODEL = process.env.REPLICATE_PLANNER_MODEL || 'anthropic/claude-3.5-sonnet';
-const ANALYZER_MODEL = process.env.REPLICATE_ANALYZER_MODEL || 'meta/llama-3.1-8b-instruct';
+const CLAUDE_MODEL = 'anthropic/claude-4.5-sonnet';
+const DEFAULT_PLANNER_MODEL = process.env.REPLICATE_PLANNER_MODEL || CLAUDE_MODEL;
+const ANALYZER_MODEL = process.env.REPLICATE_ANALYZER_MODEL || CLAUDE_MODEL;
 
 async function recordPlanTask(origin: string, userId: string, plan: AssistantPlan, messages: AssistantPlanMessage[]) {
   try {
@@ -105,9 +106,9 @@ async function analyzeRequest(
 
     const output = await replicate.run(ANALYZER_MODEL as `${string}/${string}`, {
       input: {
-        prompt: `${analyzerPrompt}\n\n${userInput}`,
-        max_tokens: 1000,
-        temperature: 0.1,
+        prompt: userInput,
+        system_prompt: analyzerPrompt,
+        max_tokens: 1200,
       },
     });
 
@@ -214,13 +215,9 @@ export async function POST(req: NextRequest) {
 
       const draftOutput = await replicate.run(usedModel as `${string}/${string}`, {
         input: {
-          messages: [
-            { role: 'system', content: decompositionSystem },
-            { role: 'user', content: decompositionUser },
-          ],
+          system_prompt: decompositionSystem,
+          prompt: decompositionUser,
           max_tokens: maxTokensDraft,
-          temperature: 0.2,
-          top_p: 0.9,
         },
       });
 
@@ -241,13 +238,9 @@ export async function POST(req: NextRequest) {
 
       const finalOutput = await replicate.run(usedModel as `${string}/${string}`, {
         input: {
-          messages: [
-            { role: 'system', content: authorSystem },
-            { role: 'user', content: authorUser },
-          ],
+          system_prompt: authorSystem,
+          prompt: authorUser,
           max_tokens: maxTokensFinal,
-          temperature: 0.35,
-          top_p: 0.9,
         },
       });
 
