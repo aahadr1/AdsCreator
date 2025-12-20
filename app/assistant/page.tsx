@@ -6,10 +6,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia, AssistantPlanStep, AssistantRunEvent } from '../../types/assistant';
 import { TOOL_SPECS, fieldsForModel, defaultsForModel } from '../../lib/assistantTools';
-import { Sparkles, Paperclip, Settings2, Send, Play, Loader2, CheckCircle2, XCircle, RefreshCw, Upload, MessageSquare, Wand2 } from 'lucide-react';
+import MessageBubble from './components/MessageBubble';
+import ChatInput from './components/ChatInput';
+import PlanWidget from './components/PlanWidget';
+import StepWidget from './components/StepWidget';
+import ProgressWidget from './components/ProgressWidget';
+import OutputPreview from './components/OutputPreview';
 
 type StepConfig = { model: string; inputs: Record<string, any> };
-type StepState = { status: 'idle' | 'running' | 'complete' | 'error'; outputUrl?: string | null; outputText?: string | null; error?: string | null };
+type StepState = { 
+  status: 'idle' | 'running' | 'complete' | 'error'; 
+  outputUrl?: string | null; 
+  outputText?: string | null; 
+  error?: string | null;
+};
+
+type ChatMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content?: string;
+  timestamp: Date;
+  attachments?: AssistantMedia[];
+  widgetType?: 'plan' | 'step' | 'progress' | 'output';
+  widgetData?: any;
+};
 
 const EMPTY_PLAN: AssistantPlan = { summary: 'No plan yet', steps: [] };
 
@@ -43,9 +63,8 @@ const describePlanIntent = (
   media: AssistantMedia[],
   history: AssistantPlanMessage[],
 ): string => {
-  if (!plan.steps.length) return 'No workflow planned yet.';
+  if (!plan.steps.length) return 'I\'ve analyzed your request.';
   const lastUser = [...history].reverse().find((m) => m.role === 'user');
-  const requestLine = lastUser ? `You asked: "${lastUser.content.trim()}".` : '';
   const counts = media.reduce<Record<string, number>>((acc, item) => {
     acc[item.type] = (acc[item.type] || 0) + 1;
     return acc;
@@ -53,43 +72,48 @@ const describePlanIntent = (
   const attachmentParts = Object.entries(counts)
     .filter(([, count]) => count > 0)
     .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`);
-  const attachmentLine = attachmentParts.length ? `I detected ${attachmentParts.join(' and ')} attached.` : '';
+  const attachmentLine = attachmentParts.length ? `I see ${attachmentParts.join(' and ')} attached.` : '';
   const stepLookup = new Map(plan.steps.map((s) => [s.id, s]));
   const total = plan.steps.length;
-  const sentences = plan.steps.map((step, idx) => {
+  const sentences = plan.steps.slice(0, 3).map((step, idx) => {
     const intro = stepIntro(idx, total);
     const usesUpload = media.some((m) => inputsContainUrl(step.inputs, m.url || ''));
     const desc = ACTION_DESCRIPTIONS[step.tool] || { base: step.title ? step.title.toLowerCase() : `run ${step.tool}` };
     const action = usesUpload && desc.withUpload ? desc.withUpload : desc.base;
-    const dependencyTitles = (step.dependencies || [])
-      .map((depId) => stepLookup.get(depId))
-      .filter(Boolean)
-      .map((dep) => `"${dep!.title || dep!.id}"`);
-    const dependencyText = dependencyTitles.length
-      ? ` using the output from ${dependencyTitles.join(' and ')}`
-      : usesUpload
-        ? ' using your provided asset'
-        : '';
-    const modelText = step.model ? ` with ${step.model}` : '';
-    return `${intro} I will ${action}${dependencyText}${modelText}.`.replace(/\s+/g, ' ').trim();
+    return `${intro} I'll ${action}.`;
   });
-  return [requestLine, attachmentLine, 'Here is the workflow I will run:', ...sentences].filter(Boolean).join(' ');
+  if (total > 3) {
+    sentences.push(`...and ${total - 3} more step${total - 3 > 1 ? 's' : ''}.`);
+  }
+  return [attachmentLine, 'Here\'s the workflow I\'ll run:', ...sentences].filter(Boolean).join(' ');
 };
 
 export default function AssistantPage() {
   const [userId, setUserId] = useState<string>('');
-  const [messages, setMessages] = useState<AssistantPlanMessage[]>([{ role: 'user', content: 'Create a short product hero video with a voiceover.' }]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      content: 'Hello! I can help you create workflows for image generation, video creation, text-to-speech, and more. What would you like to create?',
+      timestamp: new Date(),
+    },
+  ]);
   const [draft, setDraft] = useState<string>('');
   const [attachments, setAttachments] = useState<AssistantMedia[]>([]);
   const [plan, setPlan] = useState<AssistantPlan>(EMPTY_PLAN);
   const [planLoading, setPlanLoading] = useState(false);
   const [stepConfigs, setStepConfigs] = useState<Record<string, StepConfig>>({});
   const [stepStates, setStepStates] = useState<Record<string, StepState>>({});
-  const [activeStep, setActiveStep] = useState<AssistantPlanStep | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [runState, setRunState] = useState<'idle' | 'running' | 'done'>('idle');
   const [runError, setRunError] = useState<string | null>(null);
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, stepStates]);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -99,7 +123,6 @@ export default function AssistantPage() {
 
   const validateStep = (step: AssistantPlanStep, cfg: StepConfig): string[] => {
     const errors: string[] = [];
-    const spec = TOOL_SPECS[step.tool];
     const fields = fieldsForModel(cfg.model || step.model, step.tool);
     for (const field of fields) {
       if (!field.required) continue;
@@ -110,10 +133,10 @@ export default function AssistantPage() {
       }
       if (typeof val === 'string' && !val.trim()) errors.push(`${field.label} required`);
     }
-    if (step.tool === 'video' && step.model.includes('kling-v2.1') && !cfg.inputs?.start_image) {
+    if (step.tool === 'video' && cfg.model.includes('kling-v2.1') && !cfg.inputs?.start_image) {
       errors.push('Kling v2.1 requires start_image');
     }
-    if (step.tool === 'image' && step.model === 'openai/gpt-image-1.5') {
+    if (step.tool === 'image' && cfg.model === 'openai/gpt-image-1.5') {
       const count = Number(cfg.inputs?.number_of_images || 0);
       if (count > 10) errors.push('GPT Image 1.5 allows up to 10 images');
     }
@@ -130,68 +153,65 @@ export default function AssistantPage() {
 
   const stepMap = useMemo(() => Object.fromEntries(plan.steps.map((s) => [s.id, s])), [plan]);
 
-  const stepSourceLabel = (step: AssistantPlanStep): string | null => {
-    const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-    const deps = (step.dependencies || [])
-      .map((id) => stepMap[id])
-      .filter(Boolean)
-      .map((s) => s.title || s.id);
-    if (deps.length) return `Uses ${deps.join(', ')}`;
-    const usesUpload = attachments.some((media) => inputsContainUrl(cfg.inputs, media.url || ''));
-    if (usesUpload) return 'Uses your upload';
-    return null;
-  };
-
   const updateStepConfig = (stepId: string, next: StepConfig) => {
     setStepConfigs((prev) => ({ ...prev, [stepId]: next }));
+    // Update the step widget in chat messages
+    setChatMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.widgetType === 'step' && msg.widgetData?.stepId === stepId) {
+          return {
+            ...msg,
+            widgetData: { ...msg.widgetData, config: next },
+          };
+        }
+        return msg;
+      })
+    );
   };
 
-  const openConfigurator = (step: AssistantPlanStep) => {
-    setActiveStep(step);
-  };
-
-  const uploadFiles = async (files: FileList | null) => {
-    if (!files || !files.length) return;
-    setUploading(true);
-    const next: AssistantMedia[] = [];
-    for (const file of Array.from(files)) {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('filename', file.name);
-      const res = await fetch('/api/upload', { method: 'POST', body: form });
-      if (res.ok) {
-        const json = await res.json();
-        const kind = file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : file.type.startsWith('audio') ? 'audio' : 'unknown';
-        next.push({ type: kind as AssistantMedia['type'], url: json.url, label: file.name });
-      }
-    }
-    setAttachments((prev) => [...prev, ...next]);
-    setUploading(false);
-  };
-
-  const generatePlan = async (overrideMessages?: AssistantPlanMessage[]) => {
+  const generatePlan = async () => {
     if (!userId) {
-      setRunError('Sign in at /auth to generate a plan.');
+      addAssistantMessage('Please sign in at /auth to generate a plan.', 'error');
       return;
     }
+    if (!draft.trim() && attachments.length === 0) {
+      return;
+    }
+
+    // Add user message
+    const userMessageId = `user-${Date.now()}`;
+    addUserMessage(draft.trim() || 'Generate a plan', attachments.length > 0 ? [...attachments] : undefined);
+    setDraft('');
+    const currentAttachments = [...attachments];
+    setAttachments([]);
+
     setPlanLoading(true);
     setRunError(null);
-    const payloadMessages: AssistantPlanMessage[] = overrideMessages || messages;
-    const pendingDraft = draft.trim();
-    const draftMessage: AssistantPlanMessage | null = pendingDraft ? { role: 'user', content: pendingDraft } : null;
-    const finalMessages: AssistantPlanMessage[] = draftMessage ? [...payloadMessages, draftMessage] : payloadMessages;
-    setMessages(finalMessages);
-    if (pendingDraft) setDraft('');
+
+    // Get all user messages for context
+    const userMessages: AssistantPlanMessage[] = chatMessages
+      .filter((m) => m.role === 'user')
+      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
+
+    if (draft.trim()) {
+      userMessages.push({ role: 'user', content: draft.trim() });
+    }
+
     try {
       const res = await fetch('/api/assistant/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: finalMessages, media: attachments, user_id: userId }),
+        body: JSON.stringify({
+          messages: userMessages,
+          media: currentAttachments,
+          user_id: userId,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const nextPlan: AssistantPlan = json.plan || json;
       setPlan(nextPlan);
+
       const nextConfigs: Record<string, StepConfig> = {};
       const nextStates: Record<string, StepState> = {};
       for (const step of nextPlan.steps) {
@@ -200,13 +220,41 @@ export default function AssistantPage() {
       }
       setStepConfigs(nextConfigs);
       setStepStates(nextStates);
-      const narrative = describePlanIntent(nextPlan, attachments, finalMessages);
-      setMessages((prev) => [...prev, { role: 'assistant', content: narrative }]);
+
+      const narrative = describePlanIntent(nextPlan, currentAttachments, userMessages);
+      addAssistantMessage(narrative, 'plan', { plan: nextPlan, stepConfigs: nextConfigs, stepStates: nextStates });
     } catch (err: any) {
-      setRunError(err?.message || 'Failed to plan.');
+      addAssistantMessage(err?.message || 'Failed to generate plan. Please try again.', 'error');
     } finally {
       setPlanLoading(false);
     }
+  };
+
+  const addUserMessage = (content: string, atts?: AssistantMedia[]) => {
+    const msg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
+      timestamp: new Date(),
+      attachments: atts,
+    };
+    setChatMessages((prev) => [...prev, msg]);
+  };
+
+  const addAssistantMessage = (
+    content: string,
+    widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error',
+    widgetData?: any
+  ) => {
+    const msg: ChatMessage = {
+      id: `assistant-${Date.now()}`,
+      role: 'assistant',
+      content,
+      timestamp: new Date(),
+      widgetType,
+      widgetData,
+    };
+    setChatMessages((prev) => [...prev, msg]);
   };
 
   const parseSse = (chunk: string): AssistantRunEvent[] => {
@@ -231,6 +279,14 @@ export default function AssistantPage() {
     const boundedStart = startIndex >= 0 ? startIndex : 0;
     setRunState('running');
     setRunError(null);
+
+    // Add progress widget message
+    const progressMsgId = `progress-${Date.now()}`;
+    addAssistantMessage('Starting workflow execution...', 'progress', {
+      current: 0,
+      total: plan.steps.length,
+    });
+
     setStepStates((prev) =>
       plan.steps.reduce<Record<string, StepState>>((acc, step, idx) => {
         const prevState = prev[step.id] || { status: 'idle' };
@@ -270,6 +326,11 @@ export default function AssistantPage() {
       }, {})
       : undefined;
 
+    // Get user messages for context
+    const userMessages: AssistantPlanMessage[] = chatMessages
+      .filter((m) => m.role === 'user')
+      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
+
     try {
       const res = await fetch('/api/assistant/run', {
         method: 'POST',
@@ -278,7 +339,7 @@ export default function AssistantPage() {
           steps: payloadSteps,
           user_id: userId,
           plan_summary: plan.summary,
-          user_messages: messages,
+          user_messages: userMessages,
           previous_outputs: previousOutputs,
         }),
       });
@@ -287,6 +348,8 @@ export default function AssistantPage() {
       streamRef.current = reader;
       const decoder = new TextDecoder();
       let buffer = '';
+      let completedSteps = 0;
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -297,8 +360,45 @@ export default function AssistantPage() {
           const events = parseSse(segment);
           for (const event of events) {
             if (event.type === 'step_start') {
-              setStepStates((prev) => ({ ...prev, [event.stepId]: { ...(prev[event.stepId] || { status: 'idle' }), status: 'running' } }));
+              setStepStates((prev) => ({
+                ...prev,
+                [event.stepId]: { ...(prev[event.stepId] || { status: 'idle' }), status: 'running' },
+              }));
+              // Add step widget message
+              const step = stepMap[event.stepId];
+              if (step) {
+                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+                const state = { status: 'running' as const };
+                const deps = (step.dependencies || [])
+                  .map((id) => stepMap[id])
+                  .filter(Boolean)
+                  .map((s) => ({ id: s.id, title: s.title }));
+                addAssistantMessage(`Starting: ${step.title}`, 'step', {
+                  step,
+                  config: cfg,
+                  state,
+                  stepIndex: plan.steps.findIndex((s) => s.id === step.id),
+                  dependencies: deps,
+                });
+              }
+              // Update progress
+              setChatMessages((prev) =>
+                prev.map((msg) => {
+                  if (msg.widgetType === 'progress') {
+                    return {
+                      ...msg,
+                      widgetData: {
+                        ...msg.widgetData,
+                        current: completedSteps,
+                        currentStepTitle: stepMap[event.stepId]?.title,
+                      },
+                    };
+                  }
+                  return msg;
+                })
+              );
             } else if (event.type === 'step_complete') {
+              completedSteps++;
               setStepStates((prev) => ({
                 ...prev,
                 [event.stepId]: {
@@ -307,15 +407,67 @@ export default function AssistantPage() {
                   outputText: event.outputText ?? prev[event.stepId]?.outputText,
                 },
               }));
-              const label = stepMap[event.stepId]?.title || event.stepId;
-              const content = event.outputUrl ? `${label} complete: ${event.outputUrl}` : `${label} complete.`;
-              setMessages((prev) => [...prev, { role: 'assistant', content }]);
+              const step = stepMap[event.stepId];
+              if (step) {
+                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+                const state = {
+                  status: 'complete' as const,
+                  outputUrl: event.outputUrl,
+                  outputText: event.outputText,
+                };
+                const deps = (step.dependencies || [])
+                  .map((id) => stepMap[id])
+                  .filter(Boolean)
+                  .map((s) => ({ id: s.id, title: s.title }));
+                addAssistantMessage(
+                  `✓ ${step.title} complete${event.outputUrl ? '' : '.'}`,
+                  'output',
+                  {
+                    step,
+                    config: cfg,
+                    state,
+                    stepIndex: plan.steps.findIndex((s) => s.id === step.id),
+                    dependencies: deps,
+                  }
+                );
+              }
+              // Update progress
+              setChatMessages((prev) =>
+                prev.map((msg) => {
+                  if (msg.widgetType === 'progress') {
+                    return {
+                      ...msg,
+                      widgetData: {
+                        ...msg.widgetData,
+                        current: completedSteps,
+                      },
+                    };
+                  }
+                  return msg;
+                })
+              );
             } else if (event.type === 'step_error') {
               setStepStates((prev) => ({
                 ...prev,
                 [event.stepId]: { status: 'error', error: event.error },
               }));
-              setRunError(event.error);
+              const step = stepMap[event.stepId];
+              if (step) {
+                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+                const state = { status: 'error' as const, error: event.error };
+                const deps = (step.dependencies || [])
+                  .map((id) => stepMap[id])
+                  .filter(Boolean)
+                  .map((s) => ({ id: s.id, title: s.title }));
+                addAssistantMessage(`✗ ${step.title} failed: ${event.error}`, 'step', {
+                  step,
+                  config: cfg,
+                  state,
+                  stepIndex: plan.steps.findIndex((s) => s.id === step.id),
+                  dependencies: deps,
+                });
+              }
+              addAssistantMessage(`Error in step: ${event.error}`, 'error');
             } else if (event.type === 'done') {
               setRunState(event.status === 'success' ? 'done' : 'idle');
               if (event.status === 'success') {
@@ -325,351 +477,145 @@ export default function AssistantPage() {
                 const urls = outputs
                   .map((o: any) => (o?.url as string | undefined) || null)
                   .filter((u): u is string => Boolean(u));
-                const recap = urls.length ? `Workflow finished. Outputs: ${urls.join(', ')}` : 'Workflow finished.';
-                setMessages((prev) => [...prev, { role: 'assistant', content: recap }]);
+                addAssistantMessage(
+                  urls.length
+                    ? `Workflow complete! Generated ${urls.length} output${urls.length > 1 ? 's' : ''}.`
+                    : 'Workflow complete!',
+                  'output'
+                );
               }
+              // Update progress to complete
+              setChatMessages((prev) =>
+                prev.map((msg) => {
+                  if (msg.widgetType === 'progress') {
+                    return {
+                      ...msg,
+                      widgetData: {
+                        ...msg.widgetData,
+                        current: plan.steps.length,
+                      },
+                    };
+                  }
+                  return msg;
+                })
+              );
             }
           }
         }
       }
     } catch (err: any) {
-      setRunError(err?.message || 'Run failed');
+      addAssistantMessage(err?.message || 'Workflow execution failed.', 'error');
       setRunState('idle');
     } finally {
       streamRef.current = null;
     }
   };
 
-  const stepOutputList = useMemo(() => Object.entries(stepStates)
-    .filter(([, state]) => state.outputUrl || state.outputText)
-    .map(([id, state]) => ({ id, url: state.outputUrl, text: state.outputText })), [stepStates]);
-
-  const templateMessages: Array<{ title: string; prompt: string }> = [
-    { title: 'Video from still', prompt: 'Use my uploaded image, keep the brand text and animate it for a 6s 16:9 spot.' },
-    { title: 'Product showcase', prompt: 'Create a premium hero image of the product on a marble pedestal, then animate a sweeping dolly shot.' },
-    { title: 'Voiceover + lipsync', prompt: 'Transcribe the audio, generate a concise VO, and lipsync it onto the clip.' },
-    { title: 'Ad remix', prompt: 'Remove the background from the video, enhance the subject, and generate a new soundtrack.' },
-  ];
+  const handleRetryStep = (stepId: string) => {
+    runWorkflow(stepId);
+  };
 
   return (
-    <div className="assistant-shell">
-      <div className="assistant-header">
-        <div>
-          <p className="eyebrow">Assistant Workflow</p>
-          <h2>Plan → Configure → Run</h2>
-          <p className="muted">Chat on the left, configure + track on the right.</p>
-        </div>
-        <div className="assistant-actions">
-          <button className="ghost" type="button" onClick={() => generatePlan()} disabled={planLoading || !userId}>
-            {planLoading ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-            Generate plan
-          </button>
-          <button className="primary" type="button" onClick={() => runWorkflow()} disabled={!planReady || runState === 'running' || !userId}>
-            {runState === 'running' ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
-            Run workflow
-          </button>
-        </div>
-      </div>
+    <div className="chat-container">
+      <div className="chat-messages" ref={chatEndRef}>
+        {chatMessages.map((msg) => {
+          let widgetContent: React.ReactNode = null;
 
-      <div className="assistant-layout">
-        <section className="assistant-main">
-          <div className="chat-feed">
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`chat-message ${msg.role}`}>
-                <div className="chat-message-meta">
-                  <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
-                </div>
-                <p>{msg.content}</p>
-              </div>
-            ))}
-            {plan.steps.length > 0 && (
-              <div className="plan-widget">
-                <div className="plan-widget-header">
-                  <span>Workflow</span>
-                  <span className="chip subtle">{plan.steps.length} steps</span>
-                </div>
-                <div className="plan-widget-steps">
-                  {plan.steps.map((step) => {
-                    const state = stepStates[step.id] || { status: 'idle' };
-                    const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-                    return (
-                      <div key={step.id} className="plan-widget-item">
-                        <div>
-                          <div className="plan-widget-title">{step.title}</div>
-                          <div className="plan-widget-sub">{cfg.model}</div>
-                        </div>
-                        <div className="plan-widget-actions">
-                          <div className={`status-pill ${state.status}`}>
-                            {state.status === 'complete' && <CheckCircle2 size={14} />}
-                            {state.status === 'error' && <XCircle size={14} />}
-                            {state.status === 'running' && <Loader2 size={14} className="spin" />}
-                            <span className="status-label">{state.status}</span>
-                          </div>
-                          <button className="ghost" type="button" onClick={() => openConfigurator(step)}>
-                            Edit
-                          </button>
-                        </div>
+          if (msg.widgetType === 'plan' && msg.widgetData?.plan) {
+            widgetContent = (
+              <PlanWidget
+                plan={msg.widgetData.plan}
+                onRun={() => runWorkflow()}
+                canRun={planReady}
+                isRunning={runState === 'running'}
+                defaultExpanded={true}
+              />
+            );
+          } else if (msg.widgetType === 'step' && msg.widgetData?.step) {
+            const stepData = msg.widgetData;
+            // Always use latest state and config from main state
+            const currentConfig = stepConfigs[stepData.step.id] || stepData.config || { model: stepData.step.model, inputs: stepData.step.inputs };
+            const currentState = stepStates[stepData.step.id] || stepData.state || { status: 'idle' };
+            widgetContent = (
+              <StepWidget
+                step={stepData.step}
+                config={currentConfig}
+                state={currentState}
+                stepIndex={stepData.stepIndex ?? plan.steps.findIndex((s) => s.id === stepData.step.id)}
+                dependencies={stepData.dependencies || []}
+                onConfigChange={updateStepConfig}
+                onRetry={handleRetryStep}
+                defaultExpanded={currentState.status === 'running' || currentState.status === 'complete'}
+              />
+            );
+          } else if (msg.widgetType === 'progress' && msg.widgetData) {
+            widgetContent = (
+              <ProgressWidget
+                current={msg.widgetData.current || 0}
+                total={msg.widgetData.total || plan.steps.length}
+                currentStepTitle={msg.widgetData.currentStepTitle}
+              />
+            );
+          } else if (msg.widgetType === 'output' && msg.widgetData) {
+            const outputData = msg.widgetData;
+            if (outputData.step) {
+              // Always use latest state and config from main state
+              const currentConfig = stepConfigs[outputData.step.id] || outputData.config || { model: outputData.step.model, inputs: outputData.step.inputs };
+              const currentState = stepStates[outputData.step.id] || outputData.state || { status: 'complete' };
+              widgetContent = (
+                <StepWidget
+                  step={outputData.step}
+                  config={currentConfig}
+                  state={currentState}
+                  stepIndex={outputData.stepIndex ?? plan.steps.findIndex((s) => s.id === outputData.step.id)}
+                  dependencies={outputData.dependencies || []}
+                  onConfigChange={updateStepConfig}
+                  onRetry={handleRetryStep}
+                  defaultExpanded={true}
+                />
+              );
+            } else if (outputData.url || outputData.text) {
+              widgetContent = (
+                <OutputPreview
+                  url={outputData.url}
+                  text={outputData.text}
+                />
+              );
+            }
+          } else if (msg.widgetType === 'error') {
+            widgetContent = (
+              <div className="widget-card error-widget">
+                <div className="error-widget-content">{msg.content}</div>
                       </div>
                     );
-                  })}
-                </div>
-              </div>
-            )}
-            <div className="attachment-row">
-              {attachments.map((file, idx) => (
-                <span key={idx} className="chip subtle">
-                  <Paperclip size={14} /> {file.label || file.url}
-                </span>
-              ))}
-            </div>
-            <div className="template-row">
-              {templateMessages.map((tpl) => (
-                <button
-                  key={tpl.title}
-                  type="button"
-                  className="chip"
-                  onClick={() => {
-                    const nextMessages: AssistantPlanMessage[] = [...messages, { role: 'user', content: tpl.prompt }];
-                    setMessages(nextMessages);
-                    generatePlan(nextMessages);
-                  }}
-                >
-                  <Wand2 size={14} /> {tpl.title}
-                </button>
-              ))}
-            </div>
-            {runError && <div className="error-banner">{runError}</div>}
-          </div>
-          <div className="chat-composer">
-            <textarea
-              placeholder="Send a message..."
-              rows={3}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-            <div className="chat-composer-actions">
-              <label className="ghost">
-                <Upload size={16} />
-                {uploading ? 'Uploading...' : 'Upload'}
-                <input type="file" multiple hidden onChange={(e) => uploadFiles(e.target.files)} />
-              </label>
-              <button className="ghost" type="button" onClick={() => { setDraft(''); setMessages([]); }}>
-                <RefreshCw size={14} /> Reset
-              </button>
-              <button className="primary" type="button" onClick={() => generatePlan()} disabled={planLoading || !userId}>
-                {planLoading ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
-                Plan
-              </button>
-            </div>
-          </div>
-        </section>
+          }
 
-        <aside className="assistant-sidebar">
-          <div className="sidebar-card">
-            <div className="assistant-panel-header">
-              <div className="label">Plan</div>
-              <div className="tag">{plan.steps.length} steps</div>
-            </div>
-            <div className="plan-summary">
-              <p>{plan.summary}</p>
-              {!planReady && plan.steps.length > 0 && (
-                <p className="muted">Complete required parameters for each step to enable Run.</p>
-              )}
-            </div>
-            <div className="plan-steps">
-              {plan.steps.map((step, idx) => {
-                const state = stepStates[step.id] || { status: 'idle' };
-                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
                 return (
-                  <div key={step.id} className="plan-step">
-                    <div className="plan-step-main">
-                      <div className="plan-step-order">{idx + 1}</div>
-                      <div>
-                        <div className="plan-step-title">{step.title}</div>
-                        <div className="plan-step-sub">
-                          {step.tool} · {cfg.model}
-                        </div>
-                        {stepSourceLabel(step) && (
-                          <div className="plan-step-sub muted">{stepSourceLabel(step)}</div>
-                        )}
-                        <div className="chip-list">
-                          <span className="chip subtle" onClick={() => openConfigurator(step)}>
-                            <Settings2 size={12} /> Configure parameters
-                          </span>
-                          <span className="chip subtle">{step.outputType || TOOL_SPECS[step.tool]?.outputType || 'output'}</span>
-                        </div>
-                        {/* Show prompt preview in sidebar */}
-                        {(() => {
-                          const prompt = cfg.inputs?.prompt || step.inputs?.prompt;
-                          if (prompt && typeof prompt === 'string' && prompt.length > 0) {
-                            const preview = prompt.length > 100 ? prompt.slice(0, 100) + '...' : prompt;
-                            return (
-                              <div className="plan-step-sub muted" style={{ 
-                                fontSize: '11px', 
-                                marginTop: '6px', 
-                                padding: '6px 8px', 
-                                background: '#f5f5f5', 
-                                borderRadius: '3px',
-                                fontFamily: 'ui-monospace, monospace'
-                              }}>
-                                <Sparkles size={10} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
-                                {preview}
-                              </div>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </div>
-                    </div>
-                    <div className="plan-step-actions">
-                      <div className={`status-pill ${state.status}`}>
-                        {state.status === 'complete' && <CheckCircle2 size={14} />}
-                        {state.status === 'error' && <XCircle size={14} />}
-                        {state.status === 'running' && <Loader2 size={14} className="spin" />}
-                        <span className="status-label">{state.status}</span>
-                      </div>
-                      {state.error && <p className="muted">{state.error}</p>}
-                      {state.status === 'error' && (
-                        <button className="ghost" type="button" onClick={() => runWorkflow(step.id)}>
-                          Retry step
-                        </button>
-                      )}
-                    </div>
-                  </div>
+            <MessageBubble
+              key={msg.id}
+              role={msg.role}
+              content={msg.content}
+              attachments={msg.attachments}
+            >
+              {widgetContent}
+            </MessageBubble>
                 );
               })}
-            </div>
-          </div>
-
-          <div className="sidebar-card">
-            <div className="assistant-panel-header">
-              <div className="label">Outputs</div>
-              <div className="tag">Live</div>
-            </div>
-            <div className="outputs-grid">
-              {stepOutputList.length === 0 && <p className="muted">No outputs yet.</p>}
-              {stepOutputList.map((out) => (
-                <div key={out.id} className="output-card">
-                  <div className="output-meta">
-                    <span className="chip subtle">{out.id}</span>
-                    <span className="chip subtle">{out.url ? 'Media' : 'Text'}</span>
-                  </div>
-                  {out.url ? (
-                    <a href={out.url} target="_blank" rel="noreferrer" className="output-link">
-                      <MessageSquare size={14} /> {out.url}
-                    </a>
-                  ) : (
-                    <p className="muted">{out.text}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
+        <div ref={messagesEndRef} />
       </div>
 
-      {activeStep && (
-        <div className="modal-backdrop" onClick={() => setActiveStep(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <p className="eyebrow">Configure Step</p>
-                <h3>{activeStep.title}</h3>
-                <p className="muted">{activeStep.tool} · {(stepConfigs[activeStep.id]?.model || activeStep.model)}</p>
-              </div>
-              <button className="ghost" type="button" onClick={() => setActiveStep(null)}>
-                Close
-              </button>
-            </div>
-            
-            {/* PROMPT PREVIEW - Show what will be sent to API */}
-            {(() => {
-              const cfg = stepConfigs[activeStep.id] || { model: activeStep.model, inputs: activeStep.inputs };
-              const currentPrompt = cfg.inputs?.prompt || activeStep.inputs?.prompt || '';
-              if (currentPrompt && typeof currentPrompt === 'string') {
-                return (
-                  <div className="form-control" style={{ background: '#f8f9fa', padding: '12px', borderRadius: '6px', marginBottom: '16px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                      <Sparkles size={14} style={{ color: '#4CAF50' }} />
-                      <strong>Prompt Preview</strong>
-                      <span className="chip subtle" style={{ marginLeft: 'auto' }}>Will be sent to {cfg.model}</span>
-                    </label>
-                    <div style={{ 
-                      background: 'white', 
-                      padding: '12px', 
-                      borderRadius: '4px', 
-                      border: '1px solid #e0e0e0',
-                      fontSize: '13px',
-                      lineHeight: '1.6',
-                      maxHeight: '150px',
-                      overflowY: 'auto',
-                      fontFamily: 'ui-monospace, monospace'
-                    }}>
-                      {currentPrompt}
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })()}
-            <div className="form-control">
-              <label>Model</label>
-              <select
-                value={(stepConfigs[activeStep.id]?.model || activeStep.model) as string}
-                onChange={(e) => {
-                  const nextModel = e.target.value;
-                  const cfg = stepConfigs[activeStep.id] || { model: activeStep.model, inputs: activeStep.inputs };
-                  const defaults = defaultsForModel(nextModel);
-                  const preservedPrompt = cfg.inputs?.prompt || activeStep.inputs?.prompt || '';
-                  updateStepConfig(activeStep.id, { model: nextModel, inputs: { ...defaults, prompt: preservedPrompt } });
-                }}
-              >
-                {(activeStep.modelOptions || TOOL_SPECS[activeStep.tool]?.models.map((m) => m.id) || []).map((model) => (
-                  <option key={model} value={model}>{model}</option>
-                ))}
-              </select>
-            </div>
-            {(fieldsForModel(stepConfigs[activeStep.id]?.model || activeStep.model, activeStep.tool) || []).map((field) => {
-              const cfg = stepConfigs[activeStep.id] || { model: activeStep.model, inputs: activeStep.inputs };
-              const value = cfg.inputs?.[field.key] ?? activeStep.inputs?.[field.key] ?? '';
-              return (
-                <div key={field.key} className="form-control">
-                  <label>
-                    {field.label} {field.required && <span className="required">*</span>}
-                  </label>
-                  {field.type === 'textarea' ? (
-                    <textarea
-                      rows={3}
-                      value={value}
-                      onChange={(e) => updateStepConfig(activeStep.id, { ...cfg, inputs: { ...cfg.inputs, [field.key]: e.target.value } })}
-                    />
-                  ) : field.type === 'select' && field.options ? (
-                    <select
-                      value={value}
-                      onChange={(e) => updateStepConfig(activeStep.id, { ...cfg, inputs: { ...cfg.inputs, [field.key]: e.target.value } })}
-                    >
-                      {field.options.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type={field.type === 'number' ? 'number' : 'text'}
-                      value={value}
-                      onChange={(e) => updateStepConfig(activeStep.id, { ...cfg, inputs: { ...cfg.inputs, [field.key]: e.target.value } })}
-                    />
-                  )}
-                  {field.helper && <p className="muted">{field.helper}</p>}
-                </div>
-              );
-            })}
-            <div className="modal-actions">
-              <button className="ghost" type="button" onClick={() => setActiveStep(null)}>Close</button>
-              <button className="primary" type="button" onClick={() => setActiveStep(null)}>Save</button>
-            </div>
-          </div>
+      <div className="chat-input-wrapper-fixed">
+        <ChatInput
+          value={draft}
+          onChange={setDraft}
+          attachments={attachments}
+          onAttachmentsChange={setAttachments}
+          onSend={generatePlan}
+          disabled={!userId}
+          loading={planLoading}
+          placeholder={userId ? 'Send a message...' : 'Sign in to continue...'}
+        />
         </div>
-      )}
     </div>
   );
 }
