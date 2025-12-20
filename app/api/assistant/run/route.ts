@@ -287,6 +287,21 @@ function validateSteps(steps: AssistantPlanStep[]): string | null {
   return null;
 }
 
+function buildAutoPrompt(step: AssistantPlanStep, planSummary: string | undefined, outputs: Record<string, StepResult>): string {
+  const prevUrl = step.dependencies?.[0] ? outputs[step.dependencies[0]]?.url : null;
+  const base = planSummary || step.title;
+  if (step.tool === 'video') {
+    return `${base || 'Generate video'} — animate the referenced image${prevUrl ? ` (${prevUrl})` : ''} with smooth camera motion, stable subject, and clean framing.`;
+  }
+  if (step.tool === 'image') {
+    return `${base || 'Generate image'} — high fidelity, clear lighting, detailed subject.`;
+  }
+  if (step.tool === 'tts') {
+    return step.inputs?.text || 'Read the provided script naturally.';
+  }
+  return base || 'Generate output.';
+}
+
 function buildAssistantOptions(summary: string | undefined, steps: AssistantPlanStep[], outputs: Record<string, StepResult>, inputs: Record<string, Record<string, any>>) {
   return {
     source: 'assistant',
@@ -328,6 +343,9 @@ export async function POST(req: NextRequest) {
         write({ type: 'step_start', stepId: step.id, title: step.title });
         try {
           const injected = resolvePlaceholders(enforceDefaults(step, { ...step.inputs }), outputs);
+          if (!injected.prompt || (typeof injected.prompt === 'string' && injected.prompt.trim().length === 0)) {
+            injected.prompt = buildAutoPrompt(step, body.plan_summary, outputs);
+          }
           usedInputs[step.id] = injected;
           const result = await executeStep(origin, step, outputs, body!.user_id, injected);
           outputs[step.id] = { url: result.url || null, text: result.text || null };

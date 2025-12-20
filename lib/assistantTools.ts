@@ -393,6 +393,9 @@ export function buildPlannerSystemPrompt(): string {
   return [
     'You are an expert planner for a creative assistant. Choose the minimal set of steps and map each step to an available tool/model.',
     'Respect required params and constraints. Include dependencies when a step uses a previous output.',
+    'Every step must include a tool-specific prompt that is unique to that step and describes the exact intent (no shared generic prompts across steps).',
+    'When a later step depends on media from a prior step, mention that media in the prompt (e.g., “Animate the hero image from step-image…”).',
+    'For video steps, include camera movement/pace and aspect ratio. For image steps, include style/materials/text-in-quotes. For TTS, include the text to speak. For transcription, omit prompt.',
     'Always include defaults for durations, aspect_ratio, and start_image when Kling v2.1 is selected.',
     'Prefer short runtimes by default (<=8s video).',
     '',
@@ -428,6 +431,7 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
   const lastUser = messages.slice().reverse().find((m) => m.role === 'user');
   const hasVideo = media.some((m) => m.type === 'video');
   const hasImage = media.some((m) => m.type === 'image');
+  const firstImage = media.find((m) => m.type === 'image');
   const summary = lastUser ? `Plan based on: ${lastUser.content.slice(0, 140)}` : 'Auto-generated assistant workflow';
 
   const steps: AssistantPlanStep[] = [];
@@ -437,9 +441,12 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
     tool: 'image',
     model: 'openai/gpt-image-1.5',
     inputs: {
-      prompt: lastUser?.content || 'Hero shot of the product in good lighting',
+      prompt: lastUser?.content
+        ? `${lastUser.content}\nStyle: cinematic product hero, soft rim lighting, crisp typography in quotes if needed.`
+        : 'Hero shot of the product in good lighting, cinematic aesthetic, 35mm lens, shallow depth of field.',
       aspect_ratio: '1:1',
       number_of_images: 1,
+      input_images: firstImage ? [firstImage.url] : [],
     },
     suggestedParams: {},
   });
@@ -454,8 +461,11 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
         tool: 'video',
         model: 'kwaivgi/kling-v2.5-turbo-pro',
         inputs: {
-          prompt: lastUser?.content || 'Animate the hero shot with gentle camera push',
-          start_image: hasImage ? media.find((m) => m.type === 'image')?.url : `{{steps.${baseImage.id}.output}}`,
+          prompt:
+            lastUser?.content
+              ? `Animate the hero image from step-image with a subtle dolly-in, natural motion blur, and pacing for a ${wantsVideo ? 'short spot' : 'promo'}.`
+              : 'Animate the hero image with a gentle dolly-in and smooth motion, 16:9 framing.',
+          start_image: hasImage ? firstImage?.url : `{{steps.${baseImage.id}.output}}`,
           aspect_ratio: '16:9',
           duration: 5,
         },
