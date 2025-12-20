@@ -5,7 +5,7 @@ import '../globals.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia, AssistantPlanStep, AssistantRunEvent } from '../../types/assistant';
-import { TOOL_SPECS } from '../../lib/assistantTools';
+import { TOOL_SPECS, fieldsForModel, defaultsForModel } from '../../lib/assistantTools';
 import { Sparkles, Paperclip, Settings2, Send, Play, Loader2, CheckCircle2, XCircle, RefreshCw, Upload, MessageSquare, Wand2 } from 'lucide-react';
 
 type StepConfig = { model: string; inputs: Record<string, any> };
@@ -37,7 +37,7 @@ export default function AssistantPage() {
   const validateStep = (step: AssistantPlanStep, cfg: StepConfig): string[] => {
     const errors: string[] = [];
     const spec = TOOL_SPECS[step.tool];
-    const fields = step.fields?.length ? step.fields : spec?.fields || [];
+    const fields = fieldsForModel(cfg.model || step.model, step.tool);
     for (const field of fields) {
       if (!field.required) continue;
       const val = cfg.inputs?.[field.key];
@@ -164,9 +164,26 @@ export default function AssistantPage() {
       }, {}),
     );
 
+    const prepareInputs = (step: AssistantPlanStep, cfg: StepConfig) => {
+      const inputs: Record<string, any> = { ...cfg.inputs };
+      const fields = step.fields || [];
+      fields.forEach((field) => {
+        const val = inputs[field.key];
+        if (typeof val === 'string') {
+          if (['input_images', 'image_input'].includes(field.key)) {
+            inputs[field.key] = val
+              .split(',')
+              .map((p) => p.trim())
+              .filter(Boolean);
+          }
+        }
+      });
+      return inputs;
+    };
+
     const payloadSteps = plan.steps.slice(boundedStart).map((step) => {
       const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-      return { ...step, model: cfg.model, inputs: cfg.inputs };
+      return { ...step, model: cfg.model, inputs: prepareInputs(step, cfg) };
     });
     const previousOutputs = boundedStart > 0
       ? plan.steps.slice(0, boundedStart).reduce<Record<string, { url?: string | null; text?: string | null }>>((acc, step) => {
@@ -259,7 +276,7 @@ export default function AssistantPage() {
         <div>
           <p className="eyebrow">Assistant Workflow</p>
           <h2>Plan → Configure → Run</h2>
-          <p className="muted">Upload media, let the planner propose a toolchain, confirm parameters, then run the workflow with live status.</p>
+          <p className="muted">Chat on the left, configure + track on the right.</p>
         </div>
         <div className="assistant-actions">
           <button className="ghost" type="button" onClick={() => generatePlan()} disabled={planLoading || !userId}>
@@ -273,21 +290,50 @@ export default function AssistantPage() {
         </div>
       </div>
 
-      <div className="assistant-grid">
-        <section className="assistant-panel">
-          <div className="assistant-panel-header">
-            <div className="label">Chat + Uploads</div>
-            <div className="tag">Planner · Sonnet</div>
-          </div>
-          <div className="chat-area">
+      <div className="assistant-layout">
+        <section className="assistant-main">
+          <div className="chat-feed">
             {messages.map((msg, idx) => (
-              <div key={idx} className={`chat-bubble ${msg.role === 'user' ? 'user' : 'assistant'}`}>
-                <div className="bubble-meta">
+              <div key={idx} className={`chat-message ${msg.role}`}>
+                <div className="chat-message-meta">
                   <span>{msg.role === 'user' ? 'You' : 'Assistant'}</span>
                 </div>
                 <p>{msg.content}</p>
               </div>
             ))}
+            {plan.steps.length > 0 && (
+              <div className="plan-widget">
+                <div className="plan-widget-header">
+                  <span>Workflow</span>
+                  <span className="chip subtle">{plan.steps.length} steps</span>
+                </div>
+                <div className="plan-widget-steps">
+                  {plan.steps.map((step) => {
+                    const state = stepStates[step.id] || { status: 'idle' };
+                    const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+                    return (
+                      <div key={step.id} className="plan-widget-item">
+                        <div>
+                          <div className="plan-widget-title">{step.title}</div>
+                          <div className="plan-widget-sub">{cfg.model}</div>
+                        </div>
+                        <div className="plan-widget-actions">
+                          <div className={`status-pill ${state.status}`}>
+                            {state.status === 'complete' && <CheckCircle2 size={14} />}
+                            {state.status === 'error' && <XCircle size={14} />}
+                            {state.status === 'running' && <Loader2 size={14} className="spin" />}
+                            <span className="status-label">{state.status}</span>
+                          </div>
+                          <button className="ghost" type="button" onClick={() => openConfigurator(step)}>
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="attachment-row">
               {attachments.map((file, idx) => (
                 <span key={idx} className="chip subtle">
@@ -295,121 +341,126 @@ export default function AssistantPage() {
                 </span>
               ))}
             </div>
+            <div className="template-row">
+              {templateMessages.map((tpl) => (
+                <button
+                  key={tpl.title}
+                  type="button"
+                  className="chip"
+                  onClick={() => {
+                    const nextMessages: AssistantPlanMessage[] = [...messages, { role: 'user', content: tpl.prompt }];
+                    setMessages(nextMessages);
+                    generatePlan(nextMessages);
+                  }}
+                >
+                  <Wand2 size={14} /> {tpl.title}
+                </button>
+              ))}
+            </div>
+            {runError && <div className="error-banner">{runError}</div>}
           </div>
-          <div className="chat-input">
+          <div className="chat-composer">
             <textarea
-              placeholder="Tell the assistant what to make..."
+              placeholder="Send a message..."
               rows={3}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
             />
-            <div className="chat-actions">
+            <div className="chat-composer-actions">
               <label className="ghost">
                 <Upload size={16} />
-                {uploading ? 'Uploading...' : 'Upload media'}
+                {uploading ? 'Uploading...' : 'Upload'}
                 <input type="file" multiple hidden onChange={(e) => uploadFiles(e.target.files)} />
               </label>
               <button className="ghost" type="button" onClick={() => { setDraft(''); setMessages([]); }}>
-                <RefreshCw size={14} /> Reset input
+                <RefreshCw size={14} /> Reset
               </button>
-              <button className="primary" type="button" onClick={() => generatePlan()} disabled={planLoading}>
+              <button className="primary" type="button" onClick={() => generatePlan()} disabled={planLoading || !userId}>
                 {planLoading ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
                 Plan
               </button>
             </div>
           </div>
-          <div className="template-row">
-            {templateMessages.map((tpl) => (
-              <button
-                key={tpl.title}
-                type="button"
-                className="chip"
-                onClick={() => {
-                  const nextMessages: AssistantPlanMessage[] = [...messages, { role: 'user', content: tpl.prompt }];
-                  setMessages(nextMessages);
-                  generatePlan(nextMessages);
-                }}
-              >
-                <Wand2 size={14} /> {tpl.title}
-              </button>
-            ))}
-          </div>
-          {runError && <div className="error-banner">{runError}</div>}
         </section>
 
-        <section className="assistant-panel">
-          <div className="assistant-panel-header">
-            <div className="label">Plan</div>
-            <div className="tag">Checklist</div>
-          </div>
-          <div className="plan-summary">
-            <p>{plan.summary}</p>
-            {!planReady && plan.steps.length > 0 && (
-              <p className="muted">Complete required parameters for each step to enable Run.</p>
-            )}
-          </div>
-          <div className="plan-steps">
-            {plan.steps.map((step, idx) => {
-              const state = stepStates[step.id] || { status: 'idle' };
-              const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-              return (
-                <div key={step.id} className="plan-step">
-                  <div className="plan-step-main">
-                    <div className="plan-step-order">{idx + 1}</div>
-                    <div>
-                      <div className="plan-step-title">{step.title}</div>
-                      <div className="plan-step-sub">
-                        {step.tool} · {cfg.model}
-                      </div>
-                      <div className="chip-list">
-                        <span className="chip subtle" onClick={() => openConfigurator(step)}>
-                          <Settings2 size={12} /> Configure parameters
-                        </span>
-                        <span className="chip subtle">{step.outputType || TOOL_SPECS[step.tool]?.outputType || 'output'}</span>
+        <aside className="assistant-sidebar">
+          <div className="sidebar-card">
+            <div className="assistant-panel-header">
+              <div className="label">Plan</div>
+              <div className="tag">{plan.steps.length} steps</div>
+            </div>
+            <div className="plan-summary">
+              <p>{plan.summary}</p>
+              {!planReady && plan.steps.length > 0 && (
+                <p className="muted">Complete required parameters for each step to enable Run.</p>
+              )}
+            </div>
+            <div className="plan-steps">
+              {plan.steps.map((step, idx) => {
+                const state = stepStates[step.id] || { status: 'idle' };
+                const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+                return (
+                  <div key={step.id} className="plan-step">
+                    <div className="plan-step-main">
+                      <div className="plan-step-order">{idx + 1}</div>
+                      <div>
+                        <div className="plan-step-title">{step.title}</div>
+                        <div className="plan-step-sub">
+                          {step.tool} · {cfg.model}
+                        </div>
+                        <div className="chip-list">
+                          <span className="chip subtle" onClick={() => openConfigurator(step)}>
+                            <Settings2 size={12} /> Configure parameters
+                          </span>
+                          <span className="chip subtle">{step.outputType || TOOL_SPECS[step.tool]?.outputType || 'output'}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="plan-step-actions">
-                    <div className={`status-pill ${state.status}`}>
-                      {state.status === 'complete' && <CheckCircle2 size={14} />}
-                      {state.status === 'error' && <XCircle size={14} />}
-                      {state.status === 'running' && <Loader2 size={14} className="spin" />}
-                      <span className="status-label">{state.status}</span>
+                    <div className="plan-step-actions">
+                      <div className={`status-pill ${state.status}`}>
+                        {state.status === 'complete' && <CheckCircle2 size={14} />}
+                        {state.status === 'error' && <XCircle size={14} />}
+                        {state.status === 'running' && <Loader2 size={14} className="spin" />}
+                        <span className="status-label">{state.status}</span>
+                      </div>
+                      {state.error && <p className="muted">{state.error}</p>}
+                      {state.status === 'error' && (
+                        <button className="ghost" type="button" onClick={() => runWorkflow(step.id)}>
+                          Retry step
+                        </button>
+                      )}
                     </div>
-                    {state.error && <p className="muted">{state.error}</p>}
-                    {state.status === 'error' && (
-                      <button className="ghost" type="button" onClick={() => runWorkflow(step.id)}>
-                        Retry step
-                      </button>
-                    )}
                   </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="sidebar-card">
+            <div className="assistant-panel-header">
+              <div className="label">Outputs</div>
+              <div className="tag">Live</div>
+            </div>
+            <div className="outputs-grid">
+              {stepOutputList.length === 0 && <p className="muted">No outputs yet.</p>}
+              {stepOutputList.map((out) => (
+                <div key={out.id} className="output-card">
+                  <div className="output-meta">
+                    <span className="chip subtle">{out.id}</span>
+                    <span className="chip subtle">{out.url ? 'Media' : 'Text'}</span>
+                  </div>
+                  {out.url ? (
+                    <a href={out.url} target="_blank" rel="noreferrer" className="output-link">
+                      <MessageSquare size={14} /> {out.url}
+                    </a>
+                  ) : (
+                    <p className="muted">{out.text}</p>
+                  )}
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-          <div className="assistant-panel-header">
-            <div className="label">Outputs</div>
-            <div className="tag">Live</div>
-          </div>
-          <div className="outputs-grid">
-            {stepOutputList.length === 0 && <p className="muted">No outputs yet.</p>}
-            {stepOutputList.map((out) => (
-              <div key={out.id} className="output-card">
-                <div className="output-meta">
-                  <span className="chip subtle">{out.id}</span>
-                  <span className="chip subtle">{out.url ? 'Media' : 'Text'}</span>
-                </div>
-                {out.url ? (
-                  <a href={out.url} target="_blank" rel="noreferrer" className="output-link">
-                    <MessageSquare size={14} /> {out.url}
-                  </a>
-                ) : (
-                  <p className="muted">{out.text}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
+        </aside>
       </div>
 
       {activeStep && (
@@ -428,14 +479,20 @@ export default function AssistantPage() {
               <label>Model</label>
               <select
                 value={(stepConfigs[activeStep.id]?.model || activeStep.model) as string}
-                onChange={(e) => updateStepConfig(activeStep.id, { model: e.target.value, inputs: stepConfigs[activeStep.id]?.inputs || activeStep.inputs })}
+                onChange={(e) => {
+                  const nextModel = e.target.value;
+                  const cfg = stepConfigs[activeStep.id] || { model: activeStep.model, inputs: activeStep.inputs };
+                  const defaults = defaultsForModel(nextModel);
+                  const preservedPrompt = cfg.inputs?.prompt || activeStep.inputs?.prompt || '';
+                  updateStepConfig(activeStep.id, { model: nextModel, inputs: { ...defaults, prompt: preservedPrompt } });
+                }}
               >
                 {(activeStep.modelOptions || TOOL_SPECS[activeStep.tool]?.models.map((m) => m.id) || []).map((model) => (
                   <option key={model} value={model}>{model}</option>
                 ))}
               </select>
             </div>
-            {(activeStep.fields || TOOL_SPECS[activeStep.tool]?.fields || []).map((field) => {
+            {(fieldsForModel(stepConfigs[activeStep.id]?.model || activeStep.model, activeStep.tool) || []).map((field) => {
               const cfg = stepConfigs[activeStep.id] || { model: activeStep.model, inputs: activeStep.inputs };
               const value = cfg.inputs?.[field.key] ?? activeStep.inputs?.[field.key] ?? '';
               return (

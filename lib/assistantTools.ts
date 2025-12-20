@@ -1,4 +1,11 @@
-import type { AssistantPlan, AssistantPlanMessage, AssistantMedia, AssistantPlanStep, AssistantToolKind, AssistantPlanField } from '@/types/assistant';
+import type {
+  AssistantPlan,
+  AssistantPlanMessage,
+  AssistantMedia,
+  AssistantPlanStep,
+  AssistantToolKind,
+  AssistantPlanField,
+} from '@/types/assistant';
 
 type ToolModel = {
   id: string;
@@ -16,6 +23,212 @@ type ToolSpec = {
   validations?: string[];
 };
 
+type ModelFieldConfig = {
+  model: string;
+  fields: AssistantPlanField[];
+  defaults?: Record<string, any>;
+};
+
+const IMAGE_RATIOS_GPT15 = ['1:1', '3:2', '2:3'] as const;
+const IMAGE_RATIOS_FLUX = ['match_input_image', '16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9', '9:21', '2:1', '1:2'] as const;
+const IMAGE_RATIOS_SIMPLE = ['1:1', '16:9', '9:16'] as const;
+const VIDEO_RATIOS = ['16:9', '9:16', '1:1'] as const;
+const VIDEO_DURATIONS_SHORT = [4, 5, 6] as const;
+const VIDEO_DURATIONS_KLING = [4, 6, 8] as const;
+
+const MODEL_FIELDS: ModelFieldConfig[] = [
+  {
+    model: 'openai/gpt-image-1.5',
+    defaults: { number_of_images: 1, aspect_ratio: '1:1', output_format: 'webp', input_fidelity: 'medium' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: IMAGE_RATIOS_GPT15.map((r) => ({ value: r, label: r })), required: true },
+      { key: 'input_images', label: 'Reference images (comma URLs)', type: 'text', helper: 'Up to 10 references' },
+      { key: 'number_of_images', label: 'Outputs', type: 'number', min: 1, max: 10 },
+      { key: 'input_fidelity', label: 'Input fidelity', type: 'select', options: ['low', 'medium', 'high'].map((v) => ({ value: v, label: v })) },
+      { key: 'output_format', label: 'Format', type: 'select', options: ['webp', 'jpeg', 'png'].map((v) => ({ value: v, label: v.toUpperCase() })) },
+    ],
+  },
+  {
+    model: 'black-forest-labs/flux-kontext-max',
+    defaults: { aspect_ratio: '16:9', output_format: 'png' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: IMAGE_RATIOS_FLUX.map((r) => ({ value: r, label: r })) },
+      { key: 'input_image', label: 'Start image URL', type: 'url' },
+      { key: 'output_format', label: 'Format', type: 'select', options: ['png', 'jpg'].map((v) => ({ value: v, label: v.toUpperCase() })) },
+      { key: 'seed', label: 'Seed', type: 'number' },
+    ],
+  },
+  {
+    model: 'black-forest-labs/flux-krea-dev',
+    defaults: { aspect_ratio: '1:1', output_format: 'webp' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: IMAGE_RATIOS_FLUX.map((r) => ({ value: r, label: r })) },
+      { key: 'output_format', label: 'Format', type: 'select', options: ['webp', 'jpg', 'png'].map((v) => ({ value: v, label: v.toUpperCase() })) },
+      { key: 'guidance', label: 'Guidance', type: 'number' },
+      { key: 'num_outputs', label: 'Outputs', type: 'number', min: 1, max: 4 },
+      { key: 'output_quality', label: 'Quality (0-100)', type: 'number', min: 0, max: 100 },
+      { key: 'image_input', label: 'Start image URL', type: 'url' },
+    ],
+  },
+  {
+    model: 'google/nano-banana',
+    defaults: { output_format: 'jpg' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'output_format', label: 'Format', type: 'select', options: ['jpg', 'png'].map((v) => ({ value: v, label: v.toUpperCase() })) },
+      { key: 'image_input', label: 'Reference images (comma URLs)', type: 'text' },
+    ],
+  },
+  {
+    model: 'google/nano-banana-pro',
+    defaults: { output_format: 'png' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'output_format', label: 'Format', type: 'select', options: ['png', 'jpg'].map((v) => ({ value: v, label: v.toUpperCase() })) },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: IMAGE_RATIOS_SIMPLE.map((r) => ({ value: r, label: r })) },
+      { key: 'image_input', label: 'Reference images (comma URLs)', type: 'text' },
+    ],
+  },
+  {
+    model: 'google/veo-3-fast',
+    defaults: { resolution: '720p' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
+      { key: 'image', label: 'Start image URL', type: 'url' },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
+      { key: 'seed', label: 'Seed', type: 'number' },
+    ],
+  },
+  {
+    model: 'google/veo-3',
+    defaults: { resolution: '720p' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
+      { key: 'image', label: 'Start image URL', type: 'url' },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
+      { key: 'seed', label: 'Seed', type: 'number' },
+    ],
+  },
+  {
+    model: 'google/veo-3.1',
+    defaults: { resolution: '1080p' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
+      { key: 'image', label: 'Start image URL', type: 'url' },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
+      { key: 'seed', label: 'Seed', type: 'number' },
+    ],
+  },
+  {
+    model: 'google/veo-3.1-fast',
+    defaults: { resolution: '720p' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
+      { key: 'image', label: 'Start image URL', type: 'url' },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
+      { key: 'seed', label: 'Seed', type: 'number' },
+    ],
+  },
+  {
+    model: 'openai/sora-2',
+    defaults: { resolution: '720p' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
+      { key: 'seed', label: 'Seed', type: 'number' },
+    ],
+  },
+  {
+    model: 'openai/sora-2-pro',
+    defaults: { resolution: '1080p' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
+      { key: 'seed', label: 'Seed', type: 'number' },
+    ],
+  },
+  {
+    model: 'kwaivgi/kling-v2.5-turbo-pro',
+    defaults: { duration: 5, aspect_ratio: '16:9' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'start_image', label: 'Start image URL', type: 'url' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
+      { key: 'duration', label: 'Duration (s)', type: 'select', options: VIDEO_DURATIONS_SHORT.map((d) => ({ value: String(d), label: `${d}s` })) },
+    ],
+  },
+  {
+    model: 'kwaivgi/kling-v2.1',
+    defaults: { duration: 4, aspect_ratio: '16:9', mode: 'default' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'start_image', label: 'Start image URL (required)', type: 'url', required: true },
+      { key: 'end_image', label: 'End image URL', type: 'url' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
+      { key: 'duration', label: 'Duration (s)', type: 'select', options: VIDEO_DURATIONS_KLING.map((d) => ({ value: String(d), label: `${d}s` })) },
+      { key: 'mode', label: 'Mode', type: 'select', options: ['default', 'video2video', 'photo2video'].map((m) => ({ value: m, label: m })) },
+    ],
+  },
+  {
+    model: 'wan-video/wan-2.2-i2v-fast',
+    defaults: { aspect_ratio: '16:9', duration: 5 },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'start_image', label: 'Start image URL (required)', type: 'url', required: true },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
+      { key: 'duration', label: 'Duration (s)', type: 'number', min: 2, max: 8 },
+    ],
+  },
+  {
+    model: 'bytedance/seedance-1-lite',
+    defaults: { aspect_ratio: '16:9' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'start_image', label: 'Start image URL', type: 'url' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
+    ],
+  },
+  {
+    model: 'bytedance/seedance-1-pro',
+    defaults: { aspect_ratio: '16:9' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
+      { key: 'start_image', label: 'Start image URL', type: 'url' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
+    ],
+  },
+  {
+    model: 'minimax-speech-02-hd',
+    fields: [
+      { key: 'text', label: 'Text', type: 'textarea', required: true },
+      { key: 'voice_id', label: 'Voice ID', type: 'text' },
+    ],
+  },
+  {
+    model: 'elevenlabs-tts',
+    fields: [
+      { key: 'text', label: 'Text', type: 'textarea', required: true },
+      { key: 'voice_id', label: 'Voice ID', type: 'text' },
+    ],
+  },
+  {
+    model: 'dia-tts',
+    fields: [
+      { key: 'text', label: 'Text', type: 'textarea', required: true },
+      { key: 'voice_id', label: 'Voice ID', type: 'text' },
+    ],
+  },
+];
+
 export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
   image: {
     id: 'image',
@@ -23,14 +236,7 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
     description: 'Create or edit still imagery.',
     outputType: 'image',
     validations: ['GPT Image 1.5 supports up to 10 references.', 'Use quoted text for typography fidelity.'],
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'What should the image contain? Include style + lighting.' },
-      { key: 'negative_prompt', label: 'Negative prompt', type: 'text', required: false },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'text', required: false, helper: 'e.g., 1:1, 16:9, 9:16' },
-      { key: 'input_images', label: 'Reference images (comma separated URLs)', type: 'text', required: false },
-      { key: 'number_of_images', label: 'Output count', type: 'number', required: false, min: 1, max: 10 },
-      { key: 'input_fidelity', label: 'Input fidelity', type: 'text', required: false, helper: 'low, medium, high for GPT Image 1.5' },
-    ],
+    fields: [],
     models: [
       { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5', defaultInputs: { number_of_images: 1, aspect_ratio: '1:1' } },
       { id: 'black-forest-labs/flux-kontext-max', label: 'Flux Kontext Max', defaultInputs: { aspect_ratio: '16:9' } },
@@ -45,14 +251,7 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
     description: 'Animate or render motion from text or start frames.',
     outputType: 'video',
     validations: ['Kling v2.1 requires start_image.', 'Kling duration must be provided (short clips recommended).'],
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Shot description, camera moves, pacing.' },
-      { key: 'negative_prompt', label: 'Negative prompt', type: 'text', required: false },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'text', required: false, helper: '16:9, 9:16, 1:1...' },
-      { key: 'duration', label: 'Duration (s)', type: 'number', required: false, min: 2, max: 12 },
-      { key: 'start_image', label: 'Start image URL', type: 'url', required: false, helper: 'Required for Kling v2.1' },
-      { key: 'end_image', label: 'End image URL', type: 'url', required: false },
-    ],
+    fields: [],
     models: [
       { id: 'google/veo-3.1-fast', label: 'VEO 3.1 Fast', defaultInputs: { resolution: '720p' } },
       { id: 'google/veo-3-fast', label: 'VEO 3 Fast', defaultInputs: { resolution: '720p' } },
@@ -137,6 +336,17 @@ function fieldsForTool(tool: AssistantToolKind): AssistantPlanField[] {
   return TOOL_SPECS[tool]?.fields || [];
 }
 
+export function fieldsForModel(model: string, tool: AssistantToolKind): AssistantPlanField[] {
+  const config = MODEL_FIELDS.find((m) => m.model === model);
+  if (config) return config.fields;
+  return fieldsForTool(tool);
+}
+
+export function defaultsForModel(model: string): Record<string, any> {
+  const config = MODEL_FIELDS.find((m) => m.model === model);
+  return config?.defaults || {};
+}
+
 export function buildPlannerSystemPrompt(): string {
   const toolSections = Object.values(TOOL_SPECS)
     .map((tool) => {
@@ -202,12 +412,13 @@ function coerceString(val: unknown): string {
 
 function normalizeInputs(step: AssistantPlanStep): AssistantPlanStep {
   const spec = TOOL_SPECS[step.tool];
-  const defaults = spec?.models.find((m) => m.id === step.model)?.defaultInputs || {};
+  const defaults = { ...(spec?.models.find((m) => m.id === step.model)?.defaultInputs || {}), ...defaultsForModel(step.model) };
+  const modelFields = fieldsForModel(step.model, step.tool);
   return {
     ...step,
     inputs: { ...defaults, ...step.inputs },
     modelOptions: step.modelOptions?.length ? step.modelOptions : spec?.models.map((m) => m.id) || [],
-    fields: step.fields && step.fields.length ? step.fields : fieldsForTool(step.tool),
+    fields: step.fields && step.fields.length ? step.fields : modelFields.length ? modelFields : fieldsForTool(step.tool),
     outputType: step.outputType || spec?.outputType,
     validations: step.validations || spec?.validations || [],
   };
@@ -227,7 +438,7 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
     model: 'openai/gpt-image-1.5',
     inputs: {
       prompt: lastUser?.content || 'Hero shot of the product in good lighting',
-      aspect_ratio: '16:9',
+      aspect_ratio: '1:1',
       number_of_images: 1,
     },
     suggestedParams: {},

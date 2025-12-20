@@ -4917,13 +4917,29 @@ body[data-page="billing"] .pricing-card.current-plan {
   gap: var(--space-2);
 }
 
-.assistant-grid {
+.assistant-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
   gap: var(--space-6);
 }
 
-.assistant-panel {
+.assistant-main {
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  min-height: 70vh;
+}
+
+.assistant-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.assistant-panel,
+.sidebar-card {
   background: var(--panel);
   border: 1px solid var(--separator);
   box-shadow: var(--shadow-soft);
@@ -4973,35 +4989,90 @@ body[data-page="billing"] .pricing-card.current-plan {
   font-size: var(--font-xs);
 }
 
-.chat-area {
-  background: var(--panel-elevated);
-  border: 1px solid var(--separator);
+.chat-feed {
+  flex: 1;
+  overflow-y: auto;
   padding: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  max-height: 360px;
-  overflow: auto;
 }
 
-.chat-bubble {
+.chat-message {
   padding: var(--space-3);
   border: 1px solid var(--separator);
   background: var(--panel-muted);
 }
 
-.chat-bubble.user {
+.chat-message.user {
   border-color: var(--accent-muted);
 }
 
-.chat-bubble .bubble-meta {
+.chat-message-meta {
   display: flex;
   gap: var(--space-2);
   font-size: var(--font-xs);
   color: var(--text-tertiary);
 }
 
-.chat-input textarea {
+.plan-widget {
+  border: 1px solid var(--separator);
+  background: var(--panel-elevated);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plan-widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.plan-widget-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plan-widget-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--separator);
+  padding: var(--space-2);
+  background: var(--panel);
+}
+
+.plan-widget-title {
+  font-weight: 600;
+}
+
+.plan-widget-sub {
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}
+
+.plan-widget-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-composer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--panel);
+  position: sticky;
+  bottom: 0;
+}
+
+.chat-composer textarea {
   width: 100%;
   background: var(--panel-elevated);
   border: 1px solid var(--separator);
@@ -5009,15 +5080,11 @@ body[data-page="billing"] .pricing-card.current-plan {
   padding: var(--space-3);
 }
 
-.chat-actions {
+.chat-composer-actions {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  margin-top: var(--space-2);
-}
-
-.chat-actions label {
-  cursor: pointer;
+  justify-content: flex-end;
 }
 
 .chip {
@@ -5208,7 +5275,7 @@ body[data-page="billing"] .pricing-card.current-plan {
 }
 
 @media (max-width: 1024px) {
-  .assistant-grid {
+  .assistant-layout {
     grid-template-columns: 1fr;
   }
 }

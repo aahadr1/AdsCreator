@@ -44,6 +44,11 @@ function resolvePlaceholders(value: any, outputs: Record<string, StepResult>): a
 function coerceNumeric(input: Record<string, any>): Record<string, any> {
   const next: Record<string, any> = { ...input };
   for (const [key, val] of Object.entries(next)) {
+    if (typeof val === 'string') {
+      const lower = val.trim().toLowerCase();
+      if (lower === 'true') { next[key] = true; continue; }
+      if (lower === 'false') { next[key] = false; continue; }
+    }
     if (typeof val === 'string' && /^-?\d+(\.\d+)?$/.test(val.trim())) {
       const parsed = Number(val);
       if (Number.isFinite(parsed)) next[key] = parsed;
