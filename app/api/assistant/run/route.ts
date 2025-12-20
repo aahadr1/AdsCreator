@@ -2,8 +2,9 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 import { NextRequest } from 'next/server';
+import Replicate from 'replicate';
 import { createSSEStream, sseHeaders } from '@/lib/sse';
-import type { AssistantPlanStep, AssistantRunEvent } from '@/types/assistant';
+import type { AssistantPlanStep, AssistantRunEvent, AssistantPlanMessage } from '@/types/assistant';
 
 type StepResult = { url?: string | null; text?: string | null };
 
@@ -11,6 +12,7 @@ type RunRequestBody = {
   steps: AssistantPlanStep[];
   user_id: string;
   plan_summary?: string;
+  user_messages?: AssistantPlanMessage[];
   previous_outputs?: Record<string, StepResult>;
 };
 
@@ -82,6 +84,140 @@ function enforceDefaults(step: AssistantPlanStep, inputs: Record<string, any>): 
     inputs.provider = 'replicate';
   }
   return coerceNumeric(inputs);
+}
+
+function lastUserMessage(messages: AssistantPlanMessage[] | undefined): string {
+  if (!messages || !messages.length) return '';
+  const last = [...messages].reverse().find((m) => m.role === 'user');
+  return last?.content || '';
+}
+
+async function analyzeImage(url: string): Promise<string | null> {
+  const token = process.env.REPLICATE_API_TOKEN;
+  const model = process.env.REPLICATE_VISION_MODEL || 'meta/llama-3.2-11b-vision-instruct';
+  if (!token || !url) return null;
+  try {
+    const replicate = new Replicate({ auth: token });
+    const output: any = await replicate.run(model as `${string}/${string}`, {
+      input: {
+        prompt: 'Describe the visual content, layout, text, and style in concise prose. Focus on elements that matter for editing or animation.',
+        image: url,
+      },
+    });
+    if (typeof output === 'string') return output.slice(0, 2000);
+    if (Array.isArray(output)) {
+      const str = output.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
+      return str.slice(0, 2000);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function draftPromptWithLlm(context: string): Promise<string | null> {
+  const token = process.env.REPLICATE_API_TOKEN;
+  const model = process.env.REPLICATE_PROMPT_MODEL || 'meta/llama-3.1-8b-instruct';
+  if (!token) return null;
+  try {
+    const replicate = new Replicate({ auth: token });
+    const output: any = await replicate.run(model as `${string}/${string}`, {
+      input: {
+        prompt: context,
+        max_tokens: 500,
+      },
+    });
+    if (typeof output === 'string') return output.trim();
+    if (Array.isArray(output)) {
+      const str = output.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
+      return str.trim();
+    }
+    if (output && typeof output === 'object' && 'output' in (output as any)) {
+      const maybe = (output as any).output;
+      if (typeof maybe === 'string') return maybe.trim();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function referenceUrls(inputs: Record<string, any>): string[] {
+  const keys = ['image', 'start_image', 'input_image', 'end_image'];
+  const arrays = ['input_images', 'image_input', 'image_inputs'];
+  const urls = new Set<string>();
+  for (const key of keys) {
+    const val = inputs[key];
+    if (typeof val === 'string' && val.startsWith('http')) urls.add(val);
+  }
+  for (const key of arrays) {
+    const arr = inputs[key];
+    if (Array.isArray(arr)) {
+      arr.forEach((v) => {
+        if (typeof v === 'string' && v.startsWith('http')) urls.add(v);
+      });
+    }
+  }
+  return Array.from(urls).slice(0, 3);
+}
+
+async function buildSmartPrompt(
+  step: AssistantPlanStep,
+  planSummary: string | undefined,
+  outputs: Record<string, StepResult>,
+  userMessages?: AssistantPlanMessage[],
+): Promise<string> {
+  const userRequest = lastUserMessage(userMessages);
+  const depUrl = step.dependencies?.slice().reverse().map((id) => outputs[id]?.url).find(Boolean) || null;
+  const inputUrls = referenceUrls(step.inputs || {});
+  if (depUrl) inputUrls.unshift(depUrl);
+
+  let mediaInsights: string[] = [];
+  for (const url of inputUrls.slice(0, 2)) {
+    const desc = await analyzeImage(url);
+    if (desc) mediaInsights.push(`Analysis for ${url}: ${desc}`);
+  }
+  if (!mediaInsights.length && inputUrls.length) {
+    mediaInsights = inputUrls.map((url) => `Reference: ${url}`);
+  }
+
+  const goal =
+    step.tool === 'video'
+      ? 'Generate a video from the provided key frame. Animate only; do not redesign the artwork.'
+      : step.tool === 'image'
+        ? 'Generate a single still image. Apply the requested edits without changing layout.'
+        : step.title || planSummary || 'Generate the requested output.';
+
+  const systemContext = [
+    'You write one concise prompt for the specified generation step.',
+    'Use the user request and media analysis to be precise.',
+    'If the task is to modify an image, treat provided URLs as the base; do not invent new compositions.',
+    'If the task is to animate, instruct motion but keep visuals consistent with the reference frame.',
+  ].join(' ');
+
+  const promptContext = [
+    systemContext,
+    planSummary ? `Plan summary: ${planSummary}` : null,
+    userRequest ? `User request: ${userRequest}` : null,
+    `Step: ${step.title || step.tool} (${step.tool} · ${step.model})`,
+    `Goal: ${goal}`,
+    mediaInsights.length ? `Media context:\n${mediaInsights.join('\n')}` : 'No media analysis available.',
+    'Return only the final prompt text, no JSON, no explanations.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const llmDraft = await draftPromptWithLlm(promptContext);
+  if (llmDraft) return llmDraft;
+
+  // Fallback deterministic prompt
+  return [
+    goal,
+    userRequest ? `User request: ${userRequest}` : null,
+    mediaInsights.length ? mediaInsights.join(' ') : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 async function updateTask(origin: string, id: string | null, patch: Record<string, any>) {
@@ -351,7 +487,7 @@ export async function POST(req: NextRequest) {
         try {
           const injected = resolvePlaceholders(enforceDefaults(step, { ...step.inputs }), outputs);
           if (!injected.prompt || (typeof injected.prompt === 'string' && injected.prompt.trim().length === 0)) {
-            injected.prompt = buildAutoPrompt(step, body.plan_summary, outputs);
+            injected.prompt = await buildSmartPrompt(step, body.plan_summary, outputs, body.user_messages);
           }
           usedInputs[step.id] = injected;
           const result = await executeStep(origin, step, outputs, body!.user_id, injected);

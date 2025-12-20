@@ -274,7 +274,13 @@ export default function AssistantPage() {
       const res = await fetch('/api/assistant/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps: payloadSteps, user_id: userId, plan_summary: plan.summary, previous_outputs: previousOutputs }),
+        body: JSON.stringify({
+          steps: payloadSteps,
+          user_id: userId,
+          plan_summary: plan.summary,
+          user_messages: messages,
+          previous_outputs: previousOutputs,
+        }),
       });
       if (!res.ok || !res.body) throw new Error(await res.text());
       const reader = res.body.getReader();
