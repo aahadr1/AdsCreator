@@ -14,6 +14,7 @@ type RunRequestBody = {
   plan_summary?: string;
   user_messages?: AssistantPlanMessage[];
   previous_outputs?: Record<string, StepResult>;
+  conversation_id?: string;
 };
 
 function sleep(ms: number) {
@@ -88,7 +89,7 @@ function enforceDefaults(step: AssistantPlanStep, inputs: Record<string, any>): 
       } else if (step.model?.includes('dia')) {
         inputs.provider = 'dia';
       } else {
-        inputs.provider = 'replicate';
+    inputs.provider = 'replicate';
       }
     }
     // Ensure user_id is passed (required by TTS API)
@@ -391,10 +392,10 @@ async function runVideoStep(origin: string, step: AssistantPlanStep, inputs: Rec
     console.log(`[RunVideo] Calling /api/veo/run with ${TIMEOUT_MS / 1000}s timeout...`);
     const startTime = Date.now();
     
-    const res = await fetch(`${origin}/api/veo/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...inputs, model: step.model }),
+  const res = await fetch(`${origin}/api/veo/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...inputs, model: step.model }),
       signal: controller.signal,
     });
     
@@ -407,7 +408,7 @@ async function runVideoStep(origin: string, step: AssistantPlanStep, inputs: Rec
       throw new Error(errorText);
     }
     
-    const json = await res.json();
+  const json = await res.json();
     const url = json?.url || (json?.raw?.url ?? null);
     
     if (!url) {
@@ -760,6 +761,30 @@ export async function POST(req: NextRequest) {
             output_url: result.url || null,
             output_text: result.text || null,
           });
+
+          // Save to assistant_tasks if conversation_id exists
+          if (body.conversation_id && taskId) {
+            try {
+              await fetch(`${origin}/api/assistant/tasks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  conversation_id: body.conversation_id,
+                  task_id: taskId,
+                  step_id: step.id,
+                  step_title: step.title,
+                  step_tool: step.tool,
+                  step_model: step.model,
+                  step_inputs: injected,
+                  step_output_url: result.url || null,
+                  step_output_text: result.text || null,
+                  step_status: 'complete',
+                }),
+              });
+            } catch (err) {
+              console.error('Failed to save assistant task:', err);
+            }
+          }
         } catch (stepErr: any) {
           const stepElapsed = ((Date.now() - stepStartTime) / 1000).toFixed(1);
           const message = stepErr?.message || 'Step failed';
@@ -770,6 +795,29 @@ export async function POST(req: NextRequest) {
             status: 'error',
             options_json: buildAssistantOptions(body.plan_summary, body.steps, outputs, usedInputs),
           });
+
+          // Save error to assistant_tasks if conversation_id exists
+          if (body.conversation_id && taskId) {
+            try {
+              await fetch(`${origin}/api/assistant/tasks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  conversation_id: body.conversation_id,
+                  task_id: taskId,
+                  step_id: step.id,
+                  step_title: step.title,
+                  step_tool: step.tool,
+                  step_model: step.model,
+                  step_inputs: usedInputs[step.id] || step.inputs,
+                  step_status: 'error',
+                }),
+              });
+            } catch (err) {
+              console.error('Failed to save assistant task error:', err);
+            }
+          }
+
           write({ type: 'done', status: 'error', outputs });
           close();
           return;

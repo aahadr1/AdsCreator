@@ -391,10 +391,23 @@ export default function TasksPage() {
                 </div>
 
                 <div className="task-card-content">
-                  {task.options_json && (task.options_json as any).source === 'assistant' && (
+                  {((task.options_json && (task.options_json as any).source === 'assistant') || (task as any).assistant_conversation_id) && (
                     <div className="task-section assistant-summary">
-                      <div className="assistant-badge">Assistant</div>
-                      <p className="muted">{(task.options_json as any).summary || task.output_text || task.text_input}</p>
+                      <div className="assistant-badge-row">
+                        <div className="assistant-badge">Assistant</div>
+                        {(task as any).assistant_conversation_id && (
+                          <a
+                            href={`/assistant/conversation?id=${(task as any).assistant_conversation_id}`}
+                            className="assistant-conversation-link"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Eye size={14} />
+                            View Conversation
+                          </a>
+                        )}
+                      </div>
+                      <p className="muted">{(task.options_json as any)?.summary || task.output_text || task.text_input}</p>
                       <div className="assistant-steps">
                         {Array.isArray((task.options_json as any).steps) && (task.options_json as any).steps.map((step: any, idx: number) => (
                           <div key={step.id || idx} className="assistant-step-row">

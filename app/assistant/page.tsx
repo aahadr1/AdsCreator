@@ -107,6 +107,7 @@ export default function AssistantPage() {
   const [runState, setRunState] = useState<'idle' | 'running' | 'done'>('idle');
   const [runError, setRunError] = useState<string | null>(null);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -224,6 +225,9 @@ export default function AssistantPage() {
 
       const narrative = describePlanIntent(nextPlan, currentAttachments, userMessages);
       addAssistantMessage(narrative);
+
+      // Save conversation to database
+      await saveConversation();
     } catch (err: any) {
       addAssistantMessage(err?.message || 'Failed to generate plan. Please try again.', 'error');
     } finally {
@@ -342,6 +346,7 @@ export default function AssistantPage() {
           plan_summary: plan.summary,
           user_messages: userMessages,
           previous_outputs: previousOutputs,
+          conversation_id: conversationId,
         }),
       });
       if (!res.ok || !res.body) throw new Error(await res.text());
@@ -621,6 +626,65 @@ export default function AssistantPage() {
     // Open full step widget in chat
     handleStepClick(stepId);
   };
+
+  const saveConversation = async () => {
+    if (!userId) return;
+
+    try {
+      const conversationData = {
+        user_id: userId,
+        messages: chatMessages.map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+          attachments: msg.attachments,
+          timestamp: msg.timestamp.toISOString(),
+        })),
+        plan: plan.steps.length > 0 ? {
+          summary: plan.summary,
+          steps: plan.steps,
+        } : null,
+        title: chatMessages.find((m) => m.role === 'user')?.content?.slice(0, 100) || 'New Conversation',
+      };
+
+      if (conversationId) {
+        // Update existing conversation
+        const res = await fetch('/api/assistant/conversations', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: conversationId,
+            ...conversationData,
+          }),
+        });
+        if (!res.ok) console.error('Failed to update conversation');
+      } else {
+        // Create new conversation
+        const res = await fetch('/api/assistant/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(conversationData),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setConversationId(data.id);
+        } else {
+          console.error('Failed to save conversation');
+        }
+      }
+    } catch (error) {
+      console.error('Error saving conversation:', error);
+    }
+  };
+
+  // Auto-save conversation when messages or plan change
+  useEffect(() => {
+    if (chatMessages.length > 1 && userId) {
+      const timeoutId = setTimeout(() => {
+        saveConversation();
+      }, 2000); // Debounce: save 2 seconds after last change
+      return () => clearTimeout(timeoutId);
+    }
+  }, [chatMessages, plan, userId]);
 
   return (
     <div className="chat-container">

@@ -118,7 +118,7 @@ export async function fetchSupabaseTaskRecords(userId: string, limit?: number): 
   }
 }
 
-export function mapSupabaseRowToTaskRecord(row: Record<string, any>): TaskRecord {
+export function mapSupabaseRowToTaskRecord(row: Record<string, any>): TaskRecord & { assistant_conversation_id?: string } {
   const nowIso = new Date().toISOString();
 
   return {
@@ -139,6 +139,7 @@ export function mapSupabaseRowToTaskRecord(row: Record<string, any>): TaskRecord
     job_id: row.job_id ?? null,
     created_at: row.created_at ?? nowIso,
     updated_at: row.updated_at ?? row.created_at ?? nowIso,
+    assistant_conversation_id: row.assistant_conversation_id ?? undefined,
   };
 }
 

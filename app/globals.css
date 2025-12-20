@@ -5071,12 +5071,40 @@ body[data-page="billing"] .pricing-card.current-plan {
   gap: var(--space-3);
 }
 
+.assistant-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
 .assistant-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
   background: var(--accent-light);
+}
+
+.assistant-conversation-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: var(--font-xs);
+  transition: all var(--motion-duration-fast);
+}
+
+.assistant-conversation-link:hover {
+  background: var(--panel-hover);
+  border-color: var(--border-light);
+  color: var(--text);
+}
   color: var(--text-secondary);
   font-size: var(--font-xs);
   border: 1px solid var(--separator);
