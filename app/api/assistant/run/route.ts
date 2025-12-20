@@ -23,10 +23,12 @@ function resolvePlaceholders(value: any, outputs: Record<string, StepResult>): a
     const matches = value.match(/{{\s*steps\.([^.}]+)(?:\.([a-z]+))?\s*}}/i);
     if (matches) {
       const stepId = matches[1];
-      const prop = matches[2] || 'url';
+      const prop = (matches[2] || 'url').toLowerCase();
       const out = outputs[stepId];
-      if (prop === 'text') return out?.text || value;
-      return out?.url || value;
+      if (!out) return value;
+      if (prop === 'text') return out.text || value;
+      if (prop === 'url' || prop === 'output') return out.url || value;
+      return value;
     }
     return value;
   }
@@ -69,7 +71,7 @@ function enforceDefaults(step: AssistantPlanStep, inputs: Record<string, any>): 
   if (step.tool === 'video' && step.model.includes('kling-v2.1')) {
     if (!inputs.start_image) {
       const maybeDep = step.dependencies?.[0];
-      if (maybeDep) inputs.start_image = `{{steps.${maybeDep}.output}}`;
+      if (maybeDep) inputs.start_image = `{{steps.${maybeDep}.url}}`;
     }
     if (!inputs.duration) inputs.duration = 4;
   }

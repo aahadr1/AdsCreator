@@ -467,7 +467,7 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
     ) => {
       if (inputs[key]) return;
       if (priorId) {
-        const token = `{{steps.${priorId}.output}}`;
+        const token = `{{steps.${priorId}.url}}`;
         if (isArray) ensureArrayField(inputs, key, token);
         else inputs[key] = token;
         deps.add(priorId);
@@ -561,7 +561,7 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
             lastUser?.content
               ? `Animate the hero image from step-image with a subtle dolly-in, natural motion blur, and pacing for a ${wantsVideo ? 'short spot' : 'promo'}.`
               : 'Animate the hero image with a gentle dolly-in and smooth motion, 16:9 framing.',
-          start_image: hasImage ? firstImage?.url : `{{steps.${baseImage.id}.output}}`,
+          start_image: hasImage ? firstImage?.url : `{{steps.${baseImage.id}.url}}`,
           aspect_ratio: '16:9',
           duration: 5,
         },
