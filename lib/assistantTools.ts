@@ -439,6 +439,9 @@ IMPORTANT: You can use ANY of the models listed above. Choose the best model for
 - For images: GPT Image 1.5 (best quality), Flux Kontext Max (wide format), Flux Krea Dev (square), Nano Banana (fast)
 - For videos: VEO 3.1 Fast (balanced), Sora 2 Pro (premium), Kling v2.5 (short clips), Wan i2v Fast (image-to-video), Seedance (character motion)
 - For TTS: Minimax (fast), ElevenLabs (premium voices), Dia (customizable)
+  → ALWAYS create TTS steps when user asks for: "audio files", "voiceover", "narration", "speaking", "text to speech", "generate voice", "woman/man speaking"
+  → If user provides multiple text contents and wants audio → create one TTS step per text content
+  → TTS text should be EXACTLY the content to speak (no extra descriptions)
 - For lipsync: Sieve Sync 1.1 (fast), LatentSync (quality), Wan 2.2 S2V (cinematic from images)
 
 OUTPUT FORMAT (JSON only, no markdown):
@@ -475,22 +478,24 @@ User: "Create 3 product cards with Summer Sale 20% OFF, Winter Clearance, and Ne
 ✅ Step 1 prompt: "Product card with clean white background, large bold text 'SUMMER SALE 20% OFF' in red Helvetica 72pt centered top, product image below, blue CTA button at bottom"
 ✅ Step 2 prompt: "Product card with clean white background, large bold text 'WINTER CLEARANCE' in navy blue Helvetica 72pt centered top, product image below, orange CTA button at bottom"
 
-Example 2: Images + Videos (CRITICAL PATTERN)
-User: "Create 4 cards with different texts, then animate each one into a video"
+Example 2: Images + Videos + TTS (COMPLETE WORKFLOW)
+User: "Create 2 cards with texts, animate each into video, and create 2 audio files of a woman speaking the card content"
 Plan:
 {
   "steps": [
     {"id": "img1", "tool": "image", "inputs": {"prompt": "Card with text 'Question 1'"}},
     {"id": "img2", "tool": "image", "inputs": {"prompt": "Card with text 'Question 2'"}},
-    {"id": "img3", "tool": "image", "inputs": {"prompt": "Card with text 'Question 3'"}},
-    {"id": "img4", "tool": "image", "inputs": {"prompt": "Card with text 'Question 4'"}},
-    {"id": "vid1", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img1.url}}"}, "dependencies": ["img1"]},
-    {"id": "vid2", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img2.url}}"}, "dependencies": ["img2"]},
-    {"id": "vid3", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img3.url}}"}, "dependencies": ["img3"]},
-    {"id": "vid4", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img4.url}}"}, "dependencies": ["img4"]}
+    {"id": "vid1", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card still, facing camera, subtle hand tremor", "start_image": "{{steps.img1.url}}"}, "dependencies": ["img1"]},
+    {"id": "vid2", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card still, facing camera, subtle hand tremor", "start_image": "{{steps.img2.url}}"}, "dependencies": ["img2"]},
+    {"id": "tts1", "tool": "tts", "model": "minimax-speech-02-hd", "inputs": {"text": "Question 1", "provider": "replicate"}, "dependencies": []},
+    {"id": "tts2", "tool": "tts", "model": "minimax-speech-02-hd", "inputs": {"text": "Question 2", "provider": "replicate"}, "dependencies": []}
   ]
 }
-NOTE: Each video uses its corresponding image! Video 1→Image 1, Video 2→Image 2, etc.
+CRITICAL NOTES:
+- Each video uses its corresponding image! Video 1→Image 1, Video 2→Image 2
+- Each TTS uses its corresponding text content! TTS 1→Text 1, TTS 2→Text 2
+- TTS text should be EXACTLY the card content, nothing more
+- If user says "create X audio files" → you MUST create X TTS steps
 
 Example 3: Text-to-Speech (TTS) Generation
 User: "Generate a voiceover saying 'Welcome to our amazing product'"
@@ -508,6 +513,32 @@ Plan:
     }
   ]
 }
+
+User: "Create 2 audio files of a woman speaking the cards' content, one for each file"
+Plan:
+{
+  "steps": [
+    {
+      "id": "tts1",
+      "tool": "tts",
+      "model": "minimax-speech-02-hd",
+      "inputs": {
+        "text": "Quel membre de la famille a le plus de chances de devenir viral pour une énorme honte ?",
+        "provider": "replicate"
+      }
+    },
+    {
+      "id": "tts2",
+      "tool": "tts",
+      "model": "minimax-speech-02-hd",
+      "inputs": {
+        "text": "Qui serait élu \"le premier à disparaître au moment de débarrasser\" ?",
+        "provider": "replicate"
+      }
+    }
+  ]
+}
+NOTE: Each text content gets its own TTS step! If user has 2 cards with different text, create 2 TTS steps.
 
 User: "Create a happy narration for my video"
 Plan:
@@ -577,7 +608,8 @@ export function buildUnifiedPlannerUserPrompt(
         analysis.contentVariations?.length ? `Content variations: ${analysis.contentVariations.join(' | ')}` : null,
         analysis.styleCues?.length ? `Style: ${analysis.styleCues.join(', ')}` : null,
         analysis.videoSceneDescription ? `Video motion: ${analysis.videoSceneDescription}` : null,
-        `Expected: ${analysis.totalImageSteps} images, ${analysis.totalVideoSteps} videos`,
+        `Expected steps: ${analysis.totalImageSteps} images, ${analysis.totalVideoSteps} videos, ${analysis.totalTtsSteps} TTS/audio, ${analysis.totalTranscriptionSteps} transcriptions, ${analysis.totalLipsyncSteps} lipsync`,
+        analysis.totalTtsSteps > 0 ? `⚠️ IMPORTANT: User wants ${analysis.totalTtsSteps} audio file(s) - you MUST include TTS steps in your plan!` : null,
       ]
         .filter(Boolean)
         .join('\n')
@@ -597,6 +629,7 @@ export function buildRequestAnalyzerPrompt(): string {
 - Respect uploaded media usage (start frame, reference, or to modify).
 - Identify risks and open questions.
 - CRITICAL: Detect if user wants to animate EACH image individually (one-to-one mapping)
+- CRITICAL: Detect ALL audio/voice needs - if user mentions "audio", "speaking", "voiceover", "narration", "TTS", "text to speech", "woman/man speaking", "create audio files", "generate voice" → set totalTtsSteps accordingly
 
 OUTPUT (valid JSON only):
 {
@@ -623,6 +656,16 @@ OUTPUT (valid JSON only):
   "hasUploadedMedia": boolean,
   "uploadedMediaUsage": "as-start-frame" | "as-reference" | "to-modify" | "none"
 }
+
+TTS DETECTION RULES:
+- If user says "create X audio files" → totalTtsSteps = X
+- If user says "woman/man speaking" or "generate voice" → totalTtsSteps = number of texts/content items
+- If user says "voiceover", "narration", "TTS", "text to speech" → totalTtsSteps = number of content items or 1
+- If user provides multiple text contents and mentions audio → totalTtsSteps = number of text contents
+- Examples:
+  * "create 2 audio files of a woman speaking" → totalTtsSteps = 2
+  * "generate voiceover for each card" → totalTtsSteps = number of cards
+  * "create audio speaking the card content" → totalTtsSteps = number of cards
 
 MAPPING DETECTION:
 - "one-to-one": User wants to animate EACH image separately (e.g., "create 4 images then animate each one")
@@ -1021,11 +1064,45 @@ function parseRequestCounts(text: string): { images: number; videos: number; tts
   // Extract explicit numbers
   const imageMatch = lowerText.match(/(\d+)\s*(?:images?|cards?|pictures?|visuals?|graphics?|posters?)/);
   const videoMatch = lowerText.match(/(\d+)\s*(?:videos?|clips?|animations?)/);
-  const ttsMatch = lowerText.match(/(\d+)\s*(?:voiceovers?|narrations?|audio)/);
+  const ttsMatch = lowerText.match(/(\d+)\s*(?:voiceovers?|narrations?|audio\s*files?|tts|text\s*to\s*speech)/);
   
   let images = imageMatch ? parseInt(imageMatch[1], 10) : 0;
   let videos = videoMatch ? parseInt(videoMatch[1], 10) : 0;
   let tts = ttsMatch ? parseInt(ttsMatch[1], 10) : 0;
+  
+  // Enhanced TTS detection - look for keywords even without explicit numbers
+  if (tts === 0) {
+    const ttsKeywords = [
+      /create\s+\d*\s*audio\s*files?/i,
+      /generate\s+\d*\s*voice/i,
+      /woman\s+speaking/i,
+      /man\s+speaking/i,
+      /person\s+speaking/i,
+      /speaking\s+the\s*(?:card|content|text)/i,
+      /text\s*to\s*speech/i,
+      /voiceover/i,
+      /narration/i,
+      /generate\s+voice/i,
+    ];
+    
+    const hasTtsRequest = ttsKeywords.some(pattern => pattern.test(text));
+    if (hasTtsRequest) {
+      // Try to extract number from context
+      const audioFilesMatch = text.match(/create\s+(\d+)\s*audio\s*files?/i);
+      if (audioFilesMatch) {
+        tts = parseInt(audioFilesMatch[1], 10);
+      } else {
+        // If user mentions speaking card content and has multiple cards, match TTS to card count
+        const cardCountMatch = text.match(/(\d+)\s*(?:cards?|images?)/i);
+        if (cardCountMatch && /speaking|audio|voice/i.test(text)) {
+          tts = parseInt(cardCountMatch[1], 10);
+        } else {
+          // Default to 1 if TTS is mentioned but no count
+          tts = 1;
+        }
+      }
+    }
+  }
   
   // Extract content variations (quoted strings, numbered items, or line-separated items)
   const contentItems: string[] = [];
@@ -1363,6 +1440,44 @@ export function normalizePlannerOutput(
     });
   });
 
+  // VALIDATION: Ensure TTS steps are created if analysis says they're needed
+  if (analysis && analysis.totalTtsSteps > 0) {
+    const existingTtsSteps = steps.filter(s => s.tool === 'tts');
+    const missingTtsCount = analysis.totalTtsSteps - existingTtsSteps.length;
+    
+    if (missingTtsCount > 0) {
+      console.warn(`[Normalize] ⚠️  Analysis requires ${analysis.totalTtsSteps} TTS steps but only ${existingTtsSteps.length} found. Creating ${missingTtsCount} missing TTS step(s)...`);
+      
+      // Find image steps to match TTS to content
+      const imageSteps = steps.filter(s => s.tool === 'image');
+      
+      for (let i = 0; i < missingTtsCount; i++) {
+        const ttsIndex = existingTtsSteps.length + i;
+        const contentText = analysis.contentVariations?.[ttsIndex] || analysis.contentVariations?.[i] || '';
+        
+        if (contentText) {
+          const ttsStep: AssistantPlanStep = normalizeInputs({
+            id: `tts-${ttsIndex + 1}`,
+            title: `Generate Audio ${ttsIndex + 1}`,
+            tool: 'tts',
+            model: 'minimax-speech-02-hd',
+            inputs: {
+              text: contentText,
+              provider: 'replicate',
+            },
+            outputType: 'audio',
+            dependencies: [],
+          });
+          
+          steps.push(ttsStep);
+          console.log(`[Normalize] ✓ Created TTS step ${ttsStep.id} with text: "${contentText.slice(0, 50)}..."`);
+        } else {
+          console.warn(`[Normalize] ⚠️  Cannot create TTS step ${ttsIndex + 1}: no content text available`);
+        }
+      }
+    }
+  }
+  
   let finalPlan: AssistantPlan = {
     summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
     steps,
