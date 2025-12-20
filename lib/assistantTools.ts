@@ -448,15 +448,32 @@ export function buildPlannerSystemPrompt(): string {
   ]
 }`;
 
-  return `You are a creative workflow architect. Break the request into atomic steps using the available tools. Do NOT write final prompts; supply concise prompt outlines that capture intent without canned text. Examples are allowed but must not be copied verbatim.
+  return `You are a creative workflow architect. Break the request into atomic steps using the available tools. Write prompt OUTLINES that capture the user's specific intent and details - these will be expanded into full prompts in the next phase.
+
+DO NOT USE THESE GENERIC PHRASES IN OUTLINES:
+❌ "Use the provided image as the base"
+❌ "Create a high-quality visual"
+❌ "fits the request and brand tone"
+❌ "integrate content cleanly"
 
 Principles:
 - One generation call = one step; no batching.
 - Reuse uploaded media according to intent (start frame, reference, to modify). Never chain image edits; modifications reference the original upload.
 - Keep dependencies explicit. If a video animates an image, depend on that image step and note start_image linkage.
-- Use natural language outlines; never drop user-specific details.
+- Capture ALL user-specific details in prompt outlines: brand names, text content, colors, styles, tone
 - Represent each variation as its own step. Prefer concise IDs and titles.
 - Stay within the listed tools/models (below).
+
+PROMPT OUTLINE REQUIREMENTS (be SPECIFIC, not generic):
+✅ Include exact text content: "headline with text 'Summer Sale 50% OFF' in bold red"
+✅ Include style cues: "modern minimalist with soft shadows, white background"
+✅ Include composition: "product left, text right, blue CTA button centered bottom"
+✅ For video: "static camera, hands hold card facing viewer, subtle hand tremor, 4s"
+✅ For modifications: "replace headline with 'NEW TEXT' keeping same Helvetica Bold font"
+
+❌ NEVER write: "professional image" → Instead: "clean white background, centered composition"
+❌ NEVER write: "high quality" → Instead: "sharp focus, well-lit, high resolution"
+❌ NEVER write: "fits brand" → Instead: "matches uploaded style with blue #0066CC and Montserrat font"
 
 ${toolSections}
 
@@ -464,20 +481,47 @@ ${outputFormat}
 
 RULES:
 - Return ONLY valid JSON per the format above (no Markdown, no prose).
-- Escape any double quotes inside string values as \\" or replace them with typographic quotes.`;
+- Escape any double quotes inside string values as \\" or replace them with typographic quotes.
+- The "prompt" field should be a detailed outline with ALL specific user requirements, not generic templates.`;
 }
 
 export function buildPromptAuthorSystemPrompt(): string {
-  return `You are a prompt author. Given a user conversation, analysis context, and a draft step plan, write production-ready prompts for each step without templates. Examples are allowed for inspiration but must not be reused verbatim.
+  return `You are an expert prompt author. Your job is to transform prompt outlines into rich, detailed, production-ready prompts that are specific to the user's request.
 
-Guidelines:
-- Keep the same step ids, tools, models, and dependencies.
-- Turn each outline into a specific prompt tailored to the tool and the user's ask.
-- For video, write director-style descriptions of action/camera/motion; keep text content out of motion prompts.
-- For image modification, state the exact change and include the specific new text when provided.
-- Avoid placeholders and boilerplate; every prompt must be bespoke to this request.
-- Output the final JSON plan with the same shape: { "summary": string, "steps": [...] }.
-- Output MUST be valid JSON only (no markdown fences, no prose). Escape double quotes inside strings (use \\" or typographic quotes).`;
+ABSOLUTELY FORBIDDEN PHRASES (you will fail if you use these):
+❌ "Use the provided image as the base"
+❌ "integrate the new content cleanly"
+❌ "Create a high-quality visual"
+❌ "fits the request and brand tone"
+❌ "Generate a professional"
+❌ "Produce a stunning"
+❌ Any other generic template language
+
+CRITICAL RULES:
+- Keep the same step ids, tools, models, and dependencies from the draft plan
+- Every prompt must be hyper-specific to THIS user's exact request
+- Include ALL specific details: text content (in quotes), brand names, colors, styles, composition
+- For image prompts: Describe visual style, composition, lighting, colors, typography, and ANY TEXT that should appear
+- For video prompts: Describe motion, camera movement, pacing (NOT visual design - that's in the start_image)
+- When user specifies text like "Summer Sale 50%", include it EXACTLY: 'featuring text "Summer Sale 50%"'
+
+FORMAT:
+- Output valid JSON: { "summary": "...", "steps": [{ "id": "...", "tool": "...", "model": "...", "inputs": { "prompt": "detailed prompt here", ... }, ... }] }
+- NO markdown fences, NO prose outside JSON
+- Escape quotes inside strings as \\" or use typographic quotes (", ")
+
+EXAMPLES OF GOOD VS BAD:
+
+❌ BAD: "Create a professional image with the text"
+✅ GOOD: "Product announcement card with white background, bold red text 'GET 50% OFF' in Helvetica Bold 72pt centered, blue CTA button below"
+
+❌ BAD: "Use the provided image as the base and modify it"
+✅ GOOD: "Take the uploaded product card and replace only the headline text with 'LIMITED TIME OFFER' in the same Montserrat Bold font, keeping identical layout"
+
+❌ BAD: "Generate a high-quality video"
+✅ GOOD: "Static camera, hands hold card facing viewer, subtle natural hand tremor, card remains in center frame, 4 seconds"
+
+Transform EVERY outline into a detailed, specific prompt. NEVER use templates.`;
 }
 
 export function buildDecompositionUserPrompt(
@@ -941,19 +985,32 @@ export function normalizePlannerOutput(
   // Process and validate each step
   let steps = (planObj.steps as AssistantPlanStep[]).map((s, idx) => {
     const tool = (s.tool as AssistantToolKind) || 'image';
+    
+    // Extract prompt from various possible locations
     const rawPrompt = (s as any)?.prompt;
     const inputsFromStep = { ...(s.inputs || {}) };
-    if (rawPrompt && inputsFromStep.prompt === undefined) {
-      inputsFromStep.prompt = rawPrompt;
+    
+    // Merge prompt from step level into inputs if not already there
+    if (rawPrompt && typeof rawPrompt === 'string' && rawPrompt.trim() && !inputsFromStep.prompt) {
+      inputsFromStep.prompt = rawPrompt.trim();
     }
-    const promptFromModel = (inputsFromStep as any)?.prompt ?? (inputsFromStep as any)?.prompt_outline ?? '';
-    let prompt = promptFromModel;
+    
+    // Look for prompt in inputs (prefer 'prompt' over 'prompt_outline')
+    let prompt = inputsFromStep.prompt || inputsFromStep.prompt_outline || '';
+    
+    // Clean up the prompt
+    if (typeof prompt === 'string') {
+      prompt = prompt.trim();
+    }
 
+    // Fallback to analysis-based prompts only if truly missing
     if (!prompt && tool === 'video' && analysis?.videoSceneDescription) {
+      console.warn(`[Normalize] Using fallback video prompt for step ${s.id}`);
       prompt = analysis.videoSceneDescription.trim();
     }
 
     if (!prompt && tool === 'image' && analysis?.imageModificationInstruction) {
+      console.warn(`[Normalize] Using fallback image prompt for step ${s.id}`);
       const stepIndex = (planObj.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
       const contentVariation = analysis.contentVariations[stepIndex];
       prompt = contentVariation
@@ -961,8 +1018,44 @@ export function normalizePlannerOutput(
         : analysis.imageModificationInstruction;
     }
 
+    // Validate that we have a prompt
     if (!prompt && TOOLS_REQUIRING_PROMPTS.includes(tool)) {
+      console.error(`[Normalize] Missing prompt for step ${s.id} (${s.title})`);
       throw new Error(`Missing prompt for step ${s.id}`);
+    }
+    
+    // Detect and reject generic/templated prompts
+    if (prompt && typeof prompt === 'string') {
+      const genericPatterns = [
+        /^Use the provided (image|video|media)/i,
+        /^Create a (high-quality|professional|stunning)/i,
+        /^Generate (a|an|the)/i,
+        /^Produce (a|an|the)/i,
+        /as the base and integrate/i,
+        /fits the request and brand tone/i
+      ];
+      
+      const isGeneric = genericPatterns.some(pattern => pattern.test(prompt));
+      
+      if (isGeneric) {
+        console.error(`[Normalize] Step ${s.id} has GENERIC prompt that should be rejected: "${prompt.slice(0, 100)}..."`);
+        
+        // Try to build a better prompt from analysis
+        if (tool === 'image' && analysis?.imageModificationInstruction) {
+          const stepIndex = (planObj.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
+          const contentVariation = analysis.contentVariations[stepIndex];
+          if (contentVariation) {
+            prompt = `${analysis.imageModificationInstruction} "${contentVariation}"`;
+            console.log(`[Normalize] Replaced with analysis-based prompt: "${prompt.slice(0, 100)}..."`);
+          }
+        }
+        
+        // If still generic, throw an error
+        const stillGeneric = genericPatterns.some(pattern => pattern.test(prompt));
+        if (stillGeneric) {
+          throw new Error(`Step ${s.id} has unacceptable generic prompt. The LLM must generate specific, detailed prompts based on the user's request.`);
+        }
+      }
     }
     
     const inputs: Record<string, any> = { ...inputsFromStep };

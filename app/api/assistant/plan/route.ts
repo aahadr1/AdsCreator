@@ -94,19 +94,31 @@ function parseJSONFromString(raw: string, seen: Set<string> = new Set()): any | 
 
   const candidates: string[] = [];
   candidates.push(raw);
-  const fenced = raw.match(/```json([\s\S]*?)```/i);
+  
+  // Try to extract from markdown code blocks
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenced?.[1]) candidates.push(fenced[1]);
+  
+  // Try to find JSON object boundaries
   const braceStart = raw.indexOf('{');
   const braceEnd = raw.lastIndexOf('}');
   if (braceStart >= 0 && braceEnd > braceStart) {
     candidates.push(raw.slice(braceStart, braceEnd + 1));
   }
+  
+  // Try to unwrap string literals
   const stringLiteral = raw.match(/^["']([\s\S]*)["']$/);
   if (stringLiteral?.[1]) candidates.push(stringLiteral[1]);
+  
+  // Also try looking for JSON after common prefixes
+  const afterPrefix = raw.match(/(?:here is|here's|output:|result:)\s*({[\s\S]*})/i);
+  if (afterPrefix?.[1]) candidates.push(afterPrefix[1]);
 
   const tryParse = (text: string): any | null => {
     try {
       const parsed = JSON.parse(text);
+      
+      // Handle wrapped responses like { "output": [...] }
       if (parsed && typeof parsed === 'object' && parsed.output !== undefined) {
         const inner = parsed.output;
         const stringOutput = Array.isArray(inner)
@@ -119,8 +131,10 @@ function parseJSONFromString(raw: string, seen: Set<string> = new Set()): any | 
           if (nested) return nested;
         }
       }
+      
       return parsed;
-    } catch {
+    } catch (err) {
+      // Silently fail and try next candidate
       return null;
     }
   };
@@ -128,8 +142,12 @@ function parseJSONFromString(raw: string, seen: Set<string> = new Set()): any | 
   for (const candidate of candidates) {
     const trimmed = candidate.trim();
     if (!trimmed) continue;
+    
+    // Try as-is
     const parsed = tryParse(trimmed);
     if (parsed) return parsed;
+    
+    // Try with repaired quotes
     const repaired = repairJsonString(trimmed);
     if (repaired !== trimmed) {
       const repairedParsed = tryParse(repaired);
@@ -301,6 +319,13 @@ export async function POST(req: NextRequest) {
       }
 
       const draftPlanJson = parseJSONFromString(rawTextDraft);
+      
+      if (!draftPlanJson) {
+        console.error('[Plan] Phase 2 decomposition failed to parse. Raw output:', rawTextDraft.slice(0, 1000));
+        throw new Error('Decomposition phase failed to produce valid JSON');
+      }
+      
+      console.log(`[Plan] Phase 2 decomposition succeeded with ${draftPlanJson?.steps?.length || 0} steps`);
 
       // PHASE 3: Prompt authoring (turn outlines into full prompts)
       const authorSystem = buildPromptAuthorSystemPrompt();
@@ -323,9 +348,61 @@ export async function POST(req: NextRequest) {
         rawText = JSON.stringify(finalOutput);
       }
 
-      const finalJson = parseJSONFromString(rawText) || draftPlanJson;
-      if (!finalJson) throw new Error('Planner output could not be parsed');
+      let finalJson = parseJSONFromString(rawText);
+      
+      // If final parsing failed, try to merge draft structure with any partial prompts
+      if (!finalJson && draftPlanJson) {
+        console.warn('[Plan] Failed to parse final authoring output, falling back to draft plan');
+        console.warn('[Plan] Raw authoring output (first 500 chars):', rawText.slice(0, 500));
+        finalJson = draftPlanJson;
+      }
+      
+      if (!finalJson) {
+        console.error('[Plan] Could not parse planner output. Raw text:', rawText.slice(0, 1000));
+        throw new Error('Planner output could not be parsed');
+      }
+      
+      // Log what we got from authoring phase
+      if (finalJson.steps?.length) {
+        console.log(`[Plan] Authoring phase returned ${finalJson.steps.length} steps`);
+        finalJson.steps.forEach((step: any, idx: number) => {
+          const promptPreview = step?.inputs?.prompt || step?.prompt || '(no prompt)';
+          const preview = typeof promptPreview === 'string' 
+            ? promptPreview.slice(0, 100) + (promptPreview.length > 100 ? '...' : '')
+            : '(invalid prompt type)';
+          console.log(`[Plan] Step ${idx + 1} (${step?.id}): ${preview}`);
+        });
+      }
+      
+      // Ensure all steps have prompts by merging draft and final
+      if (draftPlanJson?.steps && finalJson?.steps) {
+        finalJson.steps = finalJson.steps.map((finalStep: any, idx: number) => {
+          const draftStep = draftPlanJson.steps[idx];
+          // Prefer final prompt, but ensure we have SOMETHING
+          if (!finalStep?.inputs?.prompt && !finalStep?.prompt && draftStep?.inputs?.prompt) {
+            console.warn(`[Plan] Step ${finalStep?.id} missing prompt in final output, using draft outline`);
+            return { 
+              ...finalStep, 
+              inputs: { ...finalStep.inputs, prompt: draftStep.inputs.prompt } 
+            };
+          }
+          return finalStep;
+        });
+      }
+      
       parsed = normalizePlannerOutput(finalJson, messages, media, analysisResult);
+      
+      // Log final parsed prompts
+      if (parsed?.steps?.length) {
+        console.log(`[Plan] After normalization: ${parsed.steps.length} steps`);
+        parsed.steps.forEach((step: any, idx: number) => {
+          const promptPreview = step?.inputs?.prompt || '(no prompt)';
+          const preview = typeof promptPreview === 'string'
+            ? promptPreview.slice(0, 100) + (promptPreview.length > 100 ? '...' : '')
+            : '(invalid prompt type)';
+          console.log(`[Plan] Final step ${idx + 1} (${step?.id}): ${preview}`);
+        });
+      }
     } catch (err) {
       parsed = null;
       rawText = (err as Error)?.message || 'planner failed';
