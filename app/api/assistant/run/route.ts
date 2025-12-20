@@ -365,14 +365,57 @@ async function runImageStep(origin: string, step: AssistantPlanStep, inputs: Rec
 }
 
 async function runVideoStep(origin: string, step: AssistantPlanStep, inputs: Record<string, any>): Promise<StepResult> {
-  const res = await fetch(`${origin}/api/veo/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...inputs, model: step.model }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  const json = await res.json();
-  return { url: json?.url || (json?.raw?.url ?? null) };
+  console.log(`[RunVideo] Starting video generation for model: ${step.model}`);
+  console.log(`[RunVideo] Inputs:`, JSON.stringify(inputs, null, 2).slice(0, 300));
+  
+  // Video generation can take 2-10 minutes, set generous timeout
+  const TIMEOUT_MS = 600000; // 10 minutes
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.error(`[RunVideo] ⏰ Timeout after ${TIMEOUT_MS / 1000}s`);
+    controller.abort();
+  }, TIMEOUT_MS);
+  
+  try {
+    console.log(`[RunVideo] Calling /api/veo/run with ${TIMEOUT_MS / 1000}s timeout...`);
+    const startTime = Date.now();
+    
+    const res = await fetch(`${origin}/api/veo/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...inputs, model: step.model }),
+      signal: controller.signal,
+    });
+    
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[RunVideo] Got response after ${elapsed}s, status: ${res.status}`);
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[RunVideo] ❌ API error: ${errorText}`);
+      throw new Error(errorText);
+    }
+    
+    const json = await res.json();
+    const url = json?.url || (json?.raw?.url ?? null);
+    
+    if (!url) {
+      console.error(`[RunVideo] ⚠️  No URL in response:`, JSON.stringify(json).slice(0, 200));
+      throw new Error('Video generation completed but no URL returned');
+    }
+    
+    console.log(`[RunVideo] ✓ Video generated successfully: ${url}`);
+    return { url };
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.error(`[RunVideo] ❌ Request aborted due to timeout (${TIMEOUT_MS / 1000}s)`);
+      throw new Error(`Video generation timed out after ${TIMEOUT_MS / 1000} seconds. The video may still be processing in the background.`);
+    }
+    console.error(`[RunVideo] ❌ Error:`, error);
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: Record<string, any>): Promise<StepResult> {
@@ -605,7 +648,9 @@ export async function POST(req: NextRequest) {
       if (taskId) write({ type: 'task', taskId });
 
       for (const step of body.steps) {
+        const stepStartTime = Date.now();
         write({ type: 'step_start', stepId: step.id, title: step.title });
+        
         try {
           const injected = resolvePlaceholders(enforceDefaults(step, { ...step.inputs }), outputs);
           
@@ -626,11 +671,17 @@ export async function POST(req: NextRequest) {
           console.log(`[Run] Full inputs:`, JSON.stringify(injected, null, 2).slice(0, 500));
           console.log(`${'='.repeat(80)}\n`);
           
+          // Long-running operations warning
+          if (step.tool === 'video') {
+            console.log(`[Run] ⏳ Video generation may take 2-10 minutes, please wait...`);
+          }
+          
           usedInputs[step.id] = injected;
           const result = await executeStep(origin, step, outputs, body!.user_id, injected);
           outputs[step.id] = { url: result.url || null, text: result.text || null };
           
-          console.log(`[Run] ✓ Step ${step.id} completed: ${result.url || result.text || 'no output'}`);
+          const stepElapsed = ((Date.now() - stepStartTime) / 1000).toFixed(1);
+          console.log(`[Run] ✓ Step ${step.id} completed in ${stepElapsed}s: ${result.url || result.text || 'no output'}`);
           
           write({ type: 'step_complete', stepId: step.id, outputUrl: result.url || null, outputText: result.text || null });
           await updateTask(origin, taskId, {
@@ -640,7 +691,10 @@ export async function POST(req: NextRequest) {
             output_text: result.text || null,
           });
         } catch (stepErr: any) {
+          const stepElapsed = ((Date.now() - stepStartTime) / 1000).toFixed(1);
           const message = stepErr?.message || 'Step failed';
+          console.error(`[Run] ❌ Step ${step.id} failed after ${stepElapsed}s: ${message}`);
+          
           write({ type: 'step_error', stepId: step.id, error: message });
           await updateTask(origin, taskId, {
             status: 'error',
