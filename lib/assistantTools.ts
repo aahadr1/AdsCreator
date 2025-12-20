@@ -1023,8 +1023,8 @@ export function normalizePlannerOutput(
   // Process and validate each step
   let steps = (raw.steps as AssistantPlanStep[]).map((s, idx) => {
     const tool = (s.tool as AssistantToolKind) || 'image';
-    const promptOutline = (s.inputs as any)?.prompt_outline || s.inputs?.prompt || '';
-    let prompt = promptOutline;
+    const promptFromModel = (s.inputs as any)?.prompt ?? (s.inputs as any)?.prompt_outline ?? '';
+    let prompt = promptFromModel;
 
     if (!prompt && tool === 'video' && analysis?.videoSceneDescription) {
       prompt = analysis.videoSceneDescription.trim();
@@ -1038,14 +1038,9 @@ export function normalizePlannerOutput(
         : analysis.imageModificationInstruction;
     }
     
-    prompt = validateAndCleanPrompt(prompt, tool);
-    // Ensure image modification prompts always embed the specific variation text
-    if (tool === 'image' && analysis?.imageModificationInstruction) {
-      const stepIndex = (raw.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
-      const contentVariation = analysis.contentVariations[stepIndex];
-      if (contentVariation && !prompt.includes(contentVariation)) {
-        prompt = `${analysis.imageModificationInstruction} "${contentVariation}". ${prompt}`;
-      }
+    // Only clean when we generated a fallback prompt
+    if (!promptFromModel) {
+      prompt = validateAndCleanPrompt(prompt, tool);
     }
     
     const inputs: Record<string, any> = { ...(s.inputs || {}) };
