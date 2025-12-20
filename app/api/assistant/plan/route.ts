@@ -98,7 +98,7 @@ async function analyzeRequest(
     const output = await replicate.run(ANALYZER_MODEL as `${string}/${string}`, {
       input: {
         prompt: `${analyzerPrompt}\n\n${userInput}`,
-        max_tokens: 800,
+        max_tokens: 1000,
         temperature: 0.1,
       },
     });
@@ -112,6 +112,21 @@ async function analyzeRequest(
 
     const parsed = parseJSONFromString(rawText);
     if (parsed && typeof parsed === 'object') {
+      // Clean the motion description to ensure it has no text content
+      let motionDesc = parsed.motionDescription || undefined;
+      if (motionDesc) {
+        // Remove any quoted text or text content that shouldn't be in motion
+        motionDesc = motionDesc
+          .replace(/["'][^"']*["']/g, '') // Remove quoted strings
+          .replace(/\b(text|card|image|showing|displaying|with|content)\b[^,.]*/gi, '') // Remove visual terms
+          .replace(/\s+/g, ' ')
+          .trim();
+        // If it became too short, use a sensible default
+        if (motionDesc.length < 20) {
+          motionDesc = 'Static camera, subject in frame, subtle natural motion, stable and smooth';
+        }
+      }
+
       return {
         totalImageSteps: parsed.totalImageSteps || 0,
         totalVideoSteps: parsed.totalVideoSteps || 0,
@@ -121,8 +136,8 @@ async function analyzeRequest(
         totalEnhanceSteps: parsed.totalEnhanceSteps || 0,
         totalBackgroundRemoveSteps: parsed.totalBackgroundRemoveSteps || 0,
         contentVariations: Array.isArray(parsed.contentVariations) ? parsed.contentVariations : [],
-        sharedImageStyle: parsed.sharedImageStyle || undefined,
-        sharedVideoMotion: parsed.sharedVideoMotion || undefined,
+        imageModificationInstruction: parsed.imageModificationInstruction || undefined,
+        motionDescription: motionDesc,
         imageToVideoMapping: parsed.imageToVideoMapping || 'none',
         hasUploadedMedia: parsed.hasUploadedMedia || media.length > 0,
         uploadedMediaUsage: parsed.uploadedMediaUsage || 'none',
@@ -143,22 +158,34 @@ function buildEnhancedUserPrompt(
   const mediaLines = media.map((m) => `- ${m.type}: ${m.url}${m.label ? ` (${m.label})` : ''}`).join('\n');
   
   const analysisContext = analysis ? `
-## PRE-ANALYSIS RESULTS (use this to guide step count)
-- Required IMAGE steps: ${analysis.totalImageSteps}
-- Required VIDEO steps: ${analysis.totalVideoSteps}
-- Required TTS steps: ${analysis.totalTtsSteps}
-- Required TRANSCRIPTION steps: ${analysis.totalTranscriptionSteps}
-- Required LIPSYNC steps: ${analysis.totalLipsyncSteps}
-- Required ENHANCE steps: ${analysis.totalEnhanceSteps}
-- Required BACKGROUND_REMOVE steps: ${analysis.totalBackgroundRemoveSteps}
-- Content variations to use: ${analysis.contentVariations.length > 0 ? analysis.contentVariations.map((c, i) => `\n  ${i + 1}. "${c}"`).join('') : 'None specified'}
-- Image-to-video mapping: ${analysis.imageToVideoMapping}
-- User has uploaded media: ${analysis.hasUploadedMedia ? 'YES' : 'NO'}
-- Uploaded media usage: ${analysis.uploadedMediaUsage}
-${analysis.sharedImageStyle ? `- Shared image style: ${analysis.sharedImageStyle}` : ''}
-${analysis.sharedVideoMotion ? `- Shared video motion: ${analysis.sharedVideoMotion}` : ''}
+## PRE-ANALYSIS RESULTS (USE THESE TO BUILD PROMPTS)
 
-IMPORTANT: You MUST create exactly the number of steps indicated above. Each step = one generation call.
+### STEP COUNTS (create exactly this many)
+- IMAGE steps: ${analysis.totalImageSteps}
+- VIDEO steps: ${analysis.totalVideoSteps}
+- TTS steps: ${analysis.totalTtsSteps}
+- LIPSYNC steps: ${analysis.totalLipsyncSteps}
+- ENHANCE steps: ${analysis.totalEnhanceSteps}
+- BACKGROUND_REMOVE steps: ${analysis.totalBackgroundRemoveSteps}
+
+### IMAGE PROMPT CONSTRUCTION
+${analysis.imageModificationInstruction ? `Base instruction: "${analysis.imageModificationInstruction}"` : 'No modification instruction - create new images'}
+${analysis.contentVariations.length > 0 ? `Content variations (one per image step):${analysis.contentVariations.map((c, i) => `\n  Image ${i + 1}: "${c}"`).join('')}` : 'No content variations'}
+${analysis.hasUploadedMedia && analysis.uploadedMediaUsage === 'to-modify' ? 'User uploaded an image to MODIFY - reference it in prompts' : ''}
+
+**FOR EACH IMAGE STEP, use this format:**
+"${analysis.imageModificationInstruction || 'Create image with'}: '[content variation for this step]'"
+
+### VIDEO PROMPT (USE THIS EXACTLY FOR ALL VIDEOS)
+${analysis.motionDescription ? `"${analysis.motionDescription}"` : '"Static camera, subject in frame, subtle natural motion, smooth and stable, 4 seconds"'}
+
+**CRITICAL: ALL video steps use the SAME motion prompt above. Only start_image differs.**
+**NEVER put text content, visual descriptions, or the user's original message in video prompts.**
+
+### RELATIONSHIPS
+- Image-to-video mapping: ${analysis.imageToVideoMapping}
+- User uploaded media: ${analysis.hasUploadedMedia ? 'YES' : 'NO'}
+- Upload usage: ${analysis.uploadedMediaUsage}
 ` : '';
 
   return [
@@ -168,7 +195,7 @@ IMPORTANT: You MUST create exactly the number of steps indicated above. Each ste
     mediaLines ? `## ATTACHED MEDIA\n${mediaLines}` : '## NO MEDIA ATTACHED',
     analysisContext,
     '',
-    'Now generate the JSON plan with the correct number of atomic steps. Remember: one step = one generation call.',
+    'Generate the JSON plan now. Use the exact prompts specified above.',
   ].join('\n');
 }
 

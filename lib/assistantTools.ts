@@ -368,40 +368,38 @@ export type AnalyzedRequest = {
   totalEnhanceSteps: number;
   totalBackgroundRemoveSteps: number;
   contentVariations: string[];
-  sharedImageStyle?: string;
-  sharedVideoMotion?: string;
+  imageModificationInstruction?: string;  // e.g., "Replace the text on this card with"
+  motionDescription?: string;              // e.g., "Hands holding card steady, facing camera"
   imageToVideoMapping: 'one-to-one' | 'one-to-many' | 'none';
   hasUploadedMedia: boolean;
   uploadedMediaUsage: 'as-start-frame' | 'as-reference' | 'to-modify' | 'none';
 };
 
 export function buildRequestAnalyzerPrompt(): string {
-  return `You are an expert at analyzing creative production requests. Your job is to extract structured information about what the user wants to create.
+  return `You are an expert at analyzing creative production requests. Your job is to extract STRUCTURED information to build proper generation prompts.
 
-## YOUR TASK
-Analyze the user's message and extract:
-1. EXACT counts of each output type requested
-2. The specific content/text variations (if any)
-3. How outputs relate to each other (e.g., videos from images)
-4. Whether uploaded media should be used and how
+## CRITICAL: SEPARATE CONCERNS
+You MUST separate the user's request into distinct components:
+1. **imageModificationInstruction** - What to do to images (e.g., "replace the text", "change the background", "add a logo")
+2. **contentVariations** - The actual text/content items that vary per image (e.g., different questions, different names)
+3. **motionDescription** - How things should MOVE in videos (camera, hands, subject motion) - NO visual/text content here
+4. **counts** - How many of each output type
 
-## RULES FOR COUNTING
-- "Create 4 images" → totalImageSteps: 4
-- "Make a video" → totalVideoSteps: 1
-- "4 cards then animate each" → totalImageSteps: 4, totalVideoSteps: 4
-- "Generate 10 variations" → count based on context (images or videos)
-- If no explicit count, assume 1
-- "for each" or "each one" means 1:1 mapping between types
+## RULES FOR MOTION DESCRIPTION (CRITICAL)
+The motionDescription should contain ONLY movement/action words:
+- Camera: "static", "dolly in", "pan left", "zoom"
+- Subject motion: "hands trembling slightly", "holding steady", "walking"
+- Pacing: "slow", "4 seconds", "gentle movement"
 
-## RULES FOR CONTENT VARIATIONS
-Extract EACH unique text/content that should appear in separate outputs.
-Example: "cards with texts: Hello, World, Bye" → contentVariations: ["Hello", "World", "Bye"]
+NEVER include in motionDescription:
+- Text content ("Quel membre...", "Hello", etc.)
+- Visual design ("white card", "blue background")
+- What the image shows (that's in the start_image already)
 
-## RULES FOR UPLOADED MEDIA
-- If user mentions "this image" or "my image" or attaches media → hasUploadedMedia: true
-- "modify this image" → uploadedMediaUsage: "to-modify"
-- "use as starting frame" → uploadedMediaUsage: "as-start-frame"
-- "use as reference" → uploadedMediaUsage: "as-reference"
+## RULES FOR IMAGE MODIFICATION
+When user says "modify this image" or "put text on", extract:
+- imageModificationInstruction: The action (e.g., "Replace the text on this card with")
+- contentVariations: Each unique text/content to apply
 
 ## OUTPUT FORMAT (JSON only):
 {
@@ -413,16 +411,16 @@ Example: "cards with texts: Hello, World, Bye" → contentVariations: ["Hello", 
   "totalEnhanceSteps": number,
   "totalBackgroundRemoveSteps": number,
   "contentVariations": ["text1", "text2", ...],
-  "sharedImageStyle": "style description if all images share same style" | null,
-  "sharedVideoMotion": "motion description if all videos share same motion" | null,
+  "imageModificationInstruction": "what to do to each image" | null,
+  "motionDescription": "ONLY camera/subject movement, NO text/visuals" | null,
   "imageToVideoMapping": "one-to-one" | "one-to-many" | "none",
   "hasUploadedMedia": boolean,
   "uploadedMediaUsage": "as-start-frame" | "as-reference" | "to-modify" | "none"
 }
 
-## EXAMPLES
+## EXAMPLE 1
+User: "modify this image to put these texts on them, create 4 cards with each text, then animate each into videos where hands hold the card still facing camera with slight trembling. Texts: Hello, World, Foo, Bar"
 
-User: "Create 4 cards with different questions, then make a video for each"
 Output:
 {
   "totalImageSteps": 4,
@@ -432,33 +430,35 @@ Output:
   "totalLipsyncSteps": 0,
   "totalEnhanceSteps": 0,
   "totalBackgroundRemoveSteps": 0,
-  "contentVariations": [],
-  "sharedImageStyle": null,
-  "sharedVideoMotion": null,
+  "contentVariations": ["Hello", "World", "Foo", "Bar"],
+  "imageModificationInstruction": "Replace the text on this card with",
+  "motionDescription": "Hands holding card steady, facing camera, slight natural trembling, card stays still and readable, static camera",
   "imageToVideoMapping": "one-to-one",
-  "hasUploadedMedia": false,
-  "uploadedMediaUsage": "none"
+  "hasUploadedMedia": true,
+  "uploadedMediaUsage": "to-modify"
 }
 
-User: "Modify this image to add text 'A', 'B', 'C' on three versions"
+## EXAMPLE 2
+User: "Create a product video with dolly-in motion"
+
 Output:
 {
-  "totalImageSteps": 3,
-  "totalVideoSteps": 0,
+  "totalImageSteps": 1,
+  "totalVideoSteps": 1,
   "totalTtsSteps": 0,
   "totalTranscriptionSteps": 0,
   "totalLipsyncSteps": 0,
   "totalEnhanceSteps": 0,
   "totalBackgroundRemoveSteps": 0,
-  "contentVariations": ["A", "B", "C"],
-  "sharedImageStyle": null,
-  "sharedVideoMotion": null,
-  "imageToVideoMapping": "none",
-  "hasUploadedMedia": true,
-  "uploadedMediaUsage": "to-modify"
+  "contentVariations": [],
+  "imageModificationInstruction": null,
+  "motionDescription": "Smooth dolly-in motion toward subject, professional pacing",
+  "imageToVideoMapping": "one-to-one",
+  "hasUploadedMedia": false,
+  "uploadedMediaUsage": "none"
 }
 
-Now analyze the user's request.`;
+Now analyze the user's request. Extract motion description carefully - it should NEVER contain text content or visual descriptions.`;
 }
 
 export function buildPlannerSystemPrompt(): string {
@@ -489,123 +489,138 @@ export function buildPlannerSystemPrompt(): string {
   ]
 }`;
 
-  return `You are an expert workflow planner for a creative AI assistant. Your job is to decompose user requests into ATOMIC generation steps.
+  return `You are an expert workflow planner for a creative AI assistant. Your job is to decompose user requests into ATOMIC generation steps with PERFECT prompts.
 
 ## CRITICAL RULES - READ CAREFULLY
 
 ### RULE 1: ATOMIC DECOMPOSITION
 Each generation call = ONE step. Never batch multiple outputs into one step.
 - User asks for "4 images" → Create 4 separate image steps
-- User asks for "3 videos" → Create 3 separate video steps  
 - User asks for "4 images then 4 videos from them" → Create 8 steps (4 image + 4 video)
 
-### RULE 2: TOOL-SPECIFIC PROMPTS (CRITICAL)
-Each tool type requires a DIFFERENT kind of prompt. NEVER mix concepts.
+### RULE 2: IMAGE PROMPTS (CRITICAL)
+When user wants to MODIFY an existing image (uploaded or referenced):
+- Prompt format: "[modification instruction]: '[specific content for this variant]'"
+- Example: "Replace the text on this card with: 'Hello World'"
+- Example: "Change the background color to blue, keep the subject"
 
-**IMAGE prompts must contain ONLY:**
-- Visual description (subject, composition, framing)
-- Style/aesthetic (lighting, colors, mood)
-- Text to render ON the image (in "quotes")
-- Materials, textures, background
-- NEVER include: motion, animation, camera movement, video concepts
+When user wants to CREATE a new image:
+- Describe visuals: subject, composition, style, lighting, text to display
+- Example: "Professional product photo of sneakers on white background, soft lighting"
 
-**VIDEO prompts must contain ONLY:**
-- Motion description (how things move)
-- Camera movement (dolly, pan, static, etc.)
-- Pacing and timing
-- Reference to start_image via dependency
-- NEVER include: visual design, what to create, style descriptions (the start_image already has the visuals)
+NEVER include in image prompts: motion, animation, camera movement, video concepts
 
-**TTS prompts:** The exact text to be spoken, nothing else.
-**Transcription:** No prompt needed, just audio_file input.
+### RULE 3: VIDEO PROMPTS (CRITICAL - MOST IMPORTANT)
+Video prompts describe ONLY motion and camera. The visual content is ALREADY in the start_image.
 
-### RULE 3: DEPENDENCY CHAINING
-When a video animates an image, the video step MUST:
-1. List the image step id in "dependencies" array
+CORRECT video prompt: "Static camera, hands holding object steady, subtle natural trembling, subject stays still, 4 seconds"
+WRONG video prompt: "White card with text Hello, hands holding..." (NO! Don't describe visuals)
+WRONG video prompt: "Create a card showing..." (NO! The card already exists in start_image)
+
+Video prompts should contain:
+- Camera movement: static, dolly-in, pan, zoom, tracking
+- Subject motion: hands trembling, walking, staying still
+- Pacing: slow, fast, 4 seconds
+- NOTHING about visual design, text content, colors, or what the image shows
+
+### RULE 4: DEPENDENCY CHAINING
+When a video animates an image:
+1. Add image step id to "dependencies" array
 2. Set start_image to "{{steps.IMAGE_STEP_ID.url}}"
-3. The video prompt describes ONLY motion, not visuals
+3. Video prompt = motion ONLY
 
-### RULE 4: VARIABLE CONTENT
-When user provides multiple text variations or content items:
-- Create separate steps for each variation
-- Each step gets its unique content in the prompt
-- Use clear step IDs like "card-1", "card-2", "video-1", "video-2"
-
-### RULE 5: MODEL CONSTRAINTS
-- Kling v2.1: REQUIRES start_image, duration (4/6/8s), aspect_ratio
-- GPT Image 1.5: max 10 reference images, supports text rendering
-- Video models: prefer 4-6 second durations
+### RULE 5: USING PRE-ANALYSIS
+When you receive a PRE-ANALYSIS section, use these fields:
+- imageModificationInstruction: Use this as the base for image prompts
+- contentVariations: Each image gets ONE of these in its prompt
+- motionDescription: Use this EXACTLY for ALL video prompts (it's already cleaned)
 
 ## AVAILABLE TOOLS AND MODELS
 
 ${toolSections}
 
-## EXAMPLE - CORRECT DECOMPOSITION
+## EXAMPLE 1 - MODIFYING UPLOADED IMAGE WITH TEXT VARIATIONS
 
-User: "Create 2 cards with text 'Hello' and 'World', then animate each"
+User request: "modify this image to put different texts: Hello, World, Bye"
+Pre-analysis provides: imageModificationInstruction="Replace the text on this card with", contentVariations=["Hello","World","Bye"]
 
-Correct output (4 steps):
+Correct output:
 {
-  "summary": "Create 2 card images with different text, then animate each into video",
+  "summary": "Modify uploaded image with 3 text variations",
   "steps": [
     {
-      "id": "card-1",
-      "title": "Card with Hello text",
+      "id": "image-1",
       "tool": "image",
       "model": "openai/gpt-image-1.5",
-      "inputs": {
-        "prompt": "White card held by hands, clean modern typography showing \\"Hello\\" centered on the card, soft studio lighting, shallow depth of field",
-        "aspect_ratio": "1:1"
-      },
-      "outputType": "image",
+      "inputs": { "prompt": "Replace the text on this card with: 'Hello'" },
       "dependencies": []
     },
     {
-      "id": "card-2", 
-      "title": "Card with World text",
+      "id": "image-2",
+      "tool": "image", 
+      "model": "openai/gpt-image-1.5",
+      "inputs": { "prompt": "Replace the text on this card with: 'World'" },
+      "dependencies": []
+    },
+    {
+      "id": "image-3",
       "tool": "image",
       "model": "openai/gpt-image-1.5",
-      "inputs": {
-        "prompt": "White card held by hands, clean modern typography showing \\"World\\" centered on the card, soft studio lighting, shallow depth of field",
-        "aspect_ratio": "1:1"
-      },
-      "outputType": "image",
+      "inputs": { "prompt": "Replace the text on this card with: 'Bye'" },
+      "dependencies": []
+    }
+  ]
+}
+
+## EXAMPLE 2 - IMAGES THEN VIDEOS
+
+User: "Create 2 cards, then animate each with hands holding them still"
+Pre-analysis: motionDescription="Hands holding card steady, facing camera, subtle trembling, static camera"
+
+Correct output:
+{
+  "summary": "Create 2 card images then animate each",
+  "steps": [
+    {
+      "id": "card-1",
+      "tool": "image",
+      "inputs": { "prompt": "Card design with text 'Card 1', clean white background, professional lighting" },
+      "dependencies": []
+    },
+    {
+      "id": "card-2",
+      "tool": "image",
+      "inputs": { "prompt": "Card design with text 'Card 2', clean white background, professional lighting" },
       "dependencies": []
     },
     {
       "id": "video-1",
-      "title": "Animate Hello card",
       "tool": "video",
-      "model": "kwaivgi/kling-v2.1",
       "inputs": {
-        "prompt": "Static camera, hands holding card steady facing camera, subtle natural hand trembling, card remains still and readable, 4 seconds",
+        "prompt": "Hands holding card steady, facing camera, subtle trembling, static camera",
         "start_image": "{{steps.card-1.url}}",
-        "duration": 4,
-        "aspect_ratio": "1:1"
+        "duration": 4
       },
-      "outputType": "video",
       "dependencies": ["card-1"]
     },
     {
       "id": "video-2",
-      "title": "Animate World card",
       "tool": "video",
-      "model": "kwaivgi/kling-v2.1",
       "inputs": {
-        "prompt": "Static camera, hands holding card steady facing camera, subtle natural hand trembling, card remains still and readable, 4 seconds",
+        "prompt": "Hands holding card steady, facing camera, subtle trembling, static camera",
         "start_image": "{{steps.card-2.url}}",
-        "duration": 4,
-        "aspect_ratio": "1:1"
+        "duration": 4
       },
-      "outputType": "video",
       "dependencies": ["card-2"]
     }
   ]
 }
 
+Notice: ALL video prompts are IDENTICAL because they describe the same motion. Only the start_image differs.
+
 ${outputFormat}
 
-Now analyze the user's request and create a properly decomposed plan.`;
+Now analyze the user's request and create a properly decomposed plan with PERFECT prompts.`;
 }
 
 function coerceString(val: unknown): string {
@@ -809,17 +824,115 @@ function parseRequestCounts(text: string): { images: number; videos: number; tts
   return { images, videos, tts, contentItems };
 }
 
+// Detect if user wants to modify an existing image
+function detectImageModification(text: string): { isModification: boolean; instruction: string } {
+  const modifyPatterns = [
+    /modify\s+(?:this|the|my)?\s*image/i,
+    /put\s+(?:this|these)?\s*text/i,
+    /replace\s+(?:the)?\s*text/i,
+    /change\s+(?:the)?\s*text/i,
+    /add\s+(?:this|these)?\s*text/i,
+    /edit\s+(?:this|the)?\s*image/i,
+  ];
+  
+  const isModification = modifyPatterns.some(p => p.test(text));
+  
+  if (isModification) {
+    return {
+      isModification: true,
+      instruction: 'Replace the text on this card with',
+    };
+  }
+  
+  return { isModification: false, instruction: '' };
+}
+
+// Extract clean motion description from user text (NO text content, NO visual descriptions)
+function extractMotionDescription(text: string): string {
+  const defaultMotion = 'Static camera, subject in frame, subtle natural motion, smooth and stable, 4 seconds';
+  
+  // Look for motion-related phrases
+  const motionKeywords = [
+    'camera',
+    'hands',
+    'holding',
+    'still',
+    'trembling',
+    'shaking',
+    'steady',
+    'motion',
+    'movement',
+    'facing',
+    'dolly',
+    'pan',
+    'zoom',
+    'static',
+    'stable',
+  ];
+  
+  // Find sentences containing motion keywords
+  const sentences = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 5);
+  const motionSentences: string[] = [];
+  
+  for (const sentence of sentences) {
+    const lowerSentence = sentence.toLowerCase();
+    const hasMotionKeyword = motionKeywords.some(k => lowerSentence.includes(k));
+    
+    // Skip if it contains text content (quoted strings or looks like content)
+    const hasQuotedContent = /["«»''""]/g.test(sentence);
+    const hasTextInstruction = /(?:text|avec|with)\s*[:=]/i.test(sentence);
+    
+    if (hasMotionKeyword && !hasQuotedContent && !hasTextInstruction) {
+      // Clean the sentence - remove visual/text-related words
+      let cleaned = sentence
+        .replace(/(?:card|image|text|showing|displaying|with text|create|generate|make|modify|put|replace)/gi, '')
+        .replace(/["«»''"""][^"«»''"""]*["«»''""]/g, '') // Remove quoted content
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      if (cleaned.length > 10) {
+        motionSentences.push(cleaned);
+      }
+    }
+  }
+  
+  if (motionSentences.length > 0) {
+    // Combine and clean
+    let result = motionSentences.join(', ');
+    // Final cleanup - remove any remaining problematic patterns
+    result = result
+      .replace(/,\s*,/g, ',')
+      .replace(/^\s*,\s*/, '')
+      .replace(/\s*,\s*$/, '')
+      .trim();
+    
+    if (result.length > 15) {
+      return result;
+    }
+  }
+  
+  return defaultMotion;
+}
+
 // Helper to create an image step with proper prompts
 function createImageStep(
   id: string,
   title: string,
   contentText: string | null,
-  baseStyle: string,
+  modificationInstruction: string | null,
   mediaUrl: string | undefined,
 ): AssistantPlanStep {
-  let prompt = baseStyle;
-  if (contentText) {
-    prompt = `${baseStyle}, with text "${contentText}" displayed prominently on the card/image`;
+  let prompt: string;
+  
+  if (modificationInstruction && contentText) {
+    // User wants to modify image with specific text
+    prompt = `${modificationInstruction}: "${contentText}"`;
+  } else if (contentText) {
+    // Create new image with specific text
+    prompt = `Create an image displaying the text: "${contentText}"`;
+  } else {
+    // Generic image creation
+    prompt = 'Professional product photography, clean composition, soft lighting';
   }
   
   return normalizeInputs({
@@ -873,48 +986,38 @@ export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media
   // Parse the request to understand what's needed
   const { images: imageCount, videos: videoCount, contentItems } = parseRequestCounts(userContent);
   
-  // Extract motion description from user request
-  let motionDescription = 'Static camera, subject in frame, subtle natural motion, smooth and stable, 4 seconds';
-  const motionMatch = userContent.match(/(?:camera|motion|movement|animate)[^.!?]*[.!?]/gi);
-  if (motionMatch && motionMatch.length > 0) {
-    // Clean up the motion description to remove visual/image concepts
-    motionDescription = motionMatch.join(' ')
-      .replace(/(?:create|generate|make|with text|showing|displaying|card|image)/gi, '')
-      .trim() || motionDescription;
-  }
+  // Detect if this is an image modification request
+  const { isModification, instruction: modificationInstruction } = detectImageModification(userContent);
   
-  // Extract style from user request or use default
-  let imageStyle = 'Clean white card design, professional product photography, soft studio lighting, shallow depth of field';
-  if (hasUploadedImage) {
-    imageStyle = 'Modify the provided image, maintaining the original style and composition';
-  }
+  // Extract clean motion description (no text content, no visuals)
+  const motionDescription = extractMotionDescription(userContent);
   
   const steps: AssistantPlanStep[] = [];
-  const summary = `Create ${imageCount} image(s)${videoCount > 0 ? ` and ${videoCount} video(s)` : ''} based on user request`;
+  const summary = `${isModification ? 'Modify' : 'Create'} ${imageCount} image(s)${videoCount > 0 ? ` and animate ${videoCount} video(s)` : ''}`;
   
   // Create image steps
   for (let i = 0; i < imageCount; i++) {
     const stepId = imageCount > 1 ? `image-${i + 1}` : 'step-image';
     const contentText = contentItems[i] || null;
     const title = contentText 
-      ? `Create image ${i + 1}: "${contentText.slice(0, 30)}${contentText.length > 30 ? '...' : ''}"`
-      : `Create image ${i + 1}`;
+      ? `${isModification ? 'Modify' : 'Create'} image ${i + 1}: "${contentText.slice(0, 25)}${contentText.length > 25 ? '...' : ''}"`
+      : `${isModification ? 'Modify' : 'Create'} image ${i + 1}`;
     
     steps.push(createImageStep(
       stepId,
       title,
       contentText,
-      imageStyle,
+      isModification && hasUploadedImage ? modificationInstruction : null,
       firstImage?.url,
     ));
   }
   
-  // Create video steps (one for each image if we have matching counts, or based on dependencies)
+  // Create video steps (one for each image if we have matching counts)
   for (let i = 0; i < videoCount; i++) {
     const sourceImageIndex = Math.min(i, imageCount - 1);
     const sourceImageId = imageCount > 1 ? `image-${sourceImageIndex + 1}` : 'step-image';
     const stepId = videoCount > 1 ? `video-${i + 1}` : 'step-video';
-    const title = `Animate ${videoCount > 1 ? `video ${i + 1}` : 'to video'}`;
+    const title = `Animate video ${i + 1}`;
     
     // Only create video if we have a source image
     if (imageCount > 0 || hasUploadedImage) {
@@ -1037,11 +1140,42 @@ export function normalizePlannerOutput(
     return fallbackPlanFromMessages(messages, media);
   }
   
+  const hasUploadedImage = media.some((m) => m.type === 'image');
+  const firstImageUrl = media.find((m) => m.type === 'image')?.url;
+  
   // Process and validate each step
   let steps = (raw.steps as AssistantPlanStep[]).map((s, idx) => {
     const tool = (s.tool as AssistantToolKind) || 'image';
-    const originalPrompt = s.inputs?.prompt;
-    const cleanedPrompt = validateAndCleanPrompt(originalPrompt, tool);
+    let prompt = s.inputs?.prompt || '';
+    
+    // For video steps, ensure the prompt is motion-only
+    if (tool === 'video') {
+      // If we have analysis with a clean motion description, prefer it
+      if (analysis?.motionDescription) {
+        prompt = analysis.motionDescription;
+      } else {
+        // Clean the existing prompt
+        prompt = validateAndCleanPrompt(prompt, tool);
+      }
+    }
+    
+    // For image steps with modification instruction
+    if (tool === 'image' && analysis?.imageModificationInstruction) {
+      const stepIndex = (raw.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
+      const contentVariation = analysis.contentVariations[stepIndex];
+      if (contentVariation && !prompt.includes(contentVariation)) {
+        prompt = `${analysis.imageModificationInstruction}: "${contentVariation}"`;
+      }
+    }
+    
+    const inputs: Record<string, any> = { ...s.inputs, prompt };
+    
+    // Ensure uploaded image is referenced for modification tasks
+    if (tool === 'image' && hasUploadedImage && analysis?.uploadedMediaUsage === 'to-modify') {
+      if (!inputs.input_images && firstImageUrl) {
+        inputs.input_images = [firstImageUrl];
+      }
+    }
     
     return normalizeInputs({
       id: s.id || `step-${idx + 1}`,
@@ -1050,10 +1184,7 @@ export function normalizePlannerOutput(
       tool,
       model: coerceString(s.model) || TOOL_SPECS[tool]?.models[0]?.id || TOOL_SPECS.image.models[0].id,
       modelOptions: s.modelOptions,
-      inputs: {
-        ...s.inputs,
-        prompt: cleanedPrompt,
-      },
+      inputs,
       suggestedParams: s.suggestedParams || {},
       fields: s.fields,
       outputType: s.outputType,
@@ -1065,28 +1196,35 @@ export function normalizePlannerOutput(
   // If we have analysis, validate step counts and add missing steps
   if (analysis) {
     const counts = countStepsByTool(steps);
-    const lastUser = messages.slice().reverse().find((m) => m.role === 'user');
     
     // Check if we need more image steps
     if (counts.image < analysis.totalImageSteps) {
       const missing = analysis.totalImageSteps - counts.image;
-      const existingImageIds = steps.filter(s => s.tool === 'image').map(s => s.id);
+      const existingImageCount = steps.filter(s => s.tool === 'image').length;
       
       for (let i = 0; i < missing; i++) {
-        const idx = counts.image + i + 1;
-        const contentText = analysis.contentVariations[existingImageIds.length + i] || null;
+        const idx = existingImageCount + i + 1;
+        const contentText = analysis.contentVariations[existingImageCount + i] || null;
         const newId = `image-${idx}`;
+        
+        let prompt: string;
+        if (analysis.imageModificationInstruction && contentText) {
+          prompt = `${analysis.imageModificationInstruction}: "${contentText}"`;
+        } else if (contentText) {
+          prompt = `Create an image displaying: "${contentText}"`;
+        } else {
+          prompt = 'Professional quality image, clean composition, soft lighting.';
+        }
         
         steps.push(normalizeInputs({
           id: newId,
-          title: contentText ? `Create image ${idx}: "${contentText.slice(0, 30)}..."` : `Create image ${idx}`,
+          title: contentText ? `Image ${idx}: "${contentText.slice(0, 25)}..."` : `Create image ${idx}`,
           tool: 'image',
           model: 'openai/gpt-image-1.5',
           inputs: {
-            prompt: contentText 
-              ? `Professional image with text "${contentText}" displayed prominently, clean composition, soft lighting.`
-              : 'Professional quality image, clean composition, soft lighting.',
+            prompt,
             aspect_ratio: '1:1',
+            input_images: hasUploadedImage && firstImageUrl ? [firstImageUrl] : undefined,
           },
           outputType: 'image',
           dependencies: [],
@@ -1099,10 +1237,11 @@ export function normalizePlannerOutput(
     if (counts.video < analysis.totalVideoSteps) {
       const missing = analysis.totalVideoSteps - counts.video;
       const imageSteps = steps.filter(s => s.tool === 'image');
+      const existingVideoCount = steps.filter(s => s.tool === 'video').length;
       
       for (let i = 0; i < missing; i++) {
-        const idx = counts.video + i + 1;
-        const sourceImageIdx = Math.min(counts.video + i, imageSteps.length - 1);
+        const idx = existingVideoCount + i + 1;
+        const sourceImageIdx = Math.min(existingVideoCount + i, imageSteps.length - 1);
         const sourceImageId = imageSteps[sourceImageIdx]?.id || imageSteps[0]?.id;
         const newId = `video-${idx}`;
         
@@ -1112,7 +1251,7 @@ export function normalizePlannerOutput(
           tool: 'video',
           model: 'kwaivgi/kling-v2.1',
           inputs: {
-            prompt: analysis.sharedVideoMotion || 'Static camera, subject in frame, subtle natural motion, smooth and stable, 4 seconds.',
+            prompt: analysis.motionDescription || 'Static camera, subject in frame, subtle natural motion, smooth and stable, 4 seconds.',
             start_image: sourceImageId ? `{{steps.${sourceImageId}.url}}` : undefined,
             duration: 4,
             aspect_ratio: '1:1',
