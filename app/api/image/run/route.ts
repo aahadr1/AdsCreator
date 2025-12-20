@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
       input = {
         prompt: body.prompt,
         output_format: format === 'jpg' ? 'jpeg' : (format || 'webp'),
+        moderation: typeof (body as any).moderation === 'string' ? (body as any).moderation : 'low',
       };
       const maybeImages =
         Array.isArray((body as any).input_images) && (body as any).input_images.length > 0
@@ -151,8 +152,16 @@ export async function POST(req: NextRequest) {
         const compression = Math.min(100, Math.max(0, Math.floor((body as any).output_compression)));
         input.output_compression = compression;
       }
+      if (typeof (body as any).quality === 'string' && (body as any).quality.trim()) {
+        input.quality = (body as any).quality.trim();
+      }
+      if (typeof (body as any).background === 'string' && (body as any).background.trim()) {
+        input.background = (body as any).background.trim();
+      }
       if (typeof (body as any).moderation === 'string' && (body as any).moderation.trim()) {
         input.moderation = (body as any).moderation.trim();
+      } else if (!input.moderation) {
+        input.moderation = 'low';
       }
       if (typeof (body as any).user_id === 'string' && (body as any).user_id.trim()) {
         input.user_id = (body as any).user_id.trim();

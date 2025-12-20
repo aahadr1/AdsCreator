@@ -39,7 +39,15 @@ const VIDEO_DURATIONS_KLING = [4, 6, 8] as const;
 const MODEL_FIELDS: ModelFieldConfig[] = [
   {
     model: 'openai/gpt-image-1.5',
-    defaults: { number_of_images: 1, aspect_ratio: '1:1', output_format: 'webp', input_fidelity: 'medium' },
+    defaults: {
+      number_of_images: 1,
+      aspect_ratio: '1:1',
+      output_format: 'webp',
+      input_fidelity: 'medium',
+      quality: 'high',
+      background: 'auto',
+      moderation: 'low',
+    },
     fields: [
       { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
       { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: IMAGE_RATIOS_GPT15.map((r) => ({ value: r, label: r })), required: true },
@@ -47,6 +55,9 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
       { key: 'number_of_images', label: 'Outputs', type: 'number', min: 1, max: 10 },
       { key: 'input_fidelity', label: 'Input fidelity', type: 'select', options: ['low', 'medium', 'high'].map((v) => ({ value: v, label: v })) },
       { key: 'output_format', label: 'Format', type: 'select', options: ['webp', 'jpeg', 'png'].map((v) => ({ value: v, label: v.toUpperCase() })) },
+      { key: 'quality', label: 'Quality', type: 'select', options: ['auto', 'low', 'medium', 'high'].map((v) => ({ value: v, label: v })) },
+      { key: 'background', label: 'Background', type: 'select', options: ['auto', 'transparent', 'opaque'].map((v) => ({ value: v, label: v })) },
+      { key: 'moderation', label: 'Moderation', type: 'select', options: [{ value: 'auto', label: 'Standard' }, { value: 'low', label: 'Lenient' }], helper: 'Use lenient to reduce sensitivity flags' },
     ],
   },
   {
