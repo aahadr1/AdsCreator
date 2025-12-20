@@ -426,6 +426,22 @@ export async function POST(req: NextRequest) {
       });
       
       parsed = normalizePlannerOutput(planJson, messages, media, analysisResult);
+      
+      // Log final dependencies
+      if (parsed?.steps) {
+        console.log('\n[Plan] 📋 Final workflow dependencies:');
+        parsed.steps.forEach((step: any, idx: number) => {
+          const deps = step.dependencies?.length 
+            ? step.dependencies.map((d: string) => {
+                const depStep = parsed!.steps.find((s: any) => s.id === d);
+                return depStep ? `"${depStep.title}"` : d;
+              }).join(', ')
+            : 'none';
+          const startImage = step.inputs?.start_image || step.inputs?.image;
+          const imageInfo = startImage ? ` [start_image: ${startImage}]` : '';
+          console.log(`[Plan]   ${idx + 1}. "${step.title}" (${step.tool}) → depends on: ${deps}${imageInfo}`);
+        });
+      }
     } catch (err) {
       parsed = null;
       rawText = (err as Error)?.message || 'planner failed';

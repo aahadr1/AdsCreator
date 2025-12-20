@@ -426,9 +426,28 @@ PROMPT REQUIREMENTS:
 ❌ NEVER use: "Use the provided image", "high-quality", "professional", "fits brand tone"
 
 EXAMPLES:
+
+Example 1: Multiple variations
 User: "Create 3 product cards with Summer Sale 20% OFF, Winter Clearance, and New Arrivals"
 ✅ Step 1 prompt: "Product card with clean white background, large bold text 'SUMMER SALE 20% OFF' in red Helvetica 72pt centered top, product image below, blue CTA button at bottom"
 ✅ Step 2 prompt: "Product card with clean white background, large bold text 'WINTER CLEARANCE' in navy blue Helvetica 72pt centered top, product image below, orange CTA button at bottom"
+
+Example 2: Images + Videos (CRITICAL PATTERN)
+User: "Create 4 cards with different texts, then animate each one into a video"
+Plan:
+{
+  "steps": [
+    {"id": "img1", "tool": "image", "inputs": {"prompt": "Card with text 'Question 1'"}},
+    {"id": "img2", "tool": "image", "inputs": {"prompt": "Card with text 'Question 2'"}},
+    {"id": "img3", "tool": "image", "inputs": {"prompt": "Card with text 'Question 3'"}},
+    {"id": "img4", "tool": "image", "inputs": {"prompt": "Card with text 'Question 4'"}},
+    {"id": "vid1", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img1.url}}"}, "dependencies": ["img1"]},
+    {"id": "vid2", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img2.url}}"}, "dependencies": ["img2"]},
+    {"id": "vid3", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img3.url}}"}, "dependencies": ["img3"]},
+    {"id": "vid4", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card", "start_image": "{{steps.img4.url}}"}, "dependencies": ["img4"]}
+  ]
+}
+NOTE: Each video uses its corresponding image! Video 1→Image 1, Video 2→Image 2, etc.
 
 Return ONLY valid JSON. No markdown, no explanation.`;
 }
@@ -469,6 +488,7 @@ export function buildRequestAnalyzerPrompt(): string {
 - Describe motion like a director would, not as keywords.
 - Respect uploaded media usage (start frame, reference, or to modify).
 - Identify risks and open questions.
+- CRITICAL: Detect if user wants to animate EACH image individually (one-to-one mapping)
 
 OUTPUT (valid JSON only):
 {
@@ -494,7 +514,12 @@ OUTPUT (valid JSON only):
   "imageToVideoMapping": "one-to-one" | "one-to-many" | "none",
   "hasUploadedMedia": boolean,
   "uploadedMediaUsage": "as-start-frame" | "as-reference" | "to-modify" | "none"
-}`;
+}
+
+MAPPING DETECTION:
+- "one-to-one": User wants to animate EACH image separately (e.g., "create 4 images then animate each one")
+- "one-to-many": Multiple videos from same image (e.g., "create 1 image then 3 videos from it")
+- "none": No videos or no relationship`;
 }
 
 export function buildPlannerSystemPrompt(): string {
@@ -691,6 +716,73 @@ function normalizeInputs(step: AssistantPlanStep): AssistantPlanStep {
     outputType: step.outputType || spec?.outputType,
     validations: step.validations || spec?.validations || [],
   };
+}
+
+// Auto-correct dependencies for one-to-one image→video patterns
+function correctImageToVideoDependencies(plan: AssistantPlan): AssistantPlan {
+  const imageSteps = plan.steps.filter(s => s.tool === 'image' || s.outputType === 'image');
+  const videoSteps = plan.steps.filter(s => s.tool === 'video' || s.outputType === 'video');
+  
+  // Detect pattern: multiple images followed by multiple videos (equal count)
+  if (imageSteps.length > 1 && videoSteps.length === imageSteps.length) {
+    console.log(`[Dependencies] 🔗 Detected ${imageSteps.length} images → ${videoSteps.length} videos pattern`);
+    console.log('[Dependencies] Applying one-to-one mapping...');
+    
+    // Map each video to its corresponding image
+    const correctedSteps = plan.steps.map(step => {
+      if (step.tool === 'video') {
+        const videoIndex = videoSteps.indexOf(step);
+        if (videoIndex >= 0 && videoIndex < imageSteps.length) {
+          const correspondingImage = imageSteps[videoIndex];
+          
+          // Update dependencies
+          const newDependencies = [correspondingImage.id];
+          
+          // Update start_image input
+          const newInputs = {
+            ...step.inputs,
+            start_image: `{{steps.${correspondingImage.id}.url}}`,
+          };
+          
+          console.log(`[Dependencies] ✓ Video "${step.title}" → Image "${correspondingImage.title}"`);
+          
+          return {
+            ...step,
+            dependencies: newDependencies,
+            inputs: newInputs,
+          };
+        }
+      }
+      return step;
+    });
+    
+    return { ...plan, steps: correctedSteps };
+  }
+  
+  // Pattern: single image, multiple videos - all videos use the same image
+  if (imageSteps.length === 1 && videoSteps.length > 1) {
+    console.log(`[Dependencies] 🔗 Detected 1 image → ${videoSteps.length} videos pattern (shared source)`);
+    const sourceImage = imageSteps[0];
+    
+    const correctedSteps = plan.steps.map(step => {
+      if (step.tool === 'video') {
+        console.log(`[Dependencies] ✓ Video "${step.title}" → Image "${sourceImage.title}"`);
+        return {
+          ...step,
+          dependencies: [sourceImage.id],
+          inputs: {
+            ...step.inputs,
+            start_image: `{{steps.${sourceImage.id}.url}}`,
+          },
+        };
+      }
+      return step;
+    });
+    
+    return { ...plan, steps: correctedSteps };
+  }
+  
+  return plan;
 }
 
 function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): AssistantPlan {
@@ -1163,11 +1255,16 @@ export function normalizePlannerOutput(
     });
   });
 
-  return attachMediaToPlan(
-    {
-      summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
-      steps,
-    },
-    media,
-  );
+  let finalPlan: AssistantPlan = {
+    summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
+    steps,
+  };
+  
+  // Auto-correct image→video dependencies
+  finalPlan = correctImageToVideoDependencies(finalPlan);
+  
+  // Attach uploaded media
+  finalPlan = attachMediaToPlan(finalPlan, media);
+  
+  return finalPlan;
 }
