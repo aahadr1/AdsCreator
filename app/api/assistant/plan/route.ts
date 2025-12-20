@@ -9,8 +9,8 @@ import {
 } from '@/lib/assistantTools';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia } from '@/types/assistant';
 
-const SONNET_3_5_MODEL = 'anthropic/claude-3.5-sonnet';
-const DEFAULT_PLANNER_MODEL = process.env.REPLICATE_PLANNER_MODEL || SONNET_3_5_MODEL;
+const SONNET_4_5_MODEL = 'anthropic/claude-4.5-sonnet';
+const DEFAULT_PLANNER_MODEL = process.env.REPLICATE_PLANNER_MODEL || SONNET_4_5_MODEL;
 
 async function recordPlanTask(origin: string, userId: string, plan: AssistantPlan, messages: AssistantPlanMessage[]) {
   try {
@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
     try {
       const replicate = new Replicate({ auth: token });
 
-      // SINGLE-PHASE APPROACH: Send user prompt directly to Sonnet 3.5 with comprehensive system prompt
+      // SINGLE-PHASE APPROACH: Send user prompt directly to Sonnet 4.5 with comprehensive system prompt
       // The system prompt contains all context, tools, models, use cases, and examples
       const plannerSystem = buildUnifiedPlannerSystemPrompt();
       
@@ -294,7 +294,7 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
       const estimatedSteps = Math.max(2, Math.ceil((messages[messages.length - 1]?.content?.length || 0) / 200));
       const maxTokens = Math.min(12000, Math.max(4000, estimatedSteps * 500));
 
-      console.log(`[Plan] Running Sonnet 3.5 planner (estimated ${estimatedSteps} steps, max ${maxTokens} tokens)`);
+      console.log(`[Plan] Running Sonnet 4.5 planner (estimated ${estimatedSteps} steps, max ${maxTokens} tokens)`);
       console.log(`[Plan] System prompt length: ${plannerSystem.length} chars`);
       console.log(`[Plan] User prompt length: ${plannerUser.length} chars`);
 
