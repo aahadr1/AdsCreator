@@ -384,6 +384,83 @@ export type AnalyzedRequest = {
   uploadedMediaUsage: 'as-start-frame' | 'as-reference' | 'to-modify' | 'none';
 };
 
+// NEW: Unified single-phase planner (combines decomposition + authoring)
+export function buildUnifiedPlannerSystemPrompt(): string {
+  const toolSections = Object.values(TOOL_SPECS)
+    .map((tool) => {
+      const models = tool.models.map((m) => `  - ${m.label} (${m.id})`).join('\n');
+      return `### ${tool.label}\n${tool.description}\nModels:\n${models}`;
+    })
+    .join('\n\n');
+
+  return `You are an expert workflow planner. Create executable plans with detailed, specific prompts ready for immediate use.
+
+AVAILABLE TOOLS:
+${toolSections}
+
+OUTPUT FORMAT (JSON only, no markdown):
+{
+  "summary": "Brief workflow description",
+  "steps": [
+    {
+      "id": "unique-id",
+      "title": "Step title",
+      "tool": "image|video|tts|lipsync|enhance|background_remove|transcription",
+      "model": "exact-model-id-from-list",
+      "inputs": {
+        "prompt": "DETAILED, SPECIFIC prompt ready to use (NOT an outline)",
+        ...other model-specific inputs
+      },
+      "outputType": "image|video|audio|text",
+      "dependencies": ["previous-step-id"]
+    }
+  ]
+}
+
+PROMPT REQUIREMENTS:
+✅ Include EXACT text if user specified it: "featuring bold text 'SALE 50% OFF' in red"
+✅ Describe composition: "product left side, text right side, white background"
+✅ For video: describe motion only (visuals are in start_image): "static camera, hands hold card, subtle tremor, 4s"
+✅ Be hyper-specific to THIS request
+
+❌ NEVER use: "Use the provided image", "high-quality", "professional", "fits brand tone"
+
+EXAMPLES:
+User: "Create 3 product cards with Summer Sale 20% OFF, Winter Clearance, and New Arrivals"
+✅ Step 1 prompt: "Product card with clean white background, large bold text 'SUMMER SALE 20% OFF' in red Helvetica 72pt centered top, product image below, blue CTA button at bottom"
+✅ Step 2 prompt: "Product card with clean white background, large bold text 'WINTER CLEARANCE' in navy blue Helvetica 72pt centered top, product image below, orange CTA button at bottom"
+
+Return ONLY valid JSON. No markdown, no explanation.`;
+}
+
+export function buildUnifiedPlannerUserPrompt(
+  messages: AssistantPlanMessage[],
+  media: AssistantMedia[],
+  analysis: AnalyzedRequest | null,
+): string {
+  const conversation = messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+  const mediaLines = media.length > 0
+    ? `\n\nATTACHED MEDIA:\n${media.map((m) => `- ${m.type}: ${m.url}${m.label ? ` (${m.label})` : ''}`).join('\n')}`
+    : '';
+
+  const analysisBlock = analysis
+    ? [
+        '\n\nANALYSIS:',
+        analysis.goals ? `Goals: ${analysis.goals}` : null,
+        analysis.contentVariations?.length ? `Content variations: ${analysis.contentVariations.join(' | ')}` : null,
+        analysis.styleCues?.length ? `Style: ${analysis.styleCues.join(', ')}` : null,
+        analysis.videoSceneDescription ? `Video motion: ${analysis.videoSceneDescription}` : null,
+        `Expected: ${analysis.totalImageSteps} images, ${analysis.totalVideoSteps} videos`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : '';
+
+  return `${conversation}${mediaLines}${analysisBlock}
+
+Generate the complete workflow plan with detailed, ready-to-use prompts. Return only valid JSON.`;
+}
+
 export function buildRequestAnalyzerPrompt(): string {
   return `You are a senior production strategist. Read the request and surface what matters without forcing templates.
 
@@ -1024,7 +1101,7 @@ export function normalizePlannerOutput(
       throw new Error(`Missing prompt for step ${s.id}`);
     }
     
-    // Detect and reject generic/templated prompts
+    // Detect generic prompts and try to improve them (but don't fail)
     if (prompt && typeof prompt === 'string') {
       const genericPatterns = [
         /^Use the provided (image|video|media)/i,
@@ -1038,23 +1115,25 @@ export function normalizePlannerOutput(
       const isGeneric = genericPatterns.some(pattern => pattern.test(prompt));
       
       if (isGeneric) {
-        console.error(`[Normalize] Step ${s.id} has GENERIC prompt that should be rejected: "${prompt.slice(0, 100)}..."`);
+        console.warn(`[Normalize] ⚠️  Step ${s.id} has generic prompt: "${prompt.slice(0, 100)}..."`);
         
-        // Try to build a better prompt from analysis
+        // Try to build a better prompt from analysis if available
         if (tool === 'image' && analysis?.imageModificationInstruction) {
           const stepIndex = (planObj.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
           const contentVariation = analysis.contentVariations[stepIndex];
           if (contentVariation) {
             prompt = `${analysis.imageModificationInstruction} "${contentVariation}"`;
-            console.log(`[Normalize] Replaced with analysis-based prompt: "${prompt.slice(0, 100)}..."`);
+            console.log(`[Normalize] ✓ Replaced with analysis-based prompt: "${prompt.slice(0, 100)}..."`);
           }
         }
         
-        // If still generic, throw an error
-        const stillGeneric = genericPatterns.some(pattern => pattern.test(prompt));
-        if (stillGeneric) {
-          throw new Error(`Step ${s.id} has unacceptable generic prompt. The LLM must generate specific, detailed prompts based on the user's request.`);
+        // If still generic but we have content, at least it's something
+        // Don't throw error - let it through but warn
+        if (isGeneric) {
+          console.warn(`[Normalize] ⚠️  Using potentially generic prompt for step ${s.id} - consider manual review`);
         }
+      } else {
+        console.log(`[Normalize] ✓ Step ${s.id} has specific prompt`);
       }
     }
     

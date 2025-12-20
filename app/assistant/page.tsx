@@ -498,6 +498,27 @@ export default function AssistantPage() {
                           </span>
                           <span className="chip subtle">{step.outputType || TOOL_SPECS[step.tool]?.outputType || 'output'}</span>
                         </div>
+                        {/* Show prompt preview in sidebar */}
+                        {(() => {
+                          const prompt = cfg.inputs?.prompt || step.inputs?.prompt;
+                          if (prompt && typeof prompt === 'string' && prompt.length > 0) {
+                            const preview = prompt.length > 100 ? prompt.slice(0, 100) + '...' : prompt;
+                            return (
+                              <div className="plan-step-sub muted" style={{ 
+                                fontSize: '11px', 
+                                marginTop: '6px', 
+                                padding: '6px 8px', 
+                                background: '#f5f5f5', 
+                                borderRadius: '3px',
+                                fontFamily: 'ui-monospace, monospace'
+                              }}>
+                                <Sparkles size={10} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+                                {preview}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     </div>
                     <div className="plan-step-actions">
@@ -554,11 +575,43 @@ export default function AssistantPage() {
               <div>
                 <p className="eyebrow">Configure Step</p>
                 <h3>{activeStep.title}</h3>
+                <p className="muted">{activeStep.tool} · {(stepConfigs[activeStep.id]?.model || activeStep.model)}</p>
               </div>
               <button className="ghost" type="button" onClick={() => setActiveStep(null)}>
                 Close
               </button>
             </div>
+            
+            {/* PROMPT PREVIEW - Show what will be sent to API */}
+            {(() => {
+              const cfg = stepConfigs[activeStep.id] || { model: activeStep.model, inputs: activeStep.inputs };
+              const currentPrompt = cfg.inputs?.prompt || activeStep.inputs?.prompt || '';
+              if (currentPrompt && typeof currentPrompt === 'string') {
+                return (
+                  <div className="form-control" style={{ background: '#f8f9fa', padding: '12px', borderRadius: '6px', marginBottom: '16px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <Sparkles size={14} style={{ color: '#4CAF50' }} />
+                      <strong>Prompt Preview</strong>
+                      <span className="chip subtle" style={{ marginLeft: 'auto' }}>Will be sent to {cfg.model}</span>
+                    </label>
+                    <div style={{ 
+                      background: 'white', 
+                      padding: '12px', 
+                      borderRadius: '4px', 
+                      border: '1px solid #e0e0e0',
+                      fontSize: '13px',
+                      lineHeight: '1.6',
+                      maxHeight: '150px',
+                      overflowY: 'auto',
+                      fontFamily: 'ui-monospace, monospace'
+                    }}>
+                      {currentPrompt}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div className="form-control">
               <label>Model</label>
               <select

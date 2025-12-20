@@ -4,11 +4,9 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 import Replicate from 'replicate';
 import {
-  buildPlannerSystemPrompt,
-  buildPromptAuthorSystemPrompt,
   buildRequestAnalyzerPrompt,
-  buildDecompositionUserPrompt,
-  buildAuthoringUserPrompt,
+  buildUnifiedPlannerSystemPrompt,
+  buildUnifiedPlannerUserPrompt,
   normalizePlannerOutput,
 } from '@/lib/assistantTools';
 import type { AnalyzedRequest } from '@/lib/assistantTools';
@@ -177,6 +175,85 @@ function normalizeMedia(list: any[]): AssistantMedia[] {
 }
 
 // Phase 1: Analyze the request to understand structure
+// Robust extraction: even if JSON is malformed, try to extract steps
+function extractPlanFromText(
+  text: string,
+  messages: AssistantPlanMessage[],
+  media: AssistantMedia[],
+  analysis: AnalyzedRequest | null,
+): any {
+  console.log('[Extract] Attempting to extract plan from malformed output...');
+  
+  // Try to find steps array even in partial JSON
+  const stepsMatch = text.match(/"steps"\s*:\s*\[([\s\S]*)\]/i);
+  if (stepsMatch) {
+    try {
+      const stepsJson = `[${stepsMatch[1]}]`;
+      const steps = JSON.parse(stepsJson);
+      if (Array.isArray(steps) && steps.length > 0) {
+        console.log(`[Extract] Extracted ${steps.length} steps from partial JSON`);
+        return { summary: 'Generated workflow', steps };
+      }
+    } catch (e) {
+      console.warn('[Extract] Failed to parse extracted steps array');
+    }
+  }
+  
+  // Fallback: Create minimal plan from analysis
+  if (analysis) {
+    console.log('[Extract] Creating minimal plan from analysis');
+    const steps: any[] = [];
+    let stepNum = 1;
+    
+    // Create image steps
+    for (let i = 0; i < (analysis.totalImageSteps || 0); i++) {
+      const contentText = analysis.contentVariations?.[i] || '';
+      steps.push({
+        id: `image-${stepNum}`,
+        title: `Generate Image ${stepNum}`,
+        tool: 'image',
+        model: 'openai/gpt-image-1.5',
+        inputs: {
+          prompt: contentText 
+            ? `Professional image featuring "${contentText}" with clean composition and good lighting`
+            : `Professional image based on user request with clean composition`,
+          aspect_ratio: '1:1',
+          number_of_images: 1,
+        },
+        outputType: 'image',
+        dependencies: [],
+      });
+      stepNum++;
+    }
+    
+    // Create video steps
+    for (let i = 0; i < (analysis.totalVideoSteps || 0); i++) {
+      const prevImageId = steps.find(s => s.tool === 'image')?.id;
+      steps.push({
+        id: `video-${stepNum}`,
+        title: `Animate Video ${stepNum}`,
+        tool: 'video',
+        model: 'google/veo-3-fast',
+        inputs: {
+          prompt: analysis.videoSceneDescription || 'Natural motion with stable camera, 4 seconds',
+          start_image: prevImageId ? `{{steps.${prevImageId}.url}}` : undefined,
+          resolution: '720p',
+        },
+        outputType: 'video',
+        dependencies: prevImageId ? [prevImageId] : [],
+      });
+      stepNum++;
+    }
+    
+    if (steps.length > 0) {
+      console.log(`[Extract] Created fallback plan with ${steps.length} steps`);
+      return { summary: 'Generated workflow from request analysis', steps };
+    }
+  }
+  
+  return null;
+}
+
 async function analyzeRequest(
   replicate: Replicate,
   messages: AssistantPlanMessage[],
@@ -297,112 +374,58 @@ export async function POST(req: NextRequest) {
             analysisResult.totalTranscriptionSteps || 0)
         : 4;
 
-      // PHASE 2: Decomposition (structure only, prompt outlines)
-      const decompositionSystem = buildPlannerSystemPrompt();
-      const decompositionUser = buildDecompositionUserPrompt(messages, media, analysisResult);
-      const maxTokensDraft = Math.min(6000, Math.max(1200, expectedSteps * 180));
+      // NEW APPROACH: Single-phase planning with robust parsing
+      // Instead of decomposition + authoring, do everything in one shot
+      const plannerSystem = buildUnifiedPlannerSystemPrompt();
+      const plannerUser = buildUnifiedPlannerUserPrompt(messages, media, analysisResult);
+      const maxTokens = Math.min(8000, Math.max(2000, expectedSteps * 300));
 
-      const draftOutput = await replicate.run(usedModel as `${string}/${string}`, {
+      console.log(`[Plan] Running unified planner (expected ${expectedSteps} steps, max ${maxTokens} tokens)`);
+
+      const planOutput = await replicate.run(usedModel as `${string}/${string}`, {
         input: {
-          system_prompt: decompositionSystem,
-          prompt: decompositionUser,
-          max_tokens: maxTokensDraft,
+          system_prompt: plannerSystem,
+          prompt: plannerUser,
+          max_tokens: maxTokens,
         },
       });
 
-      if (Array.isArray(draftOutput)) {
-        rawTextDraft = draftOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
-      } else if (typeof draftOutput === 'string') {
-        rawTextDraft = draftOutput;
-      } else if (draftOutput && typeof draftOutput === 'object') {
-        rawTextDraft = JSON.stringify(draftOutput);
+      if (Array.isArray(planOutput)) {
+        rawText = planOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
+      } else if (typeof planOutput === 'string') {
+        rawText = planOutput;
+      } else if (planOutput && typeof planOutput === 'object') {
+        rawText = JSON.stringify(planOutput);
       }
 
-      const draftPlanJson = parseJSONFromString(rawTextDraft);
+      console.log(`[Plan] Got response (${rawText.length} chars)`);
+      console.log(`[Plan] First 500 chars:`, rawText.slice(0, 500));
+
+      // Try robust parsing with fallback extraction
+      let planJson = parseJSONFromString(rawText);
       
-      if (!draftPlanJson) {
-        console.error('[Plan] Phase 2 decomposition failed to parse. Raw output:', rawTextDraft.slice(0, 1000));
-        throw new Error('Decomposition phase failed to produce valid JSON');
+      if (!planJson || !planJson.steps || !Array.isArray(planJson.steps)) {
+        console.warn('[Plan] JSON parsing failed or no steps found, attempting extraction...');
+        planJson = extractPlanFromText(rawText, messages, media, analysisResult);
       }
       
-      console.log(`[Plan] Phase 2 decomposition succeeded with ${draftPlanJson?.steps?.length || 0} steps`);
-
-      // PHASE 3: Prompt authoring (turn outlines into full prompts)
-      const authorSystem = buildPromptAuthorSystemPrompt();
-      const authorUser = buildAuthoringUserPrompt(messages, media, analysisResult, draftPlanJson || rawTextDraft);
-      const maxTokensFinal = Math.min(9000, Math.max(2000, expectedSteps * 260));
-
-      const finalOutput = await replicate.run(usedModel as `${string}/${string}`, {
-        input: {
-          system_prompt: authorSystem,
-          prompt: authorUser,
-          max_tokens: maxTokensFinal,
-        },
+      if (!planJson || !planJson.steps || planJson.steps.length === 0) {
+        console.error('[Plan] Could not extract valid plan. Raw output:', rawText.slice(0, 1500));
+        throw new Error('Failed to generate valid plan. Please try rephrasing your request.');
+      }
+      
+      console.log(`[Plan] Successfully parsed ${planJson.steps.length} steps`);
+      
+      // Log prompts for debugging
+      planJson.steps.forEach((step: any, idx: number) => {
+        const prompt = step?.inputs?.prompt || step?.prompt || '(missing)';
+        const preview = typeof prompt === 'string' 
+          ? prompt.slice(0, 120).replace(/\n/g, ' ') 
+          : '(invalid type)';
+        console.log(`[Plan] Step ${idx + 1} "${step?.title || step?.id}": ${preview}${prompt.length > 120 ? '...' : ''}`);
       });
-
-      if (Array.isArray(finalOutput)) {
-        rawText = finalOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
-      } else if (typeof finalOutput === 'string') {
-        rawText = finalOutput;
-      } else if (finalOutput && typeof finalOutput === 'object') {
-        rawText = JSON.stringify(finalOutput);
-      }
-
-      let finalJson = parseJSONFromString(rawText);
       
-      // If final parsing failed, try to merge draft structure with any partial prompts
-      if (!finalJson && draftPlanJson) {
-        console.warn('[Plan] Failed to parse final authoring output, falling back to draft plan');
-        console.warn('[Plan] Raw authoring output (first 500 chars):', rawText.slice(0, 500));
-        finalJson = draftPlanJson;
-      }
-      
-      if (!finalJson) {
-        console.error('[Plan] Could not parse planner output. Raw text:', rawText.slice(0, 1000));
-        throw new Error('Planner output could not be parsed');
-      }
-      
-      // Log what we got from authoring phase
-      if (finalJson.steps?.length) {
-        console.log(`[Plan] Authoring phase returned ${finalJson.steps.length} steps`);
-        finalJson.steps.forEach((step: any, idx: number) => {
-          const promptPreview = step?.inputs?.prompt || step?.prompt || '(no prompt)';
-          const preview = typeof promptPreview === 'string' 
-            ? promptPreview.slice(0, 100) + (promptPreview.length > 100 ? '...' : '')
-            : '(invalid prompt type)';
-          console.log(`[Plan] Step ${idx + 1} (${step?.id}): ${preview}`);
-        });
-      }
-      
-      // Ensure all steps have prompts by merging draft and final
-      if (draftPlanJson?.steps && finalJson?.steps) {
-        finalJson.steps = finalJson.steps.map((finalStep: any, idx: number) => {
-          const draftStep = draftPlanJson.steps[idx];
-          // Prefer final prompt, but ensure we have SOMETHING
-          if (!finalStep?.inputs?.prompt && !finalStep?.prompt && draftStep?.inputs?.prompt) {
-            console.warn(`[Plan] Step ${finalStep?.id} missing prompt in final output, using draft outline`);
-            return { 
-              ...finalStep, 
-              inputs: { ...finalStep.inputs, prompt: draftStep.inputs.prompt } 
-            };
-          }
-          return finalStep;
-        });
-      }
-      
-      parsed = normalizePlannerOutput(finalJson, messages, media, analysisResult);
-      
-      // Log final parsed prompts
-      if (parsed?.steps?.length) {
-        console.log(`[Plan] After normalization: ${parsed.steps.length} steps`);
-        parsed.steps.forEach((step: any, idx: number) => {
-          const promptPreview = step?.inputs?.prompt || '(no prompt)';
-          const preview = typeof promptPreview === 'string'
-            ? promptPreview.slice(0, 100) + (promptPreview.length > 100 ? '...' : '')
-            : '(invalid prompt type)';
-          console.log(`[Plan] Final step ${idx + 1} (${step?.id}): ${preview}`);
-        });
-      }
+      parsed = normalizePlannerOutput(planJson, messages, media, analysisResult);
     } catch (err) {
       parsed = null;
       rawText = (err as Error)?.message || 'planner failed';

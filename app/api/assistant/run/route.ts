@@ -608,12 +608,30 @@ export async function POST(req: NextRequest) {
         write({ type: 'step_start', stepId: step.id, title: step.title });
         try {
           const injected = resolvePlaceholders(enforceDefaults(step, { ...step.inputs }), outputs);
+          
+          // Generate prompt if missing
           if (!injected.prompt || (typeof injected.prompt === 'string' && injected.prompt.trim().length === 0)) {
+            console.log(`[Run] ⚠️  Step ${step.id} missing prompt, generating...`);
             injected.prompt = await buildSmartPrompt(step, body.plan_summary, outputs, body.user_messages);
           }
+          
+          // LOG EXACT PROMPT BEING SENT
+          console.log(`\n${'='.repeat(80)}`);
+          console.log(`[Run] 🎯 EXECUTING STEP: ${step.title} (${step.id})`);
+          console.log(`[Run] Tool: ${step.tool} | Model: ${step.model}`);
+          console.log(`[Run] PROMPT BEING SENT TO API:`);
+          console.log(`${'─'.repeat(80)}`);
+          console.log(injected.prompt);
+          console.log(`${'─'.repeat(80)}`);
+          console.log(`[Run] Full inputs:`, JSON.stringify(injected, null, 2).slice(0, 500));
+          console.log(`${'='.repeat(80)}\n`);
+          
           usedInputs[step.id] = injected;
           const result = await executeStep(origin, step, outputs, body!.user_id, injected);
           outputs[step.id] = { url: result.url || null, text: result.text || null };
+          
+          console.log(`[Run] ✓ Step ${step.id} completed: ${result.url || result.text || 'no output'}`);
+          
           write({ type: 'step_complete', stepId: step.id, outputUrl: result.url || null, outputText: result.text || null });
           await updateTask(origin, taskId, {
             status: 'running',
