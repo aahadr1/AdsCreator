@@ -735,7 +735,7 @@ export default function AssistantPage() {
                   dependencies={outputData.dependencies || []}
                   onConfigChange={updateStepConfig}
                   onRetry={handleRetryStep}
-                  defaultExpanded={true}
+                  defaultExpanded={false} // Collapsed by default for minimalist view
                 />
               );
             } else if (outputData.url || outputData.text) {
@@ -743,6 +743,7 @@ export default function AssistantPage() {
                 <OutputPreview
                   url={outputData.url}
                   text={outputData.text}
+                  compact={true} // Compact by default
                 />
               );
             }

@@ -192,6 +192,7 @@ export default function ConversationPage() {
                         <OutputPreview
                           url={task.step_output_url}
                           text={task.step_output_text}
+                          compact={true} // Compact by default
                         />
                       </div>
                     </div>

@@ -37,11 +37,12 @@ export default function StepWidget({
   defaultExpanded = false,
 }: StepWidgetProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [expanded, setExpanded] = useState(defaultExpanded || state.status === 'running' || state.status === 'complete');
+  // Default to collapsed for minimalist view, only expand if explicitly requested
+  const [expanded, setExpanded] = useState(defaultExpanded);
   
-  // Auto-expand when status changes to running or complete
+  // Auto-expand only on error (user needs to see it)
   useEffect(() => {
-    if (state.status === 'running' || state.status === 'complete' || state.status === 'error') {
+    if (state.status === 'error') {
       setExpanded(true);
     }
   }, [state.status]);
@@ -105,57 +106,111 @@ export default function StepWidget({
     error: 'var(--status-critical)',
   };
 
+  // Compact thumbnail for output
+  const hasOutput = !!(state.outputUrl || state.outputText);
+  const isImage = state.outputUrl && /\.(png|jpg|jpeg|gif|webp)(\?|$)/i.test(state.outputUrl);
+  const isVideo = state.outputUrl && (/\.(mp4|webm|mov|avi)(\?|$)/i.test(state.outputUrl) || state.outputUrl.includes('video'));
+  const isAudio = state.outputUrl && (/\.(mp3|wav|ogg|m4a)(\?|$)/i.test(state.outputUrl) || state.outputUrl.includes('audio'));
+
   return (
-    <div className="widget-card step-widget">
-      <div className="step-widget-header">
+    <div className={`widget-card step-widget ${expanded ? 'expanded' : 'collapsed'}`}>
+      <div 
+        className="step-widget-header"
+        onClick={(e) => {
+          // Don't expand if clicking on action buttons
+          if ((e.target as HTMLElement).closest('button')) return;
+          setExpanded(!expanded);
+        }}
+        style={{ cursor: 'pointer' }}
+      >
         <div className="step-widget-main">
           <div className="step-widget-number">{stepIndex + 1}</div>
           <div className="step-widget-info">
-            <div className="step-widget-title">{step.title}</div>
+            <div className="step-widget-title-row">
+              <div className="step-widget-title">{step.title}</div>
+              <div 
+                className="step-widget-status"
+                style={{ color: statusColors[state.status] }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {state.status === 'complete' && <CheckCircle2 size={14} />}
+                {state.status === 'error' && <XCircle size={14} />}
+                {state.status === 'running' && <Loader2 size={14} className="spin" />}
+                <span className="step-widget-status-label">{state.status}</span>
+              </div>
+            </div>
             <div className="step-widget-meta">
               {step.tool} · {config.model || step.model}
             </div>
-            {dependencies.length > 0 && (
-              <div className="step-widget-deps">
-                Depends on: {dependencies.map(d => d.title).join(', ')}
+            {!expanded && hasOutput && (
+              <div className="step-widget-compact-output">
+                {isImage && (
+                  <img 
+                    src={state.outputUrl?.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(state.outputUrl)}` : state.outputUrl || ''}
+                    alt="Output"
+                    className="step-widget-thumbnail"
+                    onError={(e) => {
+                      if (e.currentTarget.src !== state.outputUrl) {
+                        e.currentTarget.src = state.outputUrl || '';
+                      }
+                    }}
+                  />
+                )}
+                {isVideo && (
+                  <div className="step-widget-thumbnail step-widget-thumbnail-video">
+                    <span>🎥</span>
+                  </div>
+                )}
+                {isAudio && (
+                  <div className="step-widget-thumbnail step-widget-thumbnail-audio">
+                    <span>🎵</span>
+                  </div>
+                )}
+                {state.outputText && !isImage && !isVideo && !isAudio && (
+                  <div className="step-widget-thumbnail step-widget-thumbnail-text">
+                    <span>📄</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
-        <div className="step-widget-actions">
-          <div 
-            className="step-widget-status"
-            style={{ color: statusColors[state.status] }}
-          >
-            {state.status === 'complete' && <CheckCircle2 size={14} />}
-            {state.status === 'error' && <XCircle size={14} />}
-            {state.status === 'running' && <Loader2 size={14} className="spin" />}
-            <span className="step-widget-status-label">{state.status}</span>
-          </div>
+        <div className="step-widget-actions" onClick={(e) => e.stopPropagation()}>
           {!isEditing && (
             <button
               className="step-widget-edit-button"
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 setIsEditing(true);
                 setExpanded(true);
               }}
+              title="Edit parameters"
             >
               <Settings2 size={14} />
-              Edit
             </button>
           )}
           {state.status === 'error' && onRetry && (
             <button
               className="step-widget-retry-button"
-              onClick={() => onRetry(step.id)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRetry(step.id);
+              }}
+              title="Retry"
             >
               <RefreshCw size={14} />
-              Retry
             </button>
           )}
           <button
             className="step-widget-expand-button"
-            onClick={() => setExpanded(!expanded)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded(!expanded);
+            }}
+            title={expanded ? 'Collapse' : 'Expand'}
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
@@ -273,6 +328,7 @@ export default function StepWidget({
                     text={state.outputText}
                     stepId={step.id}
                     stepTitle={step.title}
+                    compact={false} // Full size when expanded
                   />
                 </div>
               )}
