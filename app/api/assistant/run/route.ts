@@ -161,6 +161,73 @@ function referenceUrls(inputs: Record<string, any>): string[] {
   return Array.from(urls).slice(0, 3);
 }
 
+// Tool-specific prompt generation rules
+const TOOL_PROMPT_RULES = {
+  image: {
+    include: ['visual description', 'style', 'composition', 'lighting', 'colors', 'text to display', 'materials', 'background'],
+    exclude: ['motion', 'animation', 'camera movement', 'dolly', 'pan', 'zoom', 'video', 'animate'],
+    systemHint: 'Generate a prompt for IMAGE GENERATION. Describe ONLY visual elements: subject, style, composition, lighting, colors, text to render. NEVER include motion, animation, or camera movement concepts.',
+  },
+  video: {
+    include: ['motion', 'camera movement', 'pacing', 'timing', 'movement speed', 'stability'],
+    exclude: ['create', 'generate', 'design', 'style', 'colors', 'composition', 'text'],
+    systemHint: 'Generate a prompt for VIDEO ANIMATION. The start_image already contains all visuals. Describe ONLY motion: camera movement, subject motion, pacing, stability. NEVER describe what to create visually.',
+  },
+  tts: {
+    include: ['the actual text to speak'],
+    exclude: ['visual', 'image', 'video', 'motion'],
+    systemHint: 'Return ONLY the text that should be spoken. No descriptions, no formatting, just the speech content.',
+  },
+  lipsync: {
+    include: ['sync quality', 'timing'],
+    exclude: ['visual design', 'text'],
+    systemHint: 'This is a lipsync operation. The video and audio are already provided. Just describe any sync preferences.',
+  },
+  enhance: {
+    include: ['enhancement type', 'quality level'],
+    exclude: ['motion', 'animation'],
+    systemHint: 'Describe the enhancement to apply to the image.',
+  },
+  background_remove: {
+    include: ['subject to keep'],
+    exclude: ['motion', 'animation'],
+    systemHint: 'Describe which subject should be kept when removing the background.',
+  },
+  transcription: {
+    include: ['language'],
+    exclude: [],
+    systemHint: 'No prompt needed for transcription.',
+  },
+};
+
+// Clean prompt to remove inappropriate concepts for the tool type
+function cleanPromptForTool(prompt: string, tool: string): string {
+  const rules = TOOL_PROMPT_RULES[tool as keyof typeof TOOL_PROMPT_RULES];
+  if (!rules) return prompt;
+  
+  let cleaned = prompt;
+  
+  // For video prompts, aggressively remove visual design language
+  if (tool === 'video') {
+    // Remove phrases about creating/designing visuals
+    cleaned = cleaned.replace(/(?:create|generate|design|make|produce|render)\s+(?:a|an|the)?\s*(?:image|visual|picture|graphic|still|card|poster)/gi, '');
+    // Remove style descriptions
+    cleaned = cleaned.replace(/(?:in|with)\s+(?:a\s+)?(?:cinematic|professional|modern|clean|minimal|elegant)\s+style/gi, '');
+    // Remove color/material descriptions
+    cleaned = cleaned.replace(/(?:with|featuring)\s+(?:soft|warm|cool|bright|dark)\s+(?:lighting|colors?)/gi, '');
+    // Keep only motion-related content
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  }
+  
+  // For image prompts, remove motion language
+  if (tool === 'image') {
+    cleaned = cleaned.replace(/(?:animate|animation|motion|moving|dolly|pan|zoom|camera\s+movement)/gi, '');
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  }
+  
+  return cleaned || prompt;
+}
+
 async function buildSmartPrompt(
   step: AssistantPlanStep,
   planSummary: string | undefined,
@@ -172,52 +239,60 @@ async function buildSmartPrompt(
   const inputUrls = referenceUrls(step.inputs || {});
   if (depUrl) inputUrls.unshift(depUrl);
 
+  // Get tool-specific rules
+  const rules = TOOL_PROMPT_RULES[step.tool as keyof typeof TOOL_PROMPT_RULES] || TOOL_PROMPT_RULES.image;
+
+  // For TTS, just return the text input if available
+  if (step.tool === 'tts') {
+    if (step.inputs?.text && typeof step.inputs.text === 'string') {
+      return step.inputs.text;
+    }
+    return step.title || 'Generate natural speech.';
+  }
+
+  // For transcription, no prompt needed
+  if (step.tool === 'transcription') {
+    return '';
+  }
+
+  // Analyze media for context (only for image/video)
   let mediaInsights: string[] = [];
-  for (const url of inputUrls.slice(0, 2)) {
-    const desc = await analyzeImage(url);
-    if (desc) mediaInsights.push(`Analysis for ${url}: ${desc}`);
+  if (step.tool === 'image' || step.tool === 'video') {
+    for (const url of inputUrls.slice(0, 2)) {
+      const desc = await analyzeImage(url);
+      if (desc) mediaInsights.push(`Visual analysis: ${desc}`);
+    }
   }
-  if (!mediaInsights.length && inputUrls.length) {
-    mediaInsights = inputUrls.map((url) => `Reference: ${url}`);
-  }
 
-  const goal =
-    step.tool === 'video'
-      ? 'Generate a video from the provided key frame. Animate only; do not redesign the artwork.'
-      : step.tool === 'image'
-        ? 'Generate a single still image. Apply the requested edits without changing layout.'
-        : step.title || planSummary || 'Generate the requested output.';
+  // Build tool-specific system context
+  const systemContext = rules.systemHint;
 
-  const systemContext = [
-    'You write one concise prompt for the specified generation step.',
-    'Use the user request and media analysis to be precise.',
-    'If the task is to modify an image, treat provided URLs as the base; do not invent new compositions.',
-    'If the task is to animate, instruct motion but keep visuals consistent with the reference frame.',
-  ].join(' ');
-
+  // Build the prompt request for the LLM
   const promptContext = [
     systemContext,
-    planSummary ? `Plan summary: ${planSummary}` : null,
-    userRequest ? `User request: ${userRequest}` : null,
-    `Step: ${step.title || step.tool} (${step.tool} · ${step.model})`,
-    `Goal: ${goal}`,
-    mediaInsights.length ? `Media context:\n${mediaInsights.join('\n')}` : 'No media analysis available.',
-    'Return only the final prompt text, no JSON, no explanations.',
+    '',
+    `Tool type: ${step.tool.toUpperCase()}`,
+    `Step title: ${step.title || 'Generate output'}`,
+    planSummary ? `Workflow context: ${planSummary}` : null,
+    userRequest ? `Original user request: ${userRequest}` : null,
+    mediaInsights.length ? `\nMedia insights:\n${mediaInsights.join('\n')}` : null,
+    '',
+    step.tool === 'video' ? 'IMPORTANT: The start_image already contains all visual design. Your prompt should ONLY describe motion, camera movement, pacing, and timing. Do NOT describe what the image looks like or should look like.' : null,
+    step.tool === 'image' ? 'IMPORTANT: Describe the visual output. Include style, composition, lighting, and any text to display. Do NOT include motion or animation concepts.' : null,
+    '',
+    'Return ONLY the final prompt text. No JSON, no explanations, no meta-commentary.',
   ]
     .filter(Boolean)
-    .join('\n\n');
+    .join('\n');
 
   const llmDraft = await draftPromptWithLlm(promptContext);
-  if (llmDraft) return llmDraft;
+  if (llmDraft) {
+    // Clean the draft to ensure tool-appropriateness
+    return cleanPromptForTool(llmDraft, step.tool);
+  }
 
-  // Fallback deterministic prompt
-  return [
-    goal,
-    userRequest ? `User request: ${userRequest}` : null,
-    mediaInsights.length ? mediaInsights.join(' ') : null,
-  ]
-    .filter(Boolean)
-    .join(' ');
+  // Fallback: generate deterministic tool-specific prompt
+  return buildAutoPrompt(step, planSummary, outputs);
 }
 
 async function updateTask(origin: string, id: string | null, patch: Record<string, any>) {
@@ -426,23 +501,70 @@ function validateSteps(steps: AssistantPlanStep[]): string | null {
 }
 
 function buildAutoPrompt(step: AssistantPlanStep, planSummary: string | undefined, outputs: Record<string, StepResult>): string {
-  const prevUrl = step.dependencies?.slice().reverse().map((dep) => outputs[dep]?.url).find(Boolean) || null;
-  const context = planSummary ? `Context: ${planSummary.trim()}.` : '';
   const taskLabel = (step.title || step.description || '').trim();
+  
+  // VIDEO: Motion-only prompts - NEVER describe visuals
   if (step.tool === 'video') {
-    const intro = taskLabel || 'Animate the prepared key visual into video.';
-    const reference = prevUrl ? `Use the referenced frame (${prevUrl}) as the visual source.` : 'Use the referenced frame as the visual source.';
-    return [intro, reference, 'Focus on motion design only—do not redraw the artwork. Keep camera moves smooth and subjects stable.', context].filter(Boolean).join(' ');
+    // Extract motion hints from step title/description
+    const hasMotionHints = /(?:dolly|pan|zoom|static|stable|trembl|shak|move|motion|camera)/i.test(taskLabel);
+    
+    if (hasMotionHints) {
+      // Use the title as-is if it already describes motion
+      return `${taskLabel}. Maintain visual consistency with the start frame. Smooth motion, 4 seconds.`;
+    }
+    
+    // Default video prompt - pure motion description
+    return 'Static camera, subject remains in frame, subtle natural micro-movements for realism, smooth and stable footage, 4 second duration.';
   }
+  
+  // IMAGE: Visual-only prompts - NEVER describe motion
   if (step.tool === 'image') {
-    const intro = taskLabel || 'Create the hero still image.';
-    return [intro, 'Produce a single high fidelity still, respecting existing typography and layout. No animation instructions.', context].filter(Boolean).join(' ');
+    // Check if step has specific content to display
+    const textContent = step.inputs?.text_content || step.inputs?.display_text;
+    
+    if (textContent) {
+      return `Professional product photography, clean composition, soft studio lighting, featuring text "${textContent}" prominently displayed, high resolution still image.`;
+    }
+    
+    if (taskLabel) {
+      // Clean any motion language from the title
+      const cleanTitle = taskLabel.replace(/(?:animate|animation|motion|video)/gi, '').trim();
+      return `${cleanTitle}. Professional quality, clean composition, soft lighting, high resolution still.`;
+    }
+    
+    return 'Professional product photography, clean composition, soft studio lighting, high resolution still image.';
   }
+  
+  // TTS: Just the text to speak
   if (step.tool === 'tts') {
-    if (step.inputs?.text && typeof step.inputs.text === 'string') return step.inputs.text;
-    return [taskLabel || 'Generate a natural narration.', context].filter(Boolean).join(' ');
+    if (step.inputs?.text && typeof step.inputs.text === 'string') {
+      return step.inputs.text;
+    }
+    return taskLabel || 'Welcome to our presentation.';
   }
-  return [taskLabel || 'Generate the requested output.', context].filter(Boolean).join(' ');
+  
+  // LIPSYNC: Minimal prompt needed
+  if (step.tool === 'lipsync') {
+    return 'Natural lip synchronization with accurate timing.';
+  }
+  
+  // ENHANCE: Enhancement description
+  if (step.tool === 'enhance') {
+    return taskLabel || 'Enhance image quality and resolution.';
+  }
+  
+  // BACKGROUND_REMOVE: Subject preservation
+  if (step.tool === 'background_remove') {
+    return taskLabel || 'Remove background while preserving the main subject.';
+  }
+  
+  // TRANSCRIPTION: No prompt needed
+  if (step.tool === 'transcription') {
+    return '';
+  }
+  
+  // Fallback
+  return taskLabel || 'Generate the requested output.';
 }
 
 function buildAssistantOptions(summary: string | undefined, steps: AssistantPlanStep[], outputs: Record<string, StepResult>, inputs: Record<string, Record<string, any>>) {
