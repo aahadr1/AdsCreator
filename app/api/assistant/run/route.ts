@@ -420,10 +420,69 @@ async function runVideoStep(origin: string, step: AssistantPlanStep, inputs: Rec
 
 async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: Record<string, any>): Promise<StepResult> {
   const backend = (inputs.backend as string) || step.model || 'sievesync-1.1';
-  const videoUrl = inputs.video || inputs.video_url || inputs.start_video;
+  const videoUrl = inputs.video || inputs.video_url || inputs.start_video || inputs.image;
   const audioUrl = inputs.audio || inputs.audio_url || inputs.voice;
 
-  if (!videoUrl || !audioUrl) throw new Error('Missing video/audio URLs for lipsync');
+  if (!videoUrl || !audioUrl) throw new Error('Missing video/image and audio URLs for lipsync');
+
+  // Wan 2.2 S2V - uses Replicate API directly
+  if (backend.includes('wan-2.2-s2v') || backend.includes('wan-2.2-s2v') || step.model?.includes('wan-2.2-s2v')) {
+    console.log(`[RunLipsync] Using Wan 2.2 S2V for cinematic audio-driven video`);
+    console.log(`[RunLipsync] Image: ${videoUrl}, Audio: ${audioUrl}`);
+    
+    const wanInput: Record<string, any> = {
+      prompt: inputs.prompt || 'person speaking',
+      image: videoUrl,
+      audio: audioUrl,
+    };
+    
+    if (inputs.num_frames_per_chunk !== undefined) {
+      wanInput.num_frames_per_chunk = Number(inputs.num_frames_per_chunk) || 81;
+    }
+    if (inputs.seed !== undefined && inputs.seed !== null && inputs.seed !== '') {
+      wanInput.seed = Number(inputs.seed);
+    }
+    if (inputs.interpolate !== undefined) {
+      wanInput.interpolate = inputs.interpolate === true || inputs.interpolate === 'true';
+    }
+    
+    console.log(`[RunLipsync] Wan inputs:`, JSON.stringify(wanInput, null, 2));
+    
+    const res = await fetch(`${origin}/api/replicate/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'wan-video/wan-2.2-s2v',
+        input: wanInput,
+      }),
+    });
+    
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    const predictionId = json?.id;
+    if (!predictionId) throw new Error('Wan S2V missing prediction id');
+    
+    console.log(`[RunLipsync] Wan job created: ${predictionId}, polling status...`);
+    
+    for (let i = 0; i < 120; i++) { // 10 minutes max (120 * 5s)
+      await sleep(5000);
+      const statusRes = await fetch(`${origin}/api/replicate/status?id=${predictionId}`, { cache: 'no-store' });
+      if (!statusRes.ok) continue;
+      const statusJson = await statusRes.json();
+      if (statusJson.status === 'succeeded') {
+        const outputUrl = statusJson.outputUrl || (statusJson.output && typeof statusJson.output === 'string' ? statusJson.output : null);
+        console.log(`[RunLipsync] ✓ Wan S2V completed: ${outputUrl}`);
+        return { url: outputUrl || null };
+      }
+      if (statusJson.status === 'failed' || statusJson.status === 'canceled') {
+        throw new Error(statusJson.error || 'Wan S2V failed');
+      }
+      if (i % 6 === 0) { // Log every 30 seconds
+        console.log(`[RunLipsync] Wan S2V still processing... (${(i * 5) / 60} minutes elapsed)`);
+      }
+    }
+    throw new Error('Wan S2V timed out after 10 minutes');
+  }
 
   if (backend.includes('latentsync')) {
     const res = await fetch(`${origin}/api/latentsync/push`, {

@@ -278,19 +278,24 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
   lipsync: {
     id: 'lipsync',
     label: 'Lip Sync',
-    description: 'Match audio to mouth movements.',
+    description: 'Match audio to mouth movements or generate audio-driven cinematic video.',
     outputType: 'video',
     fields: [
-      { key: 'video', label: 'Video URL', type: 'url', required: true },
+      { key: 'video', label: 'Video/Image URL', type: 'url', required: true, helper: 'Can be an image (first frame) or video' },
       { key: 'audio', label: 'Audio URL', type: 'url', required: true },
       { key: 'backend', label: 'Backend', type: 'select', options: [
-        { value: 'sievesync-1.1', label: 'Sieve Sync 1.1' },
-        { value: 'latentsync', label: 'LatentSync' },
+        { value: 'sievesync-1.1', label: 'Sieve Sync 1.1 (fast lipsync)' },
+        { value: 'latentsync', label: 'LatentSync (high quality)' },
+        { value: 'wan-2.2-s2v', label: 'Wan 2.2 S2V (cinematic audio-driven video)' },
       ], required: true },
+      { key: 'prompt', label: 'Prompt (for Wan S2V)', type: 'textarea', required: false, helper: 'Describe video content (e.g., "woman speaking", "man singing") - only for Wan 2.2 S2V' },
+      { key: 'num_frames_per_chunk', label: 'Frames per chunk (Wan S2V)', type: 'number', required: false, helper: 'Default: 81' },
+      { key: 'interpolate', label: 'Interpolate to 25fps (Wan S2V)', type: 'text', required: false, helper: 'true/false' },
     ],
     models: [
       { id: 'sievesync-1.1', label: 'Sieve Sync 1.1' },
       { id: 'bytedance/latentsync', label: 'LatentSync' },
+      { id: 'wan-video/wan-2.2-s2v', label: 'Wan 2.2 S2V (Cinematic)' },
     ],
   },
   background_remove: {
@@ -448,6 +453,36 @@ Plan:
   ]
 }
 NOTE: Each video uses its corresponding image! Video 1→Image 1, Video 2→Image 2, etc.
+
+Example 3: Lipsync with Wan 2.2 S2V (Cinematic Audio-Driven Video)
+User: "Create an image of a person, generate voiceover, then make them speak it"
+Plan:
+{
+  "steps": [
+    {"id": "img1", "tool": "image", "inputs": {"prompt": "Professional portrait of a business person, front-facing, clear face"}},
+    {"id": "tts1", "tool": "tts", "inputs": {"text": "Welcome to our company. We offer the best solutions."}},
+    {
+      "id": "lipsync1", 
+      "tool": "lipsync", 
+      "model": "wan-video/wan-2.2-s2v",
+      "inputs": {
+        "video": "{{steps.img1.url}}",
+        "audio": "{{steps.tts1.url}}",
+        "backend": "wan-2.2-s2v",
+        "prompt": "person speaking professionally"
+      },
+      "dependencies": ["img1", "tts1"]
+    }
+  ]
+}
+
+LIPSYNC MODEL SELECTION GUIDE:
+- Use "sievesync-1.1" for: Fast lipsync on existing videos
+- Use "latentsync" for: High-quality lipsync on existing videos  
+- Use "wan-2.2-s2v" for: Creating cinematic talking videos from images + audio (like "Infinite Talk")
+  → Best when user wants to animate a static image to speak
+  → Requires "prompt" field describing the video (e.g., "woman speaking", "man presenting")
+  → Accepts images (first frame) OR videos as input
 
 Return ONLY valid JSON. No markdown, no explanation.`;
 }
