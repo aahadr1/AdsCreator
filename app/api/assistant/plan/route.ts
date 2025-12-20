@@ -3,7 +3,15 @@ export const maxDuration = 300;
 
 import { NextRequest } from 'next/server';
 import Replicate from 'replicate';
-import { buildPlannerSystemPrompt, buildRequestAnalyzerPrompt, normalizePlannerOutput, fallbackPlanFromMessages } from '@/lib/assistantTools';
+import {
+  buildPlannerSystemPrompt,
+  buildPromptAuthorSystemPrompt,
+  buildRequestAnalyzerPrompt,
+  buildDecompositionUserPrompt,
+  buildAuthoringUserPrompt,
+  normalizePlannerOutput,
+  fallbackPlanFromMessages,
+} from '@/lib/assistantTools';
 import type { AnalyzedRequest } from '@/lib/assistantTools';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia } from '@/types/assistant';
 
@@ -122,7 +130,7 @@ async function analyzeRequest(
           .trim();
         // If it became too short, use a sensible default
         if (sceneDesc.length < 30) {
-          sceneDesc = 'A person holds the card in their hands, showing it to the camera. Hands steady with subtle natural trembling. Static camera, 4 seconds.';
+          sceneDesc = 'Follow the described scene with stable framing and natural motion (around 4 seconds).';
         }
       }
 
@@ -135,6 +143,15 @@ async function analyzeRequest(
         totalEnhanceSteps: parsed.totalEnhanceSteps || 0,
         totalBackgroundRemoveSteps: parsed.totalBackgroundRemoveSteps || 0,
         contentVariations: Array.isArray(parsed.contentVariations) ? parsed.contentVariations : [],
+        goals: parsed.goals,
+        intents: Array.isArray(parsed.intents) ? parsed.intents : [],
+        styleCues: Array.isArray(parsed.styleCues) ? parsed.styleCues : [],
+        motionCues: Array.isArray(parsed.motionCues) ? parsed.motionCues : [],
+        tone: parsed.tone,
+        risks: Array.isArray(parsed.risks) ? parsed.risks : [],
+        openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions : [],
+        requiredAssets: Array.isArray(parsed.requiredAssets) ? parsed.requiredAssets : [],
+        missingInfo: Array.isArray(parsed.missingInfo) ? parsed.missingInfo : [],
         imageModificationInstruction: parsed.imageModificationInstruction || undefined,
         videoSceneDescription: sceneDesc,
         imageToVideoMapping: parsed.imageToVideoMapping || 'none',
@@ -146,56 +163,6 @@ async function analyzeRequest(
     console.error('Request analysis failed:', err);
   }
   return null;
-}
-
-// Build enhanced user prompt with analysis context
-function buildEnhancedUserPrompt(
-  messages: AssistantPlanMessage[],
-  media: AssistantMedia[],
-  analysis: AnalyzedRequest | null,
-): string {
-  const mediaLines = media.map((m) => `- ${m.type}: ${m.url}${m.label ? ` (${m.label})` : ''}`).join('\n');
-  
-  const analysisContext = analysis ? `
-## PRE-ANALYSIS RESULTS (USE THESE TO BUILD PROMPTS)
-
-### STEP COUNTS (create exactly this many)
-- IMAGE steps: ${analysis.totalImageSteps}
-- VIDEO steps: ${analysis.totalVideoSteps}
-- TTS steps: ${analysis.totalTtsSteps}
-- LIPSYNC steps: ${analysis.totalLipsyncSteps}
-- ENHANCE steps: ${analysis.totalEnhanceSteps}
-- BACKGROUND_REMOVE steps: ${analysis.totalBackgroundRemoveSteps}
-
-### IMAGE PROMPT CONSTRUCTION
-${analysis.imageModificationInstruction ? `Base instruction: "${analysis.imageModificationInstruction}"` : 'No modification instruction - create new images'}
-${analysis.contentVariations.length > 0 ? `Content variations (one per image step):${analysis.contentVariations.map((c, i) => `\n  Image ${i + 1}: "${c}"`).join('')}` : 'No content variations'}
-${analysis.hasUploadedMedia && analysis.uploadedMediaUsage === 'to-modify' ? '\n**IMPORTANT: ALL image steps must use the SAME original uploaded image as input_images. Do NOT chain image outputs!**' : ''}
-
-**FOR EACH IMAGE STEP, prompt format:**
-"${analysis.imageModificationInstruction || 'Modify this image to change the text to'}: '[content variation]'"
-
-### VIDEO SCENE PROMPT (USE THIS FOR ALL VIDEOS)
-${analysis.videoSceneDescription ? `"${analysis.videoSceneDescription}"` : '"A person holds the card in their hands, showing it to the camera. Hands steady with subtle natural trembling. Static camera, 4 seconds."'}
-
-**CRITICAL: ALL video steps use the SAME scene prompt above. Only start_image differs (each video uses its corresponding image output).**
-**NEVER copy the user's original message into video prompts!**
-
-### RELATIONSHIPS
-- Image-to-video mapping: ${analysis.imageToVideoMapping}
-- User uploaded media: ${analysis.hasUploadedMedia ? 'YES' : 'NO'}
-- Upload usage: ${analysis.uploadedMediaUsage}
-` : '';
-
-  return [
-    '## USER CONVERSATION (most recent last)',
-    ...messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`),
-    '',
-    mediaLines ? `## ATTACHED MEDIA\n${mediaLines}` : '## NO MEDIA ATTACHED',
-    analysisContext,
-    '',
-    'Generate the JSON plan now. Use the exact prompts specified above.',
-  ].join('\n');
 }
 
 export async function POST(req: NextRequest) {
@@ -218,6 +185,7 @@ export async function POST(req: NextRequest) {
   let usedModel = DEFAULT_PLANNER_MODEL;
   let parsed: AssistantPlan | null = null;
   let rawText = '';
+  let rawTextDraft = '';
   let analysisResult: AnalyzedRequest | null = null;
 
   const token = process.env.REPLICATE_API_TOKEN;
@@ -228,42 +196,71 @@ export async function POST(req: NextRequest) {
       // PHASE 1: Analyze the request to understand structure
       analysisResult = await analyzeRequest(replicate, messages, media);
 
-      // PHASE 2: Generate the plan with analysis context
-      const systemPrompt = buildPlannerSystemPrompt();
-      const userPrompt = buildEnhancedUserPrompt(messages, media, analysisResult);
+      // Estimate steps for token budgeting
+      const expectedSteps = analysisResult
+        ? (analysisResult.totalImageSteps +
+            analysisResult.totalVideoSteps +
+            analysisResult.totalTtsSteps +
+            analysisResult.totalLipsyncSteps +
+            analysisResult.totalEnhanceSteps +
+            analysisResult.totalBackgroundRemoveSteps +
+            analysisResult.totalTranscriptionSteps || 0)
+        : 4;
 
-      // Calculate max tokens based on expected step count
-      const expectedSteps = analysisResult 
-        ? (analysisResult.totalImageSteps + analysisResult.totalVideoSteps + 
-           analysisResult.totalTtsSteps + analysisResult.totalLipsyncSteps +
-           analysisResult.totalEnhanceSteps + analysisResult.totalBackgroundRemoveSteps +
-           analysisResult.totalTranscriptionSteps)
-        : 2;
-      // ~200 tokens per step, minimum 1500, max 8000
-      const maxTokens = Math.min(8000, Math.max(1500, expectedSteps * 250));
+      // PHASE 2: Decomposition (structure only, prompt outlines)
+      const decompositionSystem = buildPlannerSystemPrompt();
+      const decompositionUser = buildDecompositionUserPrompt(messages, media, analysisResult);
+      const maxTokensDraft = Math.min(6000, Math.max(1200, expectedSteps * 180));
 
-      const output = await replicate.run(usedModel as `${string}/${string}`, {
+      const draftOutput = await replicate.run(usedModel as `${string}/${string}`, {
         input: {
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
+            { role: 'system', content: decompositionSystem },
+            { role: 'user', content: decompositionUser },
           ],
-          max_tokens: maxTokens,
+          max_tokens: maxTokensDraft,
           temperature: 0.2,
           top_p: 0.9,
         },
       });
 
-      if (Array.isArray(output)) {
-        rawText = output.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
-      } else if (typeof output === 'string') {
-        rawText = output;
-      } else if (output && typeof output === 'object') {
-        rawText = JSON.stringify(output);
+      if (Array.isArray(draftOutput)) {
+        rawTextDraft = draftOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
+      } else if (typeof draftOutput === 'string') {
+        rawTextDraft = draftOutput;
+      } else if (draftOutput && typeof draftOutput === 'object') {
+        rawTextDraft = JSON.stringify(draftOutput);
       }
-      
-      const rawJson = parseJSONFromString(rawText);
-      parsed = normalizePlannerOutput(rawJson, messages, media, analysisResult);
+
+      const draftPlanJson = parseJSONFromString(rawTextDraft);
+
+      // PHASE 3: Prompt authoring (turn outlines into full prompts)
+      const authorSystem = buildPromptAuthorSystemPrompt();
+      const authorUser = buildAuthoringUserPrompt(messages, media, analysisResult, draftPlanJson || rawTextDraft);
+      const maxTokensFinal = Math.min(9000, Math.max(2000, expectedSteps * 260));
+
+      const finalOutput = await replicate.run(usedModel as `${string}/${string}`, {
+        input: {
+          messages: [
+            { role: 'system', content: authorSystem },
+            { role: 'user', content: authorUser },
+          ],
+          max_tokens: maxTokensFinal,
+          temperature: 0.35,
+          top_p: 0.9,
+        },
+      });
+
+      if (Array.isArray(finalOutput)) {
+        rawText = finalOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
+      } else if (typeof finalOutput === 'string') {
+        rawText = finalOutput;
+      } else if (finalOutput && typeof finalOutput === 'object') {
+        rawText = JSON.stringify(finalOutput);
+      }
+
+      const finalJson = parseJSONFromString(rawText) || draftPlanJson;
+      parsed = normalizePlannerOutput(finalJson, messages, media, analysisResult);
     } catch (err) {
       parsed = null;
       rawText = (err as Error)?.message || 'planner failed';
@@ -279,6 +276,8 @@ export async function POST(req: NextRequest) {
     plan,
     usedModel,
     analysis: analysisResult,
-    debug: process.env.NODE_ENV !== 'production' ? { rawText: rawText.slice(0, 4000) } : undefined,
+    debug: process.env.NODE_ENV !== 'production'
+      ? { rawText: rawText.slice(0, 4000), rawTextDraft: rawTextDraft.slice(0, 4000) }
+      : undefined,
   });
 }
