@@ -421,204 +421,391 @@ export type AnalyzedRequest = {
   uploadedMediaUsage: 'as-start-frame' | 'as-reference' | 'to-modify' | 'none';
 };
 
-// NEW: Unified single-phase planner (combines decomposition + authoring)
+// Comprehensive system prompt for Sonnet 4.5 - includes all tools, models, use cases, and technical details
 export function buildUnifiedPlannerSystemPrompt(): string {
-  const toolSections = Object.values(TOOL_SPECS)
-    .map((tool) => {
-      const models = tool.models.map((m) => `  - ${m.label} (${m.id})`).join('\n');
-      return `### ${tool.label}\n${tool.description}\nModels:\n${models}`;
-    })
-    .join('\n\n');
+  // Build detailed tool sections with all models, use cases, and technical details
+  const buildToolSection = (tool: ToolSpec): string => {
+    const modelDetails = tool.models.map((model) => {
+      const modelConfig = MODEL_FIELDS.find((m) => m.model === model.id);
+      const fields = modelConfig?.fields || [];
+      const defaults = modelConfig?.defaults || model.defaultInputs || {};
+      
+      // Build field descriptions
+      const fieldDescriptions = fields.map((f) => {
+        let desc = `    - ${f.key} (${f.type}${f.required ? ', required' : ', optional'})`;
+        if (f.helper) desc += `: ${f.helper}`;
+        if (f.options) desc += ` - Options: ${f.options.map((o) => o.value).join(', ')}`;
+        if (f.min !== undefined) desc += ` - Min: ${f.min}`;
+        if (f.max !== undefined) desc += ` - Max: ${f.max}`;
+        return desc;
+      }).join('\n');
+      
+      // Build use case examples
+      let useCases = '';
+      if (tool.id === 'image') {
+        if (model.id === 'openai/gpt-image-1.5') {
+          useCases = '      Use cases: Product cards with text, marketing visuals, social media posts, high-quality brand imagery. Best for: Typography fidelity, reference image support (up to 10), aspect ratios 1:1, 3:2, 2:3.';
+        } else if (model.id.includes('flux-kontext')) {
+          useCases = '      Use cases: Wide format images, banners, landscape visuals, cinematic compositions. Best for: 16:9, 21:9, wide aspect ratios, contextual understanding.';
+        } else if (model.id.includes('flux-krea')) {
+          useCases = '      Use cases: Square social media posts, Instagram content, balanced compositions. Best for: 1:1 aspect ratio, multiple outputs (1-4), webp format.';
+        } else if (model.id.includes('nano-banana')) {
+          useCases = '      Use cases: Fast image generation, quick iterations, lightweight outputs. Best for: Speed over quality, simple prompts, jpg format.';
+        }
+      } else if (tool.id === 'video') {
+        if (model.id.includes('veo-3.1')) {
+          useCases = model.id.includes('fast') 
+            ? '      Use cases: Balanced quality and speed, social media videos, quick iterations. Best for: 720p/1080p, prompt following, start image support.'
+            : '      Use cases: Premium video quality, cinematic content, high-fidelity motion. Best for: 1080p, longer durations, complex scenes.';
+        } else if (model.id.includes('sora-2')) {
+          useCases = model.id.includes('pro')
+            ? '      Use cases: Extended duration videos, fine-grained control, complex scenes. Best for: 1080p, professional content, consistency.'
+            : '      Use cases: Cinematic shots, audio-synced content, precise lighting. Best for: 720p/1080p, lighting control, audio sync.';
+        } else if (model.id.includes('kling')) {
+          useCases = '      Use cases: Short-form videos, social media clips, image-to-video animation. Best for: 4-8 second clips, start image required, aspect ratios 16:9, 9:16, 1:1.';
+        } else if (model.id.includes('wan-2.2-i2v')) {
+          useCases = '      Use cases: Image-to-video animation, quick video generation from stills. Best for: 2-8 second videos, start image required, fast processing.';
+        } else if (model.id.includes('seedance')) {
+          useCases = '      Use cases: Character motion, high-energy ads, short-form content. Best for: Character animation, dynamic motion, ad content.';
+        } else if (model.id.includes('animate-replace')) {
+          useCases = '      Use cases: Character replacement in videos, swapping actors/characters. Best for: Video + character image input, maintaining video motion.';
+        }
+      } else if (tool.id === 'tts') {
+        if (model.id.includes('minimax')) {
+          useCases = '      Use cases: Fast voiceover generation, quick audio creation, cost-effective TTS. Best for: Speed, general purpose, provider: "replicate".';
+        } else if (model.id.includes('elevenlabs')) {
+          useCases = '      Use cases: Premium voice quality, natural-sounding speech, professional narrations. Best for: High quality, premium voices, provider: "elevenlabs".';
+        } else if (model.id.includes('dia')) {
+          useCases = '      Use cases: Customizable voices, emotion control, pitch/speed adjustment. Best for: Customization, emotion control, provider: "dia".';
+        }
+      } else if (tool.id === 'lipsync') {
+        if (model.id.includes('sievesync')) {
+          useCases = '      Use cases: Fast lipsync on existing videos, quick turnaround. Best for: Speed, existing videos, backend: "sievesync-1.1".';
+        } else if (model.id.includes('latentsync')) {
+          useCases = '      Use cases: High-quality lipsync, professional results. Best for: Quality, existing videos, backend: "latentsync".';
+        } else if (model.id.includes('wan-2.2-s2v')) {
+          useCases = '      Use cases: Cinematic talking videos from images, audio-driven video generation. Best for: Images + audio, cinematic results, backend: "wan-2.2-s2v", requires prompt field.';
+        }
+      } else if (tool.id === 'enhance') {
+        useCases = '      Use cases: Image upscaling, face enhancement, quality improvement. Best for: Upscaling (2x/4x/6x), face enhancement, quality improvement.';
+      } else if (tool.id === 'background_remove') {
+        useCases = '      Use cases: Remove backgrounds from videos, isolate subjects. Best for: Video background removal, subject isolation.';
+      } else if (tool.id === 'transcription') {
+        useCases = '      Use cases: Convert speech to text, transcribe audio files. Best for: Audio transcription, language detection, text extraction.';
+      }
+      
+      return `    Model: ${model.label} (${model.id})
+      Default inputs: ${JSON.stringify(defaults)}
+${fieldDescriptions ? `      Fields:\n${fieldDescriptions}` : ''}
+${useCases}`;
+    }).join('\n\n');
+    
+    return `## ${tool.label} (tool: "${tool.id}")
+${tool.description}
+Output type: ${tool.outputType}
+${tool.validations && tool.validations.length > 0 ? `Validations: ${tool.validations.join('; ')}\n` : ''}
+Available models:
+${modelDetails}`;
+  };
 
-  return `You are an expert workflow planner. Create executable plans with detailed, specific prompts ready for immediate use.
+  const toolSections = Object.values(TOOL_SPECS).map(buildToolSection).join('\n\n');
 
-YOU HAVE ACCESS TO ALL THESE TOOLS AND MODELS - USE THEM FREELY:
+  return `You are the intelligent assistant of the Adz Creator app - a powerful creative workflow platform that enables users to generate images, videos, audio, and complete multimedia content through AI-powered tools.
+
+YOUR ROLE:
+- Understand user requests completely and break them down into actionable generation steps
+- Choose the best models for each task based on use cases, quality requirements, and technical constraints
+- Create detailed, production-ready prompts that are specific to the user's exact request
+- Intelligently handle media dependencies, aspect ratios, and workflow orchestration
+- Access and use ANY tool or model available in the platform when it makes sense
+
+YOU HAVE FULL TECHNICAL ACCESS TO ALL TOOLS AND MODELS:
+
 ${toolSections}
 
-IMPORTANT: You can use ANY of the models listed above. Choose the best model for each task:
-- For images: GPT Image 1.5 (best quality), Flux Kontext Max (wide format), Flux Krea Dev (square), Nano Banana (fast)
-- For videos: VEO 3.1 Fast (balanced), Sora 2 Pro (premium), Kling v2.5 (short clips), Wan i2v Fast (image-to-video), Seedance (character motion)
-- For TTS: Minimax (fast), ElevenLabs (premium voices), Dia (customizable)
-  → ALWAYS create TTS steps when user asks for: "audio files", "voiceover", "narration", "speaking", "text to speech", "generate voice", "woman/man speaking"
-  → If user provides multiple text contents and wants audio → create one TTS step per text content
-  → TTS text should be EXACTLY the content to speak (no extra descriptions)
-- For lipsync: Sieve Sync 1.1 (fast), LatentSync (quality), Wan 2.2 S2V (cinematic from images)
+MODEL SELECTION GUIDELINES:
+
+Image Generation:
+- openai/gpt-image-1.5: Best overall quality, typography fidelity, reference image support (up to 10), aspect ratios: 1:1, 3:2, 2:3. Use for: Product cards, marketing visuals, text-heavy images.
+- black-forest-labs/flux-kontext-max: Wide format specialist, contextual understanding. Use for: Banners, landscape visuals, wide compositions (16:9, 21:9, etc.).
+- black-forest-labs/flux-krea-dev: Square format optimized, multiple outputs (1-4). Use for: Instagram posts, square social media, balanced compositions.
+- google/nano-banana: Fast generation, lightweight. Use for: Quick iterations, simple images, speed priority.
+- google/nano-banana-pro: Enhanced Nano Banana with aspect ratio control. Use for: Fast generation with format control.
+
+Video Generation:
+- google/veo-3.1-fast: Balanced quality/speed, strong prompt following. Use for: Social media videos, quick iterations, 720p/1080p.
+- google/veo-3.1: Premium quality, cinematic depth. Use for: High-fidelity videos, professional content, 1080p.
+- google/veo-3-fast: Fast VEO 3 variant. Use for: Speed priority, 720p.
+- google/veo-3: Standard VEO 3 quality. Use for: General video generation, 720p/1080p.
+- openai/sora-2: Audio-synced, lighting control. Use for: Cinematic shots, audio sync, 720p/1080p.
+- openai/sora-2-pro: Extended duration, fine control. Use for: Professional content, complex scenes, 1080p.
+- kwaivgi/kling-v2.5-turbo-pro: Short clips, image-to-video. Use for: 4-6 second clips, social media, requires start_image.
+- kwaivgi/kling-v2.1: Image-to-video with modes. Use for: Photo-to-video, video2video, requires start_image, 4-8 seconds.
+- wan-video/wan-2.2-i2v-fast: Fast image-to-video. Use for: Quick animation from stills, 2-8 seconds, requires start_image.
+- wan-video/wan-2.2-animate-replace: Character replacement. Use for: Swapping characters in videos, requires video + character_image.
+- bytedance/seedance-1-pro: Character motion specialist. Use for: High-energy ads, character animation.
+- bytedance/seedance-1-lite: Fast character motion. Use for: Quick character animation, budget-friendly.
+
+Text-to-Speech (TTS):
+- minimax-speech-02-hd: Fast, cost-effective. Use for: Quick voiceovers, general purpose, provider: "replicate".
+- elevenlabs-tts: Premium quality voices. Use for: High-quality narrations, professional content, provider: "elevenlabs".
+- dia-tts: Customizable, emotion control. Use for: Custom voices, emotion/speed/pitch control, provider: "dia".
+
+Lip Sync:
+- sievesync-1.1: Fast lipsync. Use for: Quick lipsync on existing videos, backend: "sievesync-1.1".
+- bytedance/latentsync: High-quality lipsync. Use for: Professional lipsync, backend: "latentsync".
+- wan-video/wan-2.2-s2v: Cinematic audio-driven video. Use for: Creating talking videos from images + audio, backend: "wan-2.2-s2v", requires prompt field.
+
+Other Tools:
+- enhance (topazlabs/image-upscale): Image upscaling, face enhancement. Use for: Quality improvement, upscaling (2x/4x/6x).
+- background_remove: Remove backgrounds from videos. Use for: Video background removal.
+- transcription (openai/gpt-4o-transcribe): Speech to text. Use for: Audio transcription, language detection.
+
+MEDIA HANDLING:
+- Uploaded images can be used as: reference images (input_images), start frames (start_image/image), or for modification
+- Uploaded videos can be used as: source for lipsync, background removal, or character replacement
+- Uploaded audio can be used as: source for lipsync or transcription
+- Step outputs are referenced using: {{steps.STEP_ID.url}} for URLs, {{steps.STEP_ID.text}} for text
+- Dependencies: If step B uses output from step A, set dependencies: ["step_a_id"]
+
+ASPECT RATIO GUIDELINES:
+- Mobile/Portrait: 9:16 (Instagram Stories, TikTok, Reels), 2:3 (mobile cards)
+- Landscape: 16:9 (YouTube, widescreen), 21:9 (cinematic)
+- Square: 1:1 (Instagram posts, social media)
+- Auto-detect from user prompt keywords: "portrait", "vertical", "mobile" → 9:16 or 2:3; "landscape", "wide", "banner" → 16:9; "square" → 1:1
 
 OUTPUT FORMAT (JSON only, no markdown):
 {
   "summary": "Brief workflow description",
   "steps": [
     {
-      "id": "unique-id",
-      "title": "Step title",
+      "id": "unique-step-id",
+      "title": "Human-readable step title",
       "tool": "image|video|tts|lipsync|enhance|background_remove|transcription",
-      "model": "exact-model-id-from-list",
+      "model": "exact-model-id-from-list-above",
       "inputs": {
-        "prompt": "DETAILED, SPECIFIC prompt ready to use (NOT an outline)",
-        ...other model-specific inputs
+        "prompt": "DETAILED, SPECIFIC prompt ready to use - include exact text, composition, style, colors",
+        ...other model-specific inputs (see model details above)
       },
       "outputType": "image|video|audio|text",
-      "dependencies": ["previous-step-id"]
+      "dependencies": ["previous-step-id-if-any"]
     }
   ]
 }
 
-PROMPT REQUIREMENTS:
-✅ Include EXACT text if user specified it: "featuring bold text 'SALE 50% OFF' in red"
-✅ Describe composition: "product left side, text right side, white background"
-✅ For video: describe motion only (visuals are in start_image): "static camera, hands hold card, subtle tremor, 4s"
-✅ Be hyper-specific to THIS request
+PROMPT CREATION RULES:
+✅ DO include:
+- Exact text content if user specified: "featuring bold text 'SALE 50% OFF' in red Helvetica 72pt"
+- Composition details: "product left side, text right side, white background, blue CTA button centered bottom"
+- Style cues: "modern minimalist, soft shadows, clean typography"
+- For video: motion description only (visuals come from start_image): "static camera, hands hold card facing viewer, subtle natural hand tremor, 4 seconds"
+- For image modifications: "replace headline text with 'NEW TEXT' keeping same font and style"
+- Hyper-specific details: colors, fonts, layouts, lighting, camera angles
 
-❌ NEVER use: "Use the provided image", "high-quality", "professional", "fits brand tone"
+❌ NEVER use generic phrases:
+- "Use the provided image as the base"
+- "Create a high-quality visual"
+- "Professional image"
+- "fits the request and brand tone"
+- "integrate content cleanly"
+- "Generate a stunning"
 
-EXAMPLES:
+WORKFLOW EXAMPLES:
 
-Example 1: Multiple variations
+Example 1: Multiple Image Variations
 User: "Create 3 product cards with Summer Sale 20% OFF, Winter Clearance, and New Arrivals"
-✅ Step 1 prompt: "Product card with clean white background, large bold text 'SUMMER SALE 20% OFF' in red Helvetica 72pt centered top, product image below, blue CTA button at bottom"
-✅ Step 2 prompt: "Product card with clean white background, large bold text 'WINTER CLEARANCE' in navy blue Helvetica 72pt centered top, product image below, orange CTA button at bottom"
-
-Example 2: Images + Videos + TTS (COMPLETE WORKFLOW)
-User: "Create 2 cards with texts, animate each into video, and create 2 audio files of a woman speaking the card content"
-Plan:
 {
-  "steps": [
-    {"id": "img1", "tool": "image", "inputs": {"prompt": "Card with text 'Question 1'"}},
-    {"id": "img2", "tool": "image", "inputs": {"prompt": "Card with text 'Question 2'"}},
-    {"id": "vid1", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card still, facing camera, subtle hand tremor", "start_image": "{{steps.img1.url}}"}, "dependencies": ["img1"]},
-    {"id": "vid2", "tool": "video", "inputs": {"prompt": "Static camera, hands hold card still, facing camera, subtle hand tremor", "start_image": "{{steps.img2.url}}"}, "dependencies": ["img2"]},
-    {"id": "tts1", "tool": "tts", "model": "minimax-speech-02-hd", "inputs": {"text": "Question 1", "provider": "replicate"}, "dependencies": []},
-    {"id": "tts2", "tool": "tts", "model": "minimax-speech-02-hd", "inputs": {"text": "Question 2", "provider": "replicate"}, "dependencies": []}
-  ]
-}
-CRITICAL NOTES:
-- Each video uses its corresponding image! Video 1→Image 1, Video 2→Image 2
-- Each TTS uses its corresponding text content! TTS 1→Text 1, TTS 2→Text 2
-- TTS text should be EXACTLY the card content, nothing more
-- If user says "create X audio files" → you MUST create X TTS steps
-
-Example 3: Text-to-Speech (TTS) Generation
-User: "Generate a voiceover saying 'Welcome to our amazing product'"
-Plan:
-{
+  "summary": "Generate 3 product cards with different sale messages",
   "steps": [
     {
-      "id": "tts1",
-      "tool": "tts",
-      "model": "minimax-speech-02-hd",
+      "id": "img1",
+      "title": "Summer Sale Card",
+      "tool": "image",
+      "model": "openai/gpt-image-1.5",
       "inputs": {
-        "text": "Welcome to our amazing product",
-        "provider": "replicate"
-      }
+        "prompt": "Product card with clean white background, large bold text 'SUMMER SALE 20% OFF' in red Helvetica Bold 72pt centered top, product image below centered, blue CTA button at bottom with white text 'Shop Now'",
+        "aspect_ratio": "2:3",
+        "number_of_images": 1
+      },
+      "outputType": "image",
+      "dependencies": []
+    },
+    {
+      "id": "img2",
+      "title": "Winter Clearance Card",
+      "tool": "image",
+      "model": "openai/gpt-image-1.5",
+      "inputs": {
+        "prompt": "Product card with clean white background, large bold text 'WINTER CLEARANCE' in navy blue Helvetica Bold 72pt centered top, product image below centered, orange CTA button at bottom with white text 'Shop Now'",
+        "aspect_ratio": "2:3",
+        "number_of_images": 1
+      },
+      "outputType": "image",
+      "dependencies": []
+    },
+    {
+      "id": "img3",
+      "title": "New Arrivals Card",
+      "tool": "image",
+      "model": "openai/gpt-image-1.5",
+      "inputs": {
+        "prompt": "Product card with clean white background, large bold text 'NEW ARRIVALS' in black Helvetica Bold 72pt centered top, product image below centered, green CTA button at bottom with white text 'Shop Now'",
+        "aspect_ratio": "2:3",
+        "number_of_images": 1
+      },
+      "outputType": "image",
+      "dependencies": []
     }
   ]
 }
 
-User: "Create 2 audio files of a woman speaking the cards' content, one for each file"
-Plan:
+Example 2: Complete Workflow - Images + Videos + TTS
+User: "Create 2 cards with texts, animate each into video, and create 2 audio files of a woman speaking the card content"
 {
+  "summary": "Generate 2 cards, animate them, and create voiceovers",
   "steps": [
     {
+      "id": "img1",
+      "title": "Card 1 with Text",
+      "tool": "image",
+      "model": "openai/gpt-image-1.5",
+      "inputs": {
+        "prompt": "Product card with white background, large text 'Question 1' in black centered",
+        "aspect_ratio": "2:3",
+        "number_of_images": 1
+      },
+      "outputType": "image",
+      "dependencies": []
+    },
+    {
+      "id": "img2",
+      "title": "Card 2 with Text",
+      "tool": "image",
+      "model": "openai/gpt-image-1.5",
+      "inputs": {
+        "prompt": "Product card with white background, large text 'Question 2' in black centered",
+        "aspect_ratio": "2:3",
+        "number_of_images": 1
+      },
+      "outputType": "image",
+      "dependencies": []
+    },
+    {
+      "id": "vid1",
+      "title": "Animate Card 1",
+      "tool": "video",
+      "model": "kwaivgi/kling-v2.1",
+      "inputs": {
+        "prompt": "Static camera, hands hold card still facing viewer, subtle natural hand tremor, card remains centered, 4 seconds",
+        "start_image": "{{steps.img1.url}}",
+        "aspect_ratio": "2:3",
+        "duration": 4,
+        "mode": "photo2video"
+      },
+      "outputType": "video",
+      "dependencies": ["img1"]
+    },
+    {
+      "id": "vid2",
+      "title": "Animate Card 2",
+      "tool": "video",
+      "model": "kwaivgi/kling-v2.1",
+      "inputs": {
+        "prompt": "Static camera, hands hold card still facing viewer, subtle natural hand tremor, card remains centered, 4 seconds",
+        "start_image": "{{steps.img2.url}}",
+        "aspect_ratio": "2:3",
+        "duration": 4,
+        "mode": "photo2video"
+      },
+      "outputType": "video",
+      "dependencies": ["img2"]
+    },
+    {
       "id": "tts1",
+      "title": "Voiceover for Card 1",
       "tool": "tts",
       "model": "minimax-speech-02-hd",
       "inputs": {
-        "text": "Quel membre de la famille a le plus de chances de devenir viral pour une énorme honte ?",
+        "text": "Question 1",
         "provider": "replicate"
-      }
+      },
+      "outputType": "audio",
+      "dependencies": []
     },
     {
       "id": "tts2",
+      "title": "Voiceover for Card 2",
       "tool": "tts",
       "model": "minimax-speech-02-hd",
       "inputs": {
-        "text": "Qui serait élu \"le premier à disparaître au moment de débarrasser\" ?",
+        "text": "Question 2",
         "provider": "replicate"
-      }
+      },
+      "outputType": "audio",
+      "dependencies": []
     }
   ]
 }
-NOTE: Each text content gets its own TTS step! If user has 2 cards with different text, create 2 TTS steps.
 
-User: "Create a happy narration for my video"
-Plan:
+Example 3: Lipsync from Image + Audio
+User: "Create an image of a person, generate voiceover, then make them speak it"
 {
+  "summary": "Generate portrait, voiceover, and lipsync video",
   "steps": [
+    {
+      "id": "img1",
+      "title": "Person Portrait",
+      "tool": "image",
+      "model": "openai/gpt-image-1.5",
+      "inputs": {
+        "prompt": "Professional portrait of a business person, front-facing, clear face, neutral expression, studio lighting, white background",
+        "aspect_ratio": "1:1",
+        "number_of_images": 1
+      },
+      "outputType": "image",
+      "dependencies": []
+    },
     {
       "id": "tts1",
+      "title": "Voiceover",
       "tool": "tts",
       "model": "minimax-speech-02-hd",
       "inputs": {
-        "text": "This is the most exciting product launch ever!",
-        "provider": "replicate",
-        "emotion": "happy",
-        "speed": 1.1
-      }
-    }
-  ]
-}
-
-Example 4: Lipsync with Wan 2.2 S2V (Cinematic Audio-Driven Video)
-User: "Create an image of a person, generate voiceover, then make them speak it"
-Plan:
-{
-  "steps": [
-    {"id": "img1", "tool": "image", "inputs": {"prompt": "Professional portrait of a business person, front-facing, clear face"}},
-    {"id": "tts1", "tool": "tts", "inputs": {"text": "Welcome to our company. We offer the best solutions.", "provider": "replicate"}},
+        "text": "Welcome to our company. We offer the best solutions.",
+        "provider": "replicate"
+      },
+      "outputType": "audio",
+      "dependencies": []
+    },
     {
-      "id": "lipsync1", 
-      "tool": "lipsync", 
+      "id": "lipsync1",
+      "title": "Talking Video",
+      "tool": "lipsync",
       "model": "wan-video/wan-2.2-s2v",
       "inputs": {
         "video": "{{steps.img1.url}}",
         "audio": "{{steps.tts1.url}}",
         "backend": "wan-2.2-s2v",
-        "prompt": "person speaking professionally"
+        "prompt": "person speaking professionally, clear mouth movements"
       },
+      "outputType": "video",
       "dependencies": ["img1", "tts1"]
     }
   ]
 }
 
-LIPSYNC MODEL SELECTION GUIDE:
-- Use "sievesync-1.1" for: Fast lipsync on existing videos
-- Use "latentsync" for: High-quality lipsync on existing videos  
-- Use "wan-2.2-s2v" for: Creating cinematic talking videos from images + audio (like "Infinite Talk")
-  → Best when user wants to animate a static image to speak
-  → Requires "prompt" field describing the video (e.g., "woman speaking", "man presenting")
-  → Accepts images (first frame) OR videos as input
+CRITICAL RULES:
+1. TTS Detection: ALWAYS create TTS steps when user mentions: "audio files", "voiceover", "narration", "speaking", "text to speech", "generate voice", "woman/man speaking", "create audio"
+2. One-to-One Mapping: If user wants to animate each image separately, create one video step per image step with matching dependencies
+3. Text Content: TTS text should be EXACTLY the content to speak, nothing more - extract from user's request
+4. Media Usage: Use uploaded media intelligently - as start frames, references, or for modification based on user intent
+5. Model Selection: Choose models based on quality needs, speed requirements, and format constraints
+6. Dependencies: Always set dependencies correctly - if step uses output from another step, reference it in dependencies array
+7. Aspect Ratios: Auto-detect from user prompt or default to mobile (2:3 or 9:16) for social media content
 
-Return ONLY valid JSON. No markdown, no explanation.`;
+Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 }
 
-export function buildUnifiedPlannerUserPrompt(
-  messages: AssistantPlanMessage[],
-  media: AssistantMedia[],
-  analysis: AnalyzedRequest | null,
-): string {
-  const conversation = messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
-  const mediaLines = media.length > 0
-    ? `\n\nATTACHED MEDIA:\n${media.map((m) => `- ${m.type}: ${m.url}${m.label ? ` (${m.label})` : ''}`).join('\n')}`
-    : '';
-
-  const analysisBlock = analysis
-    ? [
-        '\n\nANALYSIS:',
-        analysis.goals ? `Goals: ${analysis.goals}` : null,
-        analysis.contentVariations?.length ? `Content variations: ${analysis.contentVariations.join(' | ')}` : null,
-        analysis.styleCues?.length ? `Style: ${analysis.styleCues.join(', ')}` : null,
-        analysis.videoSceneDescription ? `Video motion: ${analysis.videoSceneDescription}` : null,
-        `Expected steps: ${analysis.totalImageSteps} images, ${analysis.totalVideoSteps} videos, ${analysis.totalTtsSteps} TTS/audio, ${analysis.totalTranscriptionSteps} transcriptions, ${analysis.totalLipsyncSteps} lipsync`,
-        analysis.totalTtsSteps > 0 ? `⚠️ IMPORTANT: User wants ${analysis.totalTtsSteps} audio file(s) - you MUST include TTS steps in your plan!` : null,
-      ]
-        .filter(Boolean)
-        .join('\n')
-    : '';
-
-  return `${conversation}${mediaLines}${analysisBlock}
-
-Generate the complete workflow plan with detailed, ready-to-use prompts. Return only valid JSON.`;
-}
 
 export function buildRequestAnalyzerPrompt(): string {
   return `You are a senior production strategist. Read the request and surface what matters without forcing templates.
