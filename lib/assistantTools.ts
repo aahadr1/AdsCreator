@@ -446,6 +446,7 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
   let lastImageStep: string | null = null;
   let lastVideoStep: string | null = null;
   let lastAudioStep: string | null = null;
+  const producedKinds: Record<string, 'image' | 'video' | 'audio' | null> = {};
 
   const ensureArrayField = (inputs: Record<string, any>, key: string, value: string | string[]) => {
     if (Array.isArray(value)) {
@@ -471,9 +472,28 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
     return true;
   };
 
-  const steps = plan.steps.map((step, index) => {
+  const outputKindForStep = (step: AssistantPlanStep): 'image' | 'video' | 'audio' | null => {
+    if (step.outputType === 'image' || ['image', 'enhance'].includes(step.tool)) return 'image';
+    if (step.outputType === 'video' || ['video', 'lipsync', 'background_remove'].includes(step.tool)) return 'video';
+    if (step.outputType === 'audio' || ['tts'].includes(step.tool)) return 'audio';
+    return null;
+  };
+
+  const findDependencyByKind = (step: AssistantPlanStep, kind: 'image' | 'video' | 'audio'): string | null => {
+    if (!Array.isArray(step.dependencies)) return null;
+    for (let i = step.dependencies.length - 1; i >= 0; i -= 1) {
+      const depId = step.dependencies[i];
+      if (producedKinds[depId] === kind) return depId;
+    }
+    return null;
+  };
+
+  const steps = plan.steps.map((step) => {
     const inputs = { ...(step.inputs || {}) };
     const deps = new Set(step.dependencies || []);
+    const preferredImageSource = findDependencyByKind(step, 'image') || lastImageStep;
+    const preferredVideoSource = findDependencyByKind(step, 'video') || lastVideoStep;
+    const preferredAudioSource = findDependencyByKind(step, 'audio') || lastAudioStep;
 
     const linkFromPrevious = (
       priorId: string | null,
@@ -501,22 +521,22 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
 
     if (['image', 'background_remove', 'enhance', 'video'].includes(step.tool)) {
       for (const key of imageArrayKeys) {
-        linkFromPrevious(lastImageStep, imageUrls, key, true);
+        linkFromPrevious(preferredImageSource, imageUrls, key, true);
       }
       for (const key of imageScalarKeys) {
-        linkFromPrevious(lastImageStep, imageUrls, key, false);
+        linkFromPrevious(preferredImageSource, imageUrls, key, false);
       }
     }
 
     if (['background_remove', 'lipsync'].includes(step.tool)) {
       for (const key of videoKeys) {
-        linkFromPrevious(lastVideoStep, videoUrls, key, false);
+        linkFromPrevious(preferredVideoSource, videoUrls, key, false);
       }
     }
 
     if (['lipsync'].includes(step.tool)) {
       for (const key of audioKeys) {
-        linkFromPrevious(lastAudioStep, audioUrls, key, false);
+        linkFromPrevious(preferredAudioSource, audioUrls, key, false);
       }
     }
 
@@ -526,13 +546,11 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
       dependencies: Array.from(deps),
     };
 
-    const isImageLike = step.outputType === 'image' || ['image', 'enhance'].includes(step.tool);
-    const isVideoLike = step.outputType === 'video' || ['video', 'lipsync', 'background_remove'].includes(step.tool);
-    const isAudioLike = step.outputType === 'audio' || ['tts'].includes(step.tool);
-
-    if (isImageLike) lastImageStep = step.id;
-    if (isVideoLike) lastVideoStep = step.id;
-    if (isAudioLike) lastAudioStep = step.id;
+    const stepKind = outputKindForStep(step);
+    producedKinds[step.id] = stepKind;
+    if (stepKind === 'image') lastImageStep = step.id;
+    if (stepKind === 'video') lastVideoStep = step.id;
+    if (stepKind === 'audio') lastAudioStep = step.id;
 
     return updatedStep;
   });

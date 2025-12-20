@@ -290,18 +290,23 @@ function validateSteps(steps: AssistantPlanStep[]): string | null {
 }
 
 function buildAutoPrompt(step: AssistantPlanStep, planSummary: string | undefined, outputs: Record<string, StepResult>): string {
-  const prevUrl = step.dependencies?.[0] ? outputs[step.dependencies[0]]?.url : null;
-  const base = planSummary || step.title;
+  const prevUrl = step.dependencies?.slice().reverse().map((dep) => outputs[dep]?.url).find(Boolean) || null;
+  const context = planSummary ? `Context: ${planSummary.trim()}.` : '';
+  const taskLabel = (step.title || step.description || '').trim();
   if (step.tool === 'video') {
-    return `${base || 'Generate video'} — animate the referenced image${prevUrl ? ` (${prevUrl})` : ''} with smooth camera motion, stable subject, and clean framing.`;
+    const intro = taskLabel || 'Animate the prepared key visual into video.';
+    const reference = prevUrl ? `Use the referenced frame (${prevUrl}) as the visual source.` : 'Use the referenced frame as the visual source.';
+    return [intro, reference, 'Focus on motion design only—do not redraw the artwork. Keep camera moves smooth and subjects stable.', context].filter(Boolean).join(' ');
   }
   if (step.tool === 'image') {
-    return `${base || 'Generate image'} — high fidelity, clear lighting, detailed subject.`;
+    const intro = taskLabel || 'Create the hero still image.';
+    return [intro, 'Produce a single high fidelity still, respecting existing typography and layout. No animation instructions.', context].filter(Boolean).join(' ');
   }
   if (step.tool === 'tts') {
-    return step.inputs?.text || 'Read the provided script naturally.';
+    if (step.inputs?.text && typeof step.inputs.text === 'string') return step.inputs.text;
+    return [taskLabel || 'Generate a natural narration.', context].filter(Boolean).join(' ');
   }
-  return base || 'Generate output.';
+  return [taskLabel || 'Generate the requested output.', context].filter(Boolean).join(' ');
 }
 
 function buildAssistantOptions(summary: string | undefined, steps: AssistantPlanStep[], outputs: Record<string, StepResult>, inputs: Record<string, Record<string, any>>) {
