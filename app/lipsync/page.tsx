@@ -21,8 +21,8 @@ export default function LipsyncPage() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
 
-  // Engine selection: 'sieve' (current) or 'sync' (lipsync-2-pro)
-  const [engine, setEngine] = useState<'sieve' | 'sync'>('sieve');
+  // Engine selection: 'sieve' (current), 'sync' (lipsync-2-pro), or 'wan' (Wan 2.2 S2V)
+  const [engine, setEngine] = useState<'sieve' | 'sync' | 'wan'>('sieve');
   const [backend, setBackend] = useState('sievesync-1.1');
   const [enhance, setEnhance] = useState<'default' | 'none'>('default');
   const [cutBy, setCutBy] = useState<'audio' | 'video' | 'shortest'>('audio');
@@ -34,6 +34,12 @@ export default function LipsyncPage() {
   const [syncMode, setSyncMode] = useState<'loop' | 'bounce' | 'cut_off' | 'silence' | 'remap'>('loop');
   const [temperature, setTemperature] = useState<number>(0.5);
   const [activeSpeaker, setActiveSpeaker] = useState<boolean>(false);
+
+  // Wan 2.2 S2V specific options
+  const [wanPrompt, setWanPrompt] = useState<string>('person speaking');
+  const [wanNumFramesPerChunk, setWanNumFramesPerChunk] = useState<number>(81);
+  const [wanSeed, setWanSeed] = useState<string>('');
+  const [wanInterpolate, setWanInterpolate] = useState<boolean>(false);
 
   const pollRef = useRef<NodeJS.Timeout | null>(null);
   const lastStatusRef = useRef<JobStatus | null>(null);
@@ -99,16 +105,22 @@ export default function LipsyncPage() {
         check_quality: checkQuality,
         downsample,
         cut_by: cutBy,
-      } : {
+      } : engine === 'sync' ? {
         sync_mode: syncMode,
         temperature,
         active_speaker: activeSpeaker,
+      } : {
+        // Wan options
+        prompt: wanPrompt,
+        num_frames_per_chunk: wanNumFramesPerChunk,
+        seed: wanSeed ? Number(wanSeed) : undefined,
+        interpolate: wanInterpolate,
       };
 
       // Database operations removed - proceeding directly to job creation
       const taskId = Date.now().toString(); // Generate local task ID
       setTaskId(taskId);
-      pushLog(`Task created. Pushing lipsync job to ${engine === 'sieve' ? 'Sieve' : 'Sync'}...`);
+      pushLog(`Task created. Pushing lipsync job to ${engine === 'sieve' ? 'Sieve' : engine === 'sync' ? 'Sync' : 'Wan 2.2 S2V'}...`);
 
       if (engine === 'sieve') {
       const res = await fetch('/api/lipsync/push', {
@@ -169,7 +181,7 @@ export default function LipsyncPage() {
           // Database operations removed
         }
       }, 1800);
-      } else {
+      } else if (engine === 'sync') {
         // Run via Sync API (avoids Replicate's .proxy-api-key requirement inside the container)
         const res = await fetch('/api/lipsync-beta/push', {
           method: 'POST',
@@ -231,6 +243,62 @@ export default function LipsyncPage() {
             pushLog(`Error detail: ${typeof j.error === 'string' ? j.error : JSON.stringify(j.error)}`);
           }
         }, 2000);
+      } else {
+        // Wan 2.2 S2V via Replicate
+        const res = await fetch('/api/replicate/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'wan-video/wan-2.2-s2v',
+            input: {
+              prompt: wanPrompt,
+              image: urls.videoUrl,  // Wan uses 'image' param for first frame
+              audio: urls.audioUrl,
+              num_frames_per_chunk: wanNumFramesPerChunk,
+              seed: wanSeed ? Number(wanSeed) : undefined,
+              interpolate: wanInterpolate,
+            }
+          })
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          pushLog('Push failed: ' + text);
+          setStatus('error');
+          return;
+        }
+        const data = await res.json();
+        setJobId(data.id);
+        setStatus('queued');
+        pushLog(`Job created: ${data.id}, checking status...`);
+
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = setInterval(async () => {
+          if (!data.id) return;
+          const s = await fetch(`/api/replicate/status?id=${data.id}`);
+          if (!s.ok) return;
+          const j = await s.json();
+          const mapped: JobStatus = j.status === 'succeeded' ? 'finished'
+            : j.status === 'failed' ? 'error'
+            : j.status === 'processing' || j.status === 'starting' ? 'running'
+            : (j.status as JobStatus);
+          if (lastStatusRef.current !== mapped) {
+            pushLog(`Status: ${mapped}`);
+            lastStatusRef.current = mapped;
+          }
+          setStatus(mapped as JobStatus);
+          if (mapped === 'finished' || mapped === 'error') {
+            clearInterval(pollRef.current!);
+            pollRef.current = null;
+          }
+          if (j.outputUrl) {
+            (window as any).__WAN_OUTPUT_URL__ = j.outputUrl;
+            pushLog(`Output ready: ${j.outputUrl}`);
+          }
+          if (j.error) {
+            pushLog(`Error detail: ${typeof j.error === 'string' ? j.error : JSON.stringify(j.error)}`);
+          }
+        }, 3000);
       }
     } catch (e: any) {
       pushLog('Error: ' + e.message);
@@ -242,6 +310,8 @@ export default function LipsyncPage() {
     const w = (typeof window !== 'undefined') ? (window as any) : null;
     const outputs = w && w.__SIEVE_OUTPUTS__ || null;
     const syncOut = w && (w.__SYNC_OUTPUT_URL__ as string | null) || null;
+    const wanOut = w && (w.__WAN_OUTPUT_URL__ as string | null) || null;
+    if (wanOut) return wanOut;
     if (syncOut) return syncOut;
     if (!outputs) return null;
     for (const o of outputs) {
@@ -369,9 +439,10 @@ export default function LipsyncPage() {
         <div className="options">
           <div style={{gridColumn: 'span 2'}}>
             <div className="small">Engine</div>
-            <select className="select" value={engine} onChange={(e)=>setEngine(e.target.value as 'sieve' | 'sync')}>
+            <select className="select" value={engine} onChange={(e)=>setEngine(e.target.value as 'sieve' | 'sync' | 'wan')}>
               <option value="sieve">Sieve (current)</option>
               <option value="sync">Sync lipsync-2-pro (new)</option>
+              <option value="wan">Wan 2.2 S2V (audio-driven cinematic video) 🌟</option>
             </select>
           </div>
           {engine === 'sieve' ? (
@@ -418,7 +489,7 @@ export default function LipsyncPage() {
             </select>
           </div>
             </>
-          ) : (
+          ) : engine === 'sync' ? (
             <>
               <div>
                 <div className="small">sync_mode</div>
@@ -437,6 +508,50 @@ export default function LipsyncPage() {
               <div className="row">
                 <label className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
                   <input type="checkbox" checked={activeSpeaker} onChange={(e)=>setActiveSpeaker(e.target.checked)} /> active_speaker
+                </label>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Wan 2.2 S2V options */}
+              <div style={{gridColumn: 'span 2'}}>
+                <div className="small">Prompt (describe the video content)</div>
+                <input 
+                  className="select" 
+                  type="text" 
+                  value={wanPrompt} 
+                  onChange={(e)=>setWanPrompt(e.target.value)} 
+                  placeholder="e.g., woman singing, man speaking, etc."
+                />
+              </div>
+              <div>
+                <div className="small">Frames per chunk</div>
+                <input 
+                  className="select" 
+                  type="number" 
+                  value={wanNumFramesPerChunk} 
+                  onChange={(e)=>setWanNumFramesPerChunk(Number(e.target.value))} 
+                  min={1}
+                  max={200}
+                />
+              </div>
+              <div>
+                <div className="small">Seed (optional, leave empty for random)</div>
+                <input 
+                  className="select" 
+                  type="text" 
+                  value={wanSeed} 
+                  onChange={(e)=>setWanSeed(e.target.value)} 
+                  placeholder="Random"
+                />
+              </div>
+              <div className="row">
+                <label className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
+                  <input 
+                    type="checkbox" 
+                    checked={wanInterpolate} 
+                    onChange={(e)=>setWanInterpolate(e.target.checked)} 
+                  /> interpolate to 25fps
                 </label>
               </div>
             </>
