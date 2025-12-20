@@ -73,6 +73,13 @@ function parseJSONFromString(raw: string): any | null {
       return parsed;
     } catch {}
   }
+  // If we received a JSON string inside quotes, try to parse it
+  const stringLiteral = raw.match(/^["']([\s\S]*)["']$/);
+  if (stringLiteral && stringLiteral[1]) {
+    try {
+      return JSON.parse(stringLiteral[1]);
+    } catch {}
+  }
   return null;
 }
 
@@ -260,6 +267,7 @@ export async function POST(req: NextRequest) {
       }
 
       const finalJson = parseJSONFromString(rawText) || draftPlanJson;
+      if (!finalJson) throw new Error('Planner output could not be parsed');
       parsed = normalizePlannerOutput(finalJson, messages, media, analysisResult);
     } catch (err) {
       parsed = null;
