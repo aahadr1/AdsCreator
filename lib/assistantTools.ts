@@ -462,7 +462,9 @@ ${toolSections}
 
 ${outputFormat}
 
-RULE: Return ONLY valid JSON per the format above. No Markdown, no extra text.`;
+RULES:
+- Return ONLY valid JSON per the format above (no Markdown, no prose).
+- Escape any double quotes inside string values as \\" or replace them with typographic quotes.`;
 }
 
 export function buildPromptAuthorSystemPrompt(): string {
@@ -475,7 +477,7 @@ Guidelines:
 - For image modification, state the exact change and include the specific new text when provided.
 - Avoid placeholders and boilerplate; every prompt must be bespoke to this request.
 - Output the final JSON plan with the same shape: { "summary": string, "steps": [...] }.
-- Output MUST be valid JSON only (no markdown fences, no prose).`;
+- Output MUST be valid JSON only (no markdown fences, no prose). Escape double quotes inside strings (use \\" or typographic quotes).`;
 }
 
 export function buildDecompositionUserPrompt(

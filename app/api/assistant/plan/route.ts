@@ -46,39 +46,97 @@ async function recordPlanTask(origin: string, userId: string, plan: AssistantPla
   }
 }
 
-function parseJSONFromString(raw: string): any | null {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {}
-  const fenced = raw.match(/```json([\s\S]*?)```/i);
-  if (fenced && fenced[1]) {
-    try {
-      return JSON.parse(fenced[1]);
-    } catch {}
+function repairJsonString(raw: string): string {
+  let repaired = '';
+  let inString = false;
+  let escaping = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (!inString) {
+      if (char === '"') {
+        inString = true;
+        repaired += char;
+      } else {
+        repaired += char;
+      }
+      continue;
+    }
+    if (escaping) {
+      repaired += char;
+      escaping = false;
+      continue;
+    }
+    if (char === '\\') {
+      repaired += char;
+      escaping = true;
+      continue;
+    }
+    if (char === '"') {
+      let j = i + 1;
+      while (j < raw.length && /\s/.test(raw[j])) j += 1;
+      const next = raw[j];
+      if (next && ![',', '}', ']', ':'].includes(next)) {
+        repaired += '\\"';
+        continue;
+      }
+      inString = false;
+      repaired += char;
+      continue;
+    }
+    repaired += char;
   }
+  return repaired;
+}
+
+function parseJSONFromString(raw: string, seen: Set<string> = new Set()): any | null {
+  if (!raw || seen.has(raw)) return null;
+  seen.add(raw);
+
+  const candidates: string[] = [];
+  candidates.push(raw);
+  const fenced = raw.match(/```json([\s\S]*?)```/i);
+  if (fenced?.[1]) candidates.push(fenced[1]);
   const braceStart = raw.indexOf('{');
   const braceEnd = raw.lastIndexOf('}');
   if (braceStart >= 0 && braceEnd > braceStart) {
-    const slice = raw.slice(braceStart, braceEnd + 1);
+    candidates.push(raw.slice(braceStart, braceEnd + 1));
+  }
+  const stringLiteral = raw.match(/^["']([\s\S]*)["']$/);
+  if (stringLiteral?.[1]) candidates.push(stringLiteral[1]);
+
+  const tryParse = (text: string): any | null => {
     try {
-      const parsed = JSON.parse(slice);
-      // Handle Replicate object outputs like { output: ["{", "\"summary\": ...", "}"] }
-      if (parsed && typeof parsed === 'object' && parsed.output) {
-        const inner = Array.isArray(parsed.output) ? parsed.output.join('') : String(parsed.output);
-        const innerParsed = parseJSONFromString(inner);
-        if (innerParsed) return innerParsed;
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && parsed.output !== undefined) {
+        const inner = parsed.output;
+        const stringOutput = Array.isArray(inner)
+          ? inner.map((chunk) => (typeof chunk === 'string' ? chunk : JSON.stringify(chunk))).join('')
+          : typeof inner === 'string'
+            ? inner
+            : null;
+        if (stringOutput) {
+          const nested = parseJSONFromString(stringOutput, seen);
+          if (nested) return nested;
+        }
       }
       return parsed;
-    } catch {}
+    } catch {
+      return null;
+    }
+  };
+
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    const parsed = tryParse(trimmed);
+    if (parsed) return parsed;
+    const repaired = repairJsonString(trimmed);
+    if (repaired !== trimmed) {
+      const repairedParsed = tryParse(repaired);
+      if (repairedParsed) return repairedParsed;
+    }
   }
-  // If we received a JSON string inside quotes, try to parse it
-  const stringLiteral = raw.match(/^["']([\s\S]*)["']$/);
-  if (stringLiteral && stringLiteral[1]) {
-    try {
-      return JSON.parse(stringLiteral[1]);
-    } catch {}
-  }
+
   return null;
 }
 
