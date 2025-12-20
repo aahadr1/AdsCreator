@@ -130,6 +130,18 @@ export default function AssistantPage() {
 
   const stepMap = useMemo(() => Object.fromEntries(plan.steps.map((s) => [s.id, s])), [plan]);
 
+  const stepSourceLabel = (step: AssistantPlanStep): string | null => {
+    const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
+    const deps = (step.dependencies || [])
+      .map((id) => stepMap[id])
+      .filter(Boolean)
+      .map((s) => s.title || s.id);
+    if (deps.length) return `Uses ${deps.join(', ')}`;
+    const usesUpload = attachments.some((media) => inputsContainUrl(cfg.inputs, media.url || ''));
+    if (usesUpload) return 'Uses your upload';
+    return null;
+  };
+
   const updateStepConfig = (stepId: string, next: StepConfig) => {
     setStepConfigs((prev) => ({ ...prev, [stepId]: next }));
   };
@@ -471,6 +483,9 @@ export default function AssistantPage() {
                         <div className="plan-step-sub">
                           {step.tool} · {cfg.model}
                         </div>
+                        {stepSourceLabel(step) && (
+                          <div className="plan-step-sub muted">{stepSourceLabel(step)}</div>
+                        )}
                         <div className="chip-list">
                           <span className="chip subtle" onClick={() => openConfigurator(step)}>
                             <Settings2 size={12} /> Configure parameters

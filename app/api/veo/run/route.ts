@@ -87,6 +87,12 @@ export async function POST(req: NextRequest) {
           cleaned.frames_per_second = fps;
         }
       }
+      if (!cleaned.image && typeof cleaned.start_image === 'string' && cleaned.start_image) {
+        cleaned.image = cleaned.start_image;
+      }
+      if (!cleaned.start_image && typeof cleaned.image === 'string' && cleaned.image) {
+        cleaned.start_image = cleaned.image;
+      }
       input = cleaned;
     } else {
       // Back-compat: construct minimal input based on known fields
@@ -98,11 +104,18 @@ export async function POST(req: NextRequest) {
         if (body.negative_prompt) base.negative_prompt = body.negative_prompt;
         if (typeof body.seed === 'number') base.seed = body.seed;
         if (body.start_frame) base.start_image = body.start_frame;
+        if (!base.start_image && (body as any).start_image) base.start_image = (body as any).start_image;
+        if (!base.image && base.start_image) base.image = base.start_image;
         if (body.end_frame) base.end_image = body.end_frame;
+        if (!base.end_image && body.end_frame) base.end_image = body.end_frame;
       } else if (model === 'wan-video/wan-2.2-animate-replace') {
         // Without explicit input block, this model requires explicit URIs — reject to avoid ambiguous requests
         return new Response('Missing input for wan-video/wan-2.2-animate-replace', { status: 400 });
       }
+      if (!base.image && typeof (body as any).start_image === 'string' && (body as any).start_image) {
+        base.image = (body as any).start_image;
+      }
+      if (!base.start_image && base.image) base.start_image = base.image;
       input = base;
     }
 
