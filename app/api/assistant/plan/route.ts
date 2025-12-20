@@ -63,7 +63,14 @@ function parseJSONFromString(raw: string): any | null {
   if (braceStart >= 0 && braceEnd > braceStart) {
     const slice = raw.slice(braceStart, braceEnd + 1);
     try {
-      return JSON.parse(slice);
+      const parsed = JSON.parse(slice);
+      // Handle Replicate object outputs like { output: ["{", "\"summary\": ...", "}"] }
+      if (parsed && typeof parsed === 'object' && parsed.output) {
+        const inner = Array.isArray(parsed.output) ? parsed.output.join('') : String(parsed.output);
+        const innerParsed = parseJSONFromString(inner);
+        if (innerParsed) return innerParsed;
+      }
+      return parsed;
     } catch {}
   }
   return null;
