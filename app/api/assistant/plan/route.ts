@@ -10,7 +10,6 @@ import {
   buildDecompositionUserPrompt,
   buildAuthoringUserPrompt,
   normalizePlannerOutput,
-  fallbackPlanFromMessages,
 } from '@/lib/assistantTools';
 import type { AnalyzedRequest } from '@/lib/assistantTools';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia } from '@/types/assistant';
@@ -275,8 +274,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const plan: AssistantPlan = parsed || fallbackPlanFromMessages(messages, media);
+  if (!parsed) {
+    return Response.json({ error: rawText || 'planner failed' }, { status: 500 });
+  }
 
+  const plan: AssistantPlan = parsed;
   const origin = new URL(req.url).origin;
   recordPlanTask(origin, userId, plan, messages).catch(() => {});
 

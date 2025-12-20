@@ -900,115 +900,7 @@ function createVideoStep(
   });
 }
 
-export function fallbackPlanFromMessages(messages: AssistantPlanMessage[], media: AssistantMedia[]): AssistantPlan {
-  const lastUser = messages.slice().reverse().find((m) => m.role === 'user');
-  const userContent = lastUser?.content || '';
-  const hasUploadedImage = media.some((m) => m.type === 'image');
-  const firstImage = media.find((m) => m.type === 'image');
-  
-  // Parse the request to understand what's needed
-  const { images: imageCount, videos: videoCount, contentItems } = parseRequestCounts(userContent);
-  
-  // Detect if this is an image modification request
-  const { isModification } = detectImageModification(userContent);
-  
-  // Extract proper video scene description
-  const videoScenePrompt = extractVideoSceneDescription(userContent);
-  
-  const steps: AssistantPlanStep[] = [];
-  const summary = `${isModification ? 'Modify' : 'Create'} ${imageCount} image(s)${videoCount > 0 ? ` and animate ${videoCount} video(s)` : ''}`;
-  
-  // Create image steps - ALL use the ORIGINAL uploaded image (no chaining!)
-  for (let i = 0; i < imageCount; i++) {
-    const stepId = imageCount > 1 ? `image-${i + 1}` : 'step-image';
-    const contentText = contentItems[i] || null;
-    const title = contentText 
-      ? `${isModification ? 'Modify' : 'Create'} image ${i + 1}: "${contentText.slice(0, 25)}${contentText.length > 25 ? '...' : ''}"`
-      : `${isModification ? 'Modify' : 'Create'} image ${i + 1}`;
-    
-    steps.push(createImageStep(
-      stepId,
-      title,
-      contentText,
-      isModification && hasUploadedImage,
-      firstImage?.url, // ALWAYS the original uploaded image
-    ));
-  }
-  
-  // Create video steps (one for each image if we have matching counts)
-  // Each video uses its corresponding image step output as start_image
-  for (let i = 0; i < videoCount; i++) {
-    const sourceImageIndex = Math.min(i, imageCount - 1);
-    const sourceImageId = imageCount > 1 ? `image-${sourceImageIndex + 1}` : 'step-image';
-    const stepId = videoCount > 1 ? `video-${i + 1}` : 'step-video';
-    const title = `Animate video ${i + 1}`;
-    
-    // Only create video if we have a source image
-    if (imageCount > 0 || hasUploadedImage) {
-      steps.push(createVideoStep(
-        stepId,
-        title,
-        videoScenePrompt, // Proper scene description, not motion keywords
-        sourceImageId,
-      ));
-    }
-  }
-  
-  // If no image steps but we want video and have uploaded image, create video from upload
-  if (imageCount === 0 && videoCount > 0 && hasUploadedImage && firstImage) {
-    for (let i = 0; i < videoCount; i++) {
-      const stepId = videoCount > 1 ? `video-${i + 1}` : 'step-video';
-      steps.push(normalizeInputs({
-        id: stepId,
-        title: `Animate video ${i + 1}`,
-        tool: 'video',
-        model: 'kwaivgi/kling-v2.1',
-        inputs: {
-          prompt: videoScenePrompt,
-          start_image: firstImage.url,
-          aspect_ratio: '1:1',
-          duration: 4,
-          mode: 'default',
-        },
-        outputType: 'video',
-        dependencies: [],
-        suggestedParams: {},
-      }));
-    }
-  }
-  
-  return attachMediaToPlan({ summary, steps }, media);
-}
-
-// Validate and clean a prompt for tool-appropriateness
-function validateAndCleanPrompt(prompt: string | undefined, tool: AssistantToolKind): string {
-  if (!prompt || typeof prompt !== 'string') {
-    return 'Follow the user request with high fidelity and clarity.';
-  }
-
-  return String(prompt).trim();
-}
-
-// Count steps by tool type
-function countStepsByTool(steps: AssistantPlanStep[]): Record<AssistantToolKind, number> {
-  const counts: Record<AssistantToolKind, number> = {
-    image: 0,
-    video: 0,
-    tts: 0,
-    transcription: 0,
-    lipsync: 0,
-    enhance: 0,
-    background_remove: 0,
-  };
-  
-  for (const step of steps) {
-    if (step.tool in counts) {
-      counts[step.tool]++;
-    }
-  }
-  
-  return counts;
-}
+const TOOLS_REQUIRING_PROMPTS: AssistantToolKind[] = ['image', 'video', 'tts', 'lipsync', 'enhance', 'background_remove'];
 
 export function normalizePlannerOutput(
   raw: any,
@@ -1038,7 +930,7 @@ export function normalizePlannerOutput(
   const planObj = coercePlan(raw);
 
   if (!planObj || !Array.isArray(planObj.steps)) {
-    return fallbackPlanFromMessages(messages, media);
+    throw new Error('Planner output missing steps array');
   }
 
   const hasUploadedImage = media.some((m) => m.type === 'image');
@@ -1066,10 +958,9 @@ export function normalizePlannerOutput(
         ? `${analysis.imageModificationInstruction} "${contentVariation}"`
         : analysis.imageModificationInstruction;
     }
-    
-    // Only clean when we generated a fallback prompt
-    if (!promptFromModel) {
-      prompt = validateAndCleanPrompt(prompt, tool);
+
+    if (!prompt && TOOLS_REQUIRING_PROMPTS.includes(tool)) {
+      throw new Error(`Missing prompt for step ${s.id}`);
     }
     
     const inputs: Record<string, any> = { ...inputsFromStep };
@@ -1098,76 +989,6 @@ export function normalizePlannerOutput(
     });
   });
 
-  // If we have analysis, validate step counts and add missing steps
-  if (analysis) {
-    const counts = countStepsByTool(steps);
-    
-    // Check if we need more image steps
-    if (counts.image < analysis.totalImageSteps) {
-      const missing = analysis.totalImageSteps - counts.image;
-      const existingImageCount = steps.filter(s => s.tool === 'image').length;
-      
-      for (let i = 0; i < missing; i++) {
-        const idx = existingImageCount + i + 1;
-        const contentText = analysis.contentVariations[existingImageCount + i] || null;
-        const newId = `image-${idx}`;
-
-        const styleCue = analysis.styleCues?.length ? ` Style cues: ${analysis.styleCues.join(', ')}.` : '';
-        const goalText = analysis.goals ? ` Goal: ${analysis.goals}.` : '';
-        const baseInstruction = analysis.imageModificationInstruction || 'Use the provided image as the base and integrate the new content cleanly.';
-        const prompt = contentText
-          ? `${baseInstruction} "${contentText}".${styleCue}${goalText}`
-          : `${baseInstruction}${styleCue}${goalText}`;
-        
-        steps.push(normalizeInputs({
-          id: newId,
-          title: contentText ? `Image ${idx}: "${contentText.slice(0, 25)}..."` : `Create image ${idx}`,
-          tool: 'image',
-          model: 'openai/gpt-image-1.5',
-          inputs: {
-            prompt,
-            aspect_ratio: '1:1',
-            input_images: hasUploadedImage && firstImageUrl ? [firstImageUrl] : undefined,
-          },
-          outputType: 'image',
-          dependencies: [],
-          suggestedParams: {},
-        }));
-      }
-    }
-    
-    // Check if we need more video steps
-    if (counts.video < analysis.totalVideoSteps) {
-      const missing = analysis.totalVideoSteps - counts.video;
-      const imageSteps = steps.filter(s => s.tool === 'image');
-      const existingVideoCount = steps.filter(s => s.tool === 'video').length;
-      
-      for (let i = 0; i < missing; i++) {
-        const idx = existingVideoCount + i + 1;
-        const sourceImageIdx = Math.min(existingVideoCount + i, imageSteps.length - 1);
-        const sourceImageId = imageSteps[sourceImageIdx]?.id || imageSteps[0]?.id;
-        const newId = `video-${idx}`;
-        const motion = analysis.videoSceneDescription || 'Animate according to the described scene and motion.';
-        
-        steps.push(normalizeInputs({
-          id: newId,
-          title: `Animate video ${idx}`,
-          tool: 'video',
-          model: 'kwaivgi/kling-v2.1',
-          inputs: {
-            prompt: motion,
-            start_image: sourceImageId ? `{{steps.${sourceImageId}.url}}` : undefined,
-            duration: 4,
-            aspect_ratio: '1:1',
-          },
-          outputType: 'video',
-          dependencies: sourceImageId ? [sourceImageId] : [],
-          suggestedParams: {},
-        }));
-      }
-    }
-  }
-  
   return attachMediaToPlan(
     {
       summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
