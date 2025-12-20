@@ -5566,6 +5566,13 @@ body[data-page="billing"] .pricing-card.current-plan {
   background: var(--panel);
   border-radius: 8px;
   border: 1px solid var(--separator);
+  transition: all var(--motion-duration-fast);
+}
+
+.plan-widget-step-item:hover {
+  background: var(--panel-hover);
+  border-color: var(--border-light);
+  transform: translateX(2px);
 }
 
 .plan-widget-step-number {

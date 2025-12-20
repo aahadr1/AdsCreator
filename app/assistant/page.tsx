@@ -515,6 +515,65 @@ export default function AssistantPage() {
     runWorkflow(stepId);
   };
 
+  const handleStepClick = (stepId: string) => {
+    // Find the step in the plan
+    const step = plan.steps.find((s) => s.id === stepId);
+    if (!step) return;
+
+    // Find or create step widget message
+    const stepWidgetMsg = chatMessages.find(
+      (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === stepId
+    );
+
+    if (stepWidgetMsg) {
+      // Scroll to existing step widget
+      const element = document.getElementById(`step-widget-${stepId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Trigger expansion by updating the message
+        setChatMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id === stepWidgetMsg.id && msg.widgetType === 'step') {
+              return {
+                ...msg,
+                widgetData: {
+                  ...msg.widgetData,
+                  forceExpanded: true,
+                },
+              };
+            }
+            return msg;
+          })
+        );
+      }
+    } else {
+      // Create a new step widget message if it doesn't exist
+      const cfg = stepConfigs[stepId] || { model: step.model, inputs: step.inputs };
+      const state = stepStates[stepId] || { status: 'idle' };
+      const deps = (step.dependencies || [])
+        .map((id) => plan.steps.find((s) => s.id === id))
+        .filter(Boolean)
+        .map((s) => ({ id: s!.id, title: s!.title }));
+      
+      addAssistantMessage(`Step: ${step.title}`, 'step', {
+        step,
+        config: cfg,
+        state,
+        stepIndex: plan.steps.findIndex((s) => s.id === stepId),
+        dependencies: deps,
+        forceExpanded: true,
+      });
+      
+      // Scroll to the new message after a brief delay
+      setTimeout(() => {
+        const element = document.getElementById(`step-widget-${stepId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    }
+  };
+
   return (
     <div className="chat-container">
       <div className="chat-messages" ref={chatEndRef}>
@@ -529,6 +588,7 @@ export default function AssistantPage() {
                 canRun={planReady}
                 isRunning={runState === 'running'}
                 defaultExpanded={true}
+                onStepClick={handleStepClick}
               />
             );
           } else if (msg.widgetType === 'step' && msg.widgetData?.step) {
@@ -536,17 +596,20 @@ export default function AssistantPage() {
             // Always use latest state and config from main state
             const currentConfig = stepConfigs[stepData.step.id] || stepData.config || { model: stepData.step.model, inputs: stepData.step.inputs };
             const currentState = stepStates[stepData.step.id] || stepData.state || { status: 'idle' };
+            const shouldExpand = stepData.forceExpanded || currentState.status === 'running' || currentState.status === 'complete';
             widgetContent = (
-              <StepWidget
-                step={stepData.step}
-                config={currentConfig}
-                state={currentState}
-                stepIndex={stepData.stepIndex ?? plan.steps.findIndex((s) => s.id === stepData.step.id)}
-                dependencies={stepData.dependencies || []}
-                onConfigChange={updateStepConfig}
-                onRetry={handleRetryStep}
-                defaultExpanded={currentState.status === 'running' || currentState.status === 'complete'}
-              />
+              <div id={`step-widget-${stepData.step.id}`}>
+                <StepWidget
+                  step={stepData.step}
+                  config={currentConfig}
+                  state={currentState}
+                  stepIndex={stepData.stepIndex ?? plan.steps.findIndex((s) => s.id === stepData.step.id)}
+                  dependencies={stepData.dependencies || []}
+                  onConfigChange={updateStepConfig}
+                  onRetry={handleRetryStep}
+                  defaultExpanded={shouldExpand}
+                />
+              </div>
             );
           } else if (msg.widgetType === 'progress' && msg.widgetData) {
             widgetContent = (

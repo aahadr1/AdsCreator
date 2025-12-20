@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { AssistantPlanStep } from '../../../types/assistant';
 import { fieldsForModel, defaultsForModel, TOOL_SPECS } from '../../../lib/assistantTools';
 import { CheckCircle2, XCircle, Loader2, Settings2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
@@ -37,7 +37,14 @@ export default function StepWidget({
   defaultExpanded = false,
 }: StepWidgetProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [expanded, setExpanded] = useState(defaultExpanded || state.status === 'running');
+  const [expanded, setExpanded] = useState(defaultExpanded || state.status === 'running' || state.status === 'complete');
+  
+  // Auto-expand when status changes to running or complete
+  useEffect(() => {
+    if (state.status === 'running' || state.status === 'complete' || state.status === 'error') {
+      setExpanded(true);
+    }
+  }, [state.status]);
   const [editConfig, setEditConfig] = useState<StepConfig>(config);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 

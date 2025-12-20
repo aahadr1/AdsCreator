@@ -10,6 +10,7 @@ type PlanWidgetProps = {
   canRun?: boolean;
   isRunning?: boolean;
   defaultExpanded?: boolean;
+  onStepClick?: (stepId: string) => void;
 };
 
 export default function PlanWidget({ 
@@ -17,7 +18,8 @@ export default function PlanWidget({
   onRun, 
   canRun = false, 
   isRunning = false,
-  defaultExpanded = true 
+  defaultExpanded = true,
+  onStepClick
 }: PlanWidgetProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -44,7 +46,12 @@ export default function PlanWidget({
           </div>
           <div className="plan-widget-steps-list">
             {plan.steps.map((step, idx) => (
-              <div key={step.id} className="plan-widget-step-item">
+              <div 
+                key={step.id} 
+                className="plan-widget-step-item"
+                onClick={() => onStepClick?.(step.id)}
+                style={{ cursor: onStepClick ? 'pointer' : 'default' }}
+              >
                 <div className="plan-widget-step-number">{idx + 1}</div>
                 <div className="plan-widget-step-info">
                   <div className="plan-widget-step-title">{step.title}</div>
