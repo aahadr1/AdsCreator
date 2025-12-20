@@ -455,6 +455,22 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
     }
   };
 
+  const hasStepToken = (value: unknown): boolean => {
+    if (typeof value === 'string') return /{{\s*steps\./i.test(value);
+    if (Array.isArray(value)) return value.some((entry) => hasStepToken(entry));
+    return false;
+  };
+
+  const shouldUsePriorDependency = (value: unknown): boolean => {
+    if (value === undefined || value === null) return true;
+    if (Array.isArray(value)) {
+      if (value.length === 0) return true;
+      return !value.some((entry) => hasStepToken(entry));
+    }
+    if (typeof value === 'string') return !hasStepToken(value);
+    return true;
+  };
+
   const steps = plan.steps.map((step, index) => {
     const inputs = { ...(step.inputs || {}) };
     const deps = new Set(step.dependencies || []);
@@ -465,13 +481,14 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
       key: string,
       isArray?: boolean,
     ) => {
-      if (inputs[key]) return;
-      if (priorId) {
+      if (priorId && shouldUsePriorDependency(inputs[key])) {
         const token = `{{steps.${priorId}.url}}`;
         if (isArray) ensureArrayField(inputs, key, token);
         else inputs[key] = token;
         deps.add(priorId);
-      } else if (attachmentUrls.length) {
+        return;
+      }
+      if (attachmentUrls.length && (inputs[key] === undefined || inputs[key] === null)) {
         if (isArray) ensureArrayField(inputs, key, attachmentUrls);
         else inputs[key] = attachmentUrls[0];
       }
