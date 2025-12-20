@@ -425,7 +425,7 @@ export async function POST(req: NextRequest) {
         console.log(`[Plan] Step ${idx + 1} "${step?.title || step?.id}": ${preview}${prompt.length > 120 ? '...' : ''}`);
       });
       
-      parsed = normalizePlannerOutput(planJson, messages, media, analysisResult);
+      parsed = await normalizePlannerOutput(planJson, messages, media, analysisResult);
       
       // Log final dependencies
       if (parsed?.steps) {

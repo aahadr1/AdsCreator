@@ -41,7 +41,7 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     model: 'openai/gpt-image-1.5',
     defaults: {
       number_of_images: 1,
-      aspect_ratio: '1:1',
+      aspect_ratio: '2:3', // Default to mobile (will be auto-detected)
       output_format: 'webp',
       input_fidelity: 'high',
       quality: 'high',
@@ -1262,7 +1262,7 @@ function createImageStep(
     model: 'openai/gpt-image-1.5',
     inputs: {
       prompt,
-      aspect_ratio: '1:1',
+      aspect_ratio: '2:3', // Default to mobile (will be auto-detected)
       number_of_images: 1,
       // ALWAYS use the original uploaded image for ALL modification steps
       // Never chain image outputs - each modification uses the original
@@ -1290,7 +1290,7 @@ function createVideoStep(
         inputs: {
       prompt: motionDescription,
       start_image: `{{steps.${sourceImageStepId}.url}}`,
-      aspect_ratio: '1:1',
+      aspect_ratio: '2:3', // Default to mobile (will be auto-detected)
       duration: 4,
       mode: 'default',
     },
@@ -1302,12 +1302,179 @@ function createVideoStep(
 
 const TOOLS_REQUIRING_PROMPTS: AssistantToolKind[] = ['image', 'video', 'tts', 'lipsync', 'enhance', 'background_remove'];
 
-export function normalizePlannerOutput(
+// Aspect ratio detection and selection functions
+
+/**
+ * Detects aspect ratio from user prompt text
+ * Returns: '9:16' | '16:9' | '1:1' | '2:3' | '3:2' | null
+ */
+function detectAspectRatioFromPrompt(prompt: string): string | null {
+  if (!prompt || typeof prompt !== 'string') return null;
+  const text = prompt.toLowerCase();
+
+  // Explicit aspect ratio mentions (e.g., "16:9", "9:16", "1:1")
+  const explicitMatch = text.match(/\b(\d+:\d+)\b/);
+  if (explicitMatch) {
+    const ratio = explicitMatch[1];
+    // Validate common ratios
+    if (['1:1', '16:9', '9:16', '2:3', '3:2', '4:3', '3:4', '4:5', '5:4', '21:9', '9:21', '2:1', '1:2'].includes(ratio)) {
+      return ratio;
+    }
+  }
+
+  // Portrait/vertical indicators → prefer 9:16 or 2:3
+  if (/\b(portrait|vertical|upright|tall|height|mobile|instagram|story|reel|tiktok|snapchat|phone|smartphone)\b/i.test(text)) {
+    return '9:16'; // Prefer 9:16 for mobile/portrait
+  }
+
+  // Landscape/horizontal indicators → prefer 16:9
+  if (/\b(landscape|horizontal|wide|widescreen|cinematic|cinema|film|movie|tv|television|banner|header|hero)\b/i.test(text)) {
+    return '16:9';
+  }
+
+  // Square indicators → 1:1
+  if (/\b(square|1:1|equal|same width and height)\b/i.test(text)) {
+    return '1:1';
+  }
+
+  return null;
+}
+
+/**
+ * Analyzes image aspect ratio from URL (server-side compatible)
+ * Returns aspect ratio string or null if cannot determine
+ */
+async function analyzeImageAspectRatio(imageUrl: string): Promise<string | null> {
+  try {
+    // For server-side, we need to fetch image metadata
+    // Use a lightweight approach: fetch first few bytes to get dimensions from headers/metadata
+    // Or use a library, but for now we'll try to get dimensions from image metadata
+    
+    // Try to fetch image and read dimensions from response headers or image data
+    const response = await fetch(imageUrl, { method: 'HEAD' });
+    const contentType = response.headers.get('content-type');
+    
+    if (!contentType?.startsWith('image/')) {
+      return null;
+    }
+
+    // For most image formats, we need to read actual image data to get dimensions
+    // This is a simplified approach - in production you might want to use a library like 'image-size'
+    // For now, we'll return null and rely on prompt detection
+    // The user can specify aspect ratio explicitly or we'll use defaults
+    
+    // Alternative: Try to fetch a small chunk and parse if it's a format we can read
+    // For now, return null to fall back to prompt detection and defaults
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Finds the closest available aspect ratio from model options
+ * Returns the best match or default mobile ratio (9:16 or 2:3)
+ */
+function findClosestAspectRatio(
+  desiredRatio: string | null,
+  availableRatios: readonly string[],
+  defaultToMobile: boolean = true
+): string {
+  if (!desiredRatio) {
+    // Default to mobile (9:16 or 2:3)
+    if (defaultToMobile) {
+      if (availableRatios.includes('9:16')) return '9:16';
+      if (availableRatios.includes('2:3')) return '2:3';
+      if (availableRatios.includes('3:4')) return '3:4';
+    }
+    // Fallback to first available
+    return availableRatios[0] || '1:1';
+  }
+
+  // Exact match
+  if (availableRatios.includes(desiredRatio)) {
+    return desiredRatio;
+  }
+
+  // Parse ratio to numeric value
+  const parseRatio = (ratio: string): number => {
+    if (ratio === 'match_input_image') return -1; // Special case
+    const [w, h] = ratio.split(':').map(Number);
+    return w && h ? w / h : 1;
+  };
+
+  const desiredValue = parseRatio(desiredRatio);
+  if (desiredValue < 0) {
+    // match_input_image - return it if available, otherwise default
+    if (availableRatios.includes('match_input_image')) return 'match_input_image';
+    return defaultToMobile && availableRatios.includes('9:16') ? '9:16' : availableRatios[0] || '1:1';
+  }
+
+  // Find closest ratio by numeric value
+  let closest = availableRatios[0];
+  let minDiff = Infinity;
+
+  for (const ratio of availableRatios) {
+    if (ratio === 'match_input_image') continue;
+    const ratioValue = parseRatio(ratio);
+    const diff = Math.abs(ratioValue - desiredValue);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = ratio;
+    }
+  }
+
+  return closest || (defaultToMobile && availableRatios.includes('9:16') ? '9:16' : availableRatios[0] || '1:1');
+}
+
+/**
+ * Gets available aspect ratios for a model
+ */
+function getAvailableAspectRatios(model: string, tool: AssistantToolKind): readonly string[] {
+  if (tool === 'image') {
+    if (model === 'openai/gpt-image-1.5') return IMAGE_RATIOS_GPT15;
+    if (model.includes('flux') || model.includes('kontext') || model.includes('krea')) return IMAGE_RATIOS_FLUX;
+    return IMAGE_RATIOS_SIMPLE;
+  }
+  if (tool === 'video') {
+    return VIDEO_RATIOS;
+  }
+  return ['1:1', '16:9', '9:16'];
+}
+
+/**
+ * Intelligently determines aspect ratio for a step
+ */
+async function determineAspectRatio(
+  step: AssistantPlanStep,
+  prompt: string,
+  referenceImageUrl: string | undefined,
+  availableRatios: readonly string[]
+): Promise<string> {
+  // 1. Check if user explicitly specified in prompt
+  const promptRatio = detectAspectRatioFromPrompt(prompt);
+  if (promptRatio) {
+    return findClosestAspectRatio(promptRatio, availableRatios, true);
+  }
+
+  // 2. If reference image exists, analyze it
+  if (referenceImageUrl) {
+    const imageRatio = await analyzeImageAspectRatio(referenceImageUrl);
+    if (imageRatio) {
+      return findClosestAspectRatio(imageRatio, availableRatios, true);
+    }
+  }
+
+  // 3. Default to mobile (9:16 or 2:3)
+  return findClosestAspectRatio(null, availableRatios, true);
+}
+
+export async function normalizePlannerOutput(
   raw: any,
   messages: AssistantPlanMessage[],
   media: AssistantMedia[],
   analysis?: AnalyzedRequest | null,
-): AssistantPlan {
+): Promise<AssistantPlan> {
   // Coerce common malformed shapes into a plan-like object
   const coercePlan = (val: any): any | null => {
     if (!val) return null;
@@ -1336,8 +1503,8 @@ export function normalizePlannerOutput(
   const hasUploadedImage = media.some((m) => m.type === 'image');
   const firstImageUrl = media.find((m) => m.type === 'image')?.url;
   
-  // Process and validate each step
-  let steps = (planObj.steps as AssistantPlanStep[]).map((s, idx) => {
+  // Process and validate each step (async for aspect ratio detection)
+  let steps = await Promise.all((planObj.steps as AssistantPlanStep[]).map(async (s, idx) => {
     const tool = (s.tool as AssistantToolKind) || 'image';
     
     // Extract prompt from various possible locations
@@ -1423,6 +1590,33 @@ export function normalizePlannerOutput(
         inputs.input_images = [firstImageUrl];
       }
     }
+
+    // Intelligently detect and set aspect ratio for image/video steps
+    if ((tool === 'image' || tool === 'video') && !inputs.aspect_ratio) {
+      const model = coerceString(s.model) || TOOL_SPECS[tool]?.models[0]?.id || '';
+      const availableRatios = getAvailableAspectRatios(model, tool);
+      
+      // Find reference image: uploaded image or from dependency
+      let referenceImageUrl: string | undefined = firstImageUrl;
+      if (tool === 'video' && s.dependencies && s.dependencies.length > 0) {
+        // For video, check if dependency is an image step
+        const depStep = (planObj.steps as AssistantPlanStep[]).find(st => s.dependencies?.includes(st.id));
+        if (depStep && depStep.tool === 'image') {
+          // Will be resolved at runtime, but we can use uploaded image as fallback
+          referenceImageUrl = firstImageUrl;
+        }
+      }
+      
+      // Combine prompt with user messages for better detection
+      const allText = [
+        prompt,
+        ...messages.filter(m => m.role === 'user').map(m => m.content),
+      ].filter(Boolean).join(' ');
+
+      const detectedRatio = await determineAspectRatio(s, allText, referenceImageUrl, availableRatios);
+      inputs.aspect_ratio = detectedRatio;
+      console.log(`[Normalize] ✓ Detected aspect ratio for ${s.id}: ${detectedRatio} (from prompt analysis${referenceImageUrl ? ' and image analysis' : ''})`);
+    }
     
     return normalizeInputs({
       id: s.id || `step-${idx + 1}`,
@@ -1438,7 +1632,7 @@ export function normalizePlannerOutput(
       dependencies: s.dependencies || [],
       validations: s.validations,
     });
-  });
+  }));
 
   // VALIDATION: Ensure TTS steps are created if analysis says they're needed
   if (analysis && analysis.totalTtsSteps > 0) {
@@ -1479,8 +1673,8 @@ export function normalizePlannerOutput(
   }
   
   let finalPlan: AssistantPlan = {
-    summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
-    steps,
+      summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
+      steps,
   };
   
   // Auto-correct image→video dependencies

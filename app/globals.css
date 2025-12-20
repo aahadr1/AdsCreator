@@ -5084,6 +5084,10 @@ body[data-page="billing"] .pricing-card.current-plan {
   gap: 6px;
   padding: 6px 10px;
   background: var(--accent-light);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  border: 1px solid var(--separator);
+  width: fit-content;
 }
 
 .assistant-conversation-link {
@@ -5104,11 +5108,6 @@ body[data-page="billing"] .pricing-card.current-plan {
   background: var(--panel-hover);
   border-color: var(--border-light);
   color: var(--text);
-}
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
-  border: 1px solid var(--separator);
-  width: fit-content;
 }
 
 .assistant-steps {
@@ -6090,6 +6089,10 @@ body[data-page="billing"] .pricing-card.current-plan {
   width: 50%;
   max-width: 600px;
   min-width: 400px;
+  position: relative;
+  /* Prevent scroll jumping */
+  scroll-margin-top: 0;
+  scroll-margin-bottom: 0;
 }
 
 .compact-plan-widget-header {
@@ -6161,6 +6164,12 @@ body[data-page="billing"] .pricing-card.current-plan {
   border-radius: 8px;
   cursor: pointer;
   transition: all var(--motion-duration-fast);
+  position: relative;
+  /* Prevent scroll on click */
+  scroll-margin: 0;
+  /* Prevent text selection causing scroll */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .compact-plan-step:hover {
@@ -6241,6 +6250,9 @@ body[data-page="billing"] .pricing-card.current-plan {
   cursor: pointer;
   transition: all var(--motion-duration-fast);
   flex-shrink: 0;
+  /* Prevent focus scroll */
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .compact-plan-step-expand:hover {
@@ -6329,6 +6341,9 @@ body[data-page="billing"] .pricing-card.current-plan {
   font-weight: 500;
   cursor: pointer;
   transition: all var(--motion-duration-fast);
+  /* Prevent focus scroll */
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .compact-plan-step-edit-button:hover {
@@ -6437,6 +6452,9 @@ body[data-page="billing"] .pricing-card.current-plan {
   font-size: var(--font-sm);
   cursor: pointer;
   transition: all var(--motion-duration-fast);
+  /* Prevent focus scroll */
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .compact-plan-run-button:hover:not(:disabled) {

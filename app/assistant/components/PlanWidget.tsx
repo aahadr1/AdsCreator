@@ -24,10 +24,27 @@ export default function PlanWidget({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className="widget-card plan-widget">
+    <div 
+      className="widget-card plan-widget"
+      onMouseDown={(e) => {
+        // Prevent scroll when clicking inside widget
+        if ((e.target as HTMLElement).closest('.plan-widget-step-item') || 
+            (e.target as HTMLElement).closest('button')) {
+          e.preventDefault();
+        }
+      }}
+    >
       <div 
         className="plan-widget-header"
-        onClick={() => setExpanded(!expanded)}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setExpanded(!expanded);
+        }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         style={{ cursor: 'pointer' }}
       >
         <div className="plan-widget-title">
@@ -49,7 +66,15 @@ export default function PlanWidget({
               <div 
                 key={step.id} 
                 className="plan-widget-step-item"
-                onClick={() => onStepClick?.(step.id)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onStepClick?.(step.id);
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
                 style={{ cursor: onStepClick ? 'pointer' : 'default' }}
               >
                 <div className="plan-widget-step-number">{idx + 1}</div>
@@ -67,8 +92,13 @@ export default function PlanWidget({
               <button
                 className="plan-widget-run-button"
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   onRun();
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                 }}
                 disabled={!canRun || isRunning}
               >

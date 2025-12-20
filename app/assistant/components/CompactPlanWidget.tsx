@@ -72,7 +72,19 @@ export default function CompactPlanWidget({
   };
 
   return (
-    <div className="compact-plan-widget">
+      <div 
+        className="compact-plan-widget"
+        onMouseDown={(e) => {
+          // Prevent scroll when clicking inside widget
+          if ((e.target as HTMLElement).closest('.compact-plan-step') || 
+              (e.target as HTMLElement).closest('button') ||
+              (e.target as HTMLElement).closest('input') ||
+              (e.target as HTMLElement).closest('textarea') ||
+              (e.target as HTMLElement).closest('select')) {
+            e.preventDefault();
+          }
+        }}
+      >
       <div className="compact-plan-widget-header">
         <div className="compact-plan-widget-title">
           <span>Workflow Plan</span>
@@ -81,7 +93,15 @@ export default function CompactPlanWidget({
         <div className="compact-plan-widget-actions">
           <button
             className="compact-plan-widget-toggle"
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setCollapsed(!collapsed);
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             type="button"
           >
             {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -89,8 +109,14 @@ export default function CompactPlanWidget({
         </div>
       </div>
       {!collapsed && (
-        <div className="compact-plan-widget-content">
-          <div className="compact-plan-widget-steps">
+      <div 
+        className="compact-plan-widget-content"
+        onClick={(e) => {
+          // Prevent clicks from bubbling up
+          e.stopPropagation();
+        }}
+      >
+        <div className="compact-plan-widget-steps">
             {plan.steps.map((step, idx) => {
               const state = stepStates[step.id] || { status: 'idle' };
               const config = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
@@ -102,7 +128,17 @@ export default function CompactPlanWidget({
                 <div
                   key={step.id}
                   className={`compact-plan-step ${isExpanded ? 'expanded' : ''}`}
-                  onClick={() => onStepClick?.(step.id)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onStepClick?.(step.id);
+                  }}
+                  onMouseDown={(e) => {
+                    // Prevent default to avoid focus/scroll issues
+                    if (e.target === e.currentTarget || (e.target as HTMLElement).closest('.compact-plan-step-main')) {
+                      e.preventDefault();
+                    }
+                  }}
                 >
                   <div className="compact-plan-step-main">
                     <div className="compact-plan-step-number">{idx + 1}</div>
@@ -123,8 +159,13 @@ export default function CompactPlanWidget({
                     <button
                       className="compact-plan-step-expand"
                       onClick={(e) => {
+                        e.preventDefault();
                         e.stopPropagation();
                         onStepExpand?.(step.id);
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                       }}
                       type="button"
                     >
@@ -194,9 +235,14 @@ export default function CompactPlanWidget({
                             <button
                               className="compact-plan-step-edit-button"
                               onClick={(e) => {
+                                e.preventDefault();
                                 e.stopPropagation();
                                 setEditingStepId(step.id);
                                 setEditConfigs((prev) => ({ ...prev, [step.id]: { ...config } }));
+                              }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
                               }}
                               type="button"
                             >
@@ -215,7 +261,15 @@ export default function CompactPlanWidget({
             <div className="compact-plan-widget-footer">
               <button
                 className="compact-plan-run-button"
-                onClick={onRun}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onRun?.();
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
                 disabled={!canRun || isRunning}
                 type="button"
               >
@@ -319,8 +373,35 @@ function CompactStepEditor({ step, config, onConfigChange, onSave, onCancel }: C
         );
       })}
       <div className="compact-step-editor-actions">
-        <button onClick={onCancel} type="button">Cancel</button>
-        <button onClick={onSave} className="primary" type="button">Save</button>
+        <button 
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          type="button"
+        >
+          Cancel
+        </button>
+        <button 
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSave();
+          }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className="primary" 
+          type="button"
+        >
+          Save
+        </button>
       </div>
     </div>
   );
