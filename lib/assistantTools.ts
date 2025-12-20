@@ -621,7 +621,8 @@ function attachMediaToPlan(plan: AssistantPlan, media: AssistantMedia[]): Assist
   const steps = plan.steps.map((step) => {
     const inputs = { ...(step.inputs || {}) };
     const deps = new Set(step.dependencies || []);
-    const preferredImageSource = findDependencyByKind(step, 'image') || lastImageStep;
+    // Avoid chaining image modifications: for image steps, only use uploads (not prior steps)
+    const preferredImageSource = step.tool === 'image' ? null : (findDependencyByKind(step, 'image') || lastImageStep);
     const preferredVideoSource = findDependencyByKind(step, 'video') || lastVideoStep;
     const preferredAudioSource = findDependencyByKind(step, 'audio') || lastAudioStep;
 
@@ -1039,6 +1040,14 @@ export function normalizePlannerOutput(
     }
     
     prompt = validateAndCleanPrompt(prompt, tool);
+    // Ensure image modification prompts always embed the specific variation text
+    if (tool === 'image' && analysis?.imageModificationInstruction) {
+      const stepIndex = (raw.steps as any[]).filter((st: any) => st.tool === 'image').indexOf(s);
+      const contentVariation = analysis.contentVariations[stepIndex];
+      if (contentVariation && !prompt.includes(contentVariation)) {
+        prompt = `${analysis.imageModificationInstruction} "${contentVariation}". ${prompt}`;
+      }
+    }
     
     const inputs: Record<string, any> = { ...(s.inputs || {}) };
     if (prompt) inputs.prompt = prompt;
@@ -1079,12 +1088,13 @@ export function normalizePlannerOutput(
         const idx = existingImageCount + i + 1;
         const contentText = analysis.contentVariations[existingImageCount + i] || null;
         const newId = `image-${idx}`;
-        
+
         const styleCue = analysis.styleCues?.length ? ` Style cues: ${analysis.styleCues.join(', ')}.` : '';
         const goalText = analysis.goals ? ` Goal: ${analysis.goals}.` : '';
+        const baseInstruction = analysis.imageModificationInstruction || 'Use the provided image as the base and integrate the new content cleanly.';
         const prompt = contentText
-          ? `Image for "${contentText}" that aligns with the request.${styleCue}${goalText}`
-          : `Image that aligns with the request.${styleCue}${goalText}`;
+          ? `${baseInstruction} "${contentText}".${styleCue}${goalText}`
+          : `${baseInstruction}${styleCue}${goalText}`;
         
         steps.push(normalizeInputs({
           id: newId,
