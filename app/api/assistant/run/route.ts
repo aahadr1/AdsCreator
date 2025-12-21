@@ -1,5 +1,5 @@
 export const runtime = 'nodejs';
-export const maxDuration = 1800; // 30 minutes for slow models
+export const maxDuration = 300; // 5 minutes (Vercel hobby plan limit)
 
 import { NextRequest } from 'next/server';
 import Replicate from 'replicate';
