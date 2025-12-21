@@ -7852,7 +7852,7 @@ body[data-page="billing"] .pricing-card.current-plan {
 
 /* Timeline */
 .assistant-editor-timeline {
-  height: 200px;
+  height: 220px;
   background: var(--panel-elevated);
   border-top: 1px solid var(--separator);
   display: flex;
@@ -7901,12 +7901,61 @@ body[data-page="billing"] .pricing-card.current-plan {
   text-align: center;
 }
 
-.assistant-editor-timeline {
+.assistant-editor-timeline-body {
   flex: 1;
-  position: relative;
+  display: flex;
+  overflow: hidden;
+}
+
+.assistant-editor-timeline-label-column {
+  width: 120px;
+  background: var(--panel);
+  border-right: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-editor-timeline-label-spacer {
+  height: 30px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-timeline-track-label {
+  height: 95px;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--separator);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+}
+
+.assistant-editor-timeline-scroll {
+  flex: 1;
   overflow-x: auto;
   overflow-y: hidden;
   cursor: crosshair;
+  background: var(--panel-elevated);
+}
+
+.assistant-editor-timeline-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.assistant-editor-timeline-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assistant-editor-timeline-scroll::-webkit-scrollbar-thumb {
+  background: var(--panel);
+  border-radius: var(--radius);
+}
+
+.assistant-editor-timeline-content {
+  position: relative;
+  min-height: 190px;
+  padding-top: 30px;
 }
 
 .assistant-editor-timeline-ruler {
@@ -7966,9 +8015,9 @@ body[data-page="billing"] .pricing-card.current-plan {
 
 .assistant-editor-timeline-track {
   position: relative;
-  min-height: 80px;
+  height: 95px;
   border-bottom: 1px solid var(--separator);
-  display: flex;
+  display: block;
 }
 
 .assistant-editor-timeline-track.drag-over {
@@ -7976,23 +8025,10 @@ body[data-page="billing"] .pricing-card.current-plan {
   border-color: var(--accent);
 }
 
-.assistant-editor-timeline-track-label {
-  width: 80px;
-  padding: var(--space-3);
-  background: var(--panel);
-  border-right: 1px solid var(--separator);
-  font-size: var(--font-sm);
-  font-weight: 500;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
 .assistant-editor-timeline-track-content {
-  flex: 1;
   position: relative;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
 }
 
 /* Timeline Clip */

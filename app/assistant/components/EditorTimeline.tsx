@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
 import type { EditorAsset, TimelineClip } from '../../../types/editor';
 import EditorTimelineClip from './EditorTimelineClip';
@@ -12,6 +12,7 @@ type EditorTimelineProps = {
   zoom: number;
   duration: number;
   selectedClipId?: string | null;
+  playing: boolean;
   onAddClip: (clip: TimelineClip) => void;
   onUpdateClip: (clipId: string, updates: Partial<TimelineClip>) => void;
   onRemoveClip: (clipId: string) => void;
@@ -29,6 +30,7 @@ export default function EditorTimeline({
   zoom,
   duration,
   selectedClipId,
+  playing,
   onAddClip,
   onUpdateClip,
   onRemoveClip,
@@ -36,24 +38,46 @@ export default function EditorTimeline({
   onSetZoom,
   onSelectClip,
 }: EditorTimelineProps) {
-  const timelineRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [dragOverTrack, setDragOverTrack] = useState<'video' | 'audio' | null>(null);
   const draggedAssetIdRef = useRef<string | null>(null);
 
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom;
-  const timelineWidth = Math.max(duration * pixelsPerSecond, 1000);
+  const MIN_VIRTUAL_DURATION = 60;
+  const DURATION_BUFFER = 30;
+  const [virtualDuration, setVirtualDuration] = useState(
+    Math.max(duration + DURATION_BUFFER, MIN_VIRTUAL_DURATION),
+  );
+
+  const ensureVirtualDuration = useCallback((time: number) => {
+    setVirtualDuration((prev) => {
+      const target = Math.max(time + DURATION_BUFFER, MIN_VIRTUAL_DURATION);
+      return target > prev ? target : prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    setVirtualDuration((prev) => {
+      const target = Math.max(duration + DURATION_BUFFER, playhead + DURATION_BUFFER, MIN_VIRTUAL_DURATION);
+      return target > prev ? target : prev;
+    });
+  }, [duration, playhead]);
+
+  const timelineWidth = Math.max(virtualDuration * pixelsPerSecond, 1000);
 
   const handleTimelineClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!timelineRef.current) return;
-      const rect = timelineRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      if (!contentRef.current || !scrollRef.current) return;
+      const rect = contentRef.current.getBoundingClientRect();
+      const scrollLeft = scrollRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
       const time = x / pixelsPerSecond;
-      onSetPlayhead(Math.max(0, Math.min(time, duration)));
+      ensureVirtualDuration(time);
+      onSetPlayhead(Math.max(0, time));
     },
-    [pixelsPerSecond, duration, onSetPlayhead]
+    [pixelsPerSecond, onSetPlayhead, ensureVirtualDuration],
   );
-
 
   const handleTimelineDragOver = useCallback(
     (e: React.DragEvent, track: 'video' | 'audio') => {
@@ -78,7 +102,7 @@ export default function EditorTimeline({
         draggedAssetIdRef.current = assetId;
       }
     },
-    []
+    [],
   );
 
   const handleTimelineDrop = useCallback(
@@ -99,7 +123,7 @@ export default function EditorTimeline({
         }
       }
       
-      if (!assetId || !timelineRef.current) {
+      if (!assetId || !contentRef.current || !scrollRef.current) {
         setDragOverTrack(null);
         draggedAssetIdRef.current = null;
         return;
@@ -112,9 +136,11 @@ export default function EditorTimeline({
         return;
       }
 
-      const rect = timelineRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const rect = contentRef.current.getBoundingClientRect();
+      const scrollLeft = scrollRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
       const time = Math.max(0, x / pixelsPerSecond);
+      ensureVirtualDuration(time + (draggedAsset.duration || 0));
 
       const assetDuration = draggedAsset.duration || 5; // Default 5 seconds if unknown
       const clipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -132,7 +158,7 @@ export default function EditorTimeline({
       setDragOverTrack(null);
       draggedAssetIdRef.current = null;
     },
-    [assets, pixelsPerSecond, onAddClip]
+    [assets, pixelsPerSecond, onAddClip, ensureVirtualDuration],
   );
 
   const handleZoomIn = useCallback(() => {
@@ -148,6 +174,24 @@ export default function EditorTimeline({
 
   const playheadPosition = playhead * pixelsPerSecond;
 
+  useEffect(() => {
+    if (!scrollRef.current || !playing) return;
+    const viewportWidth = scrollRef.current.clientWidth;
+    const scrollLeft = scrollRef.current.scrollLeft;
+    const padding = viewportWidth * 0.15;
+    if (playheadPosition < scrollLeft + padding) {
+      scrollRef.current.scrollTo({
+        left: Math.max(playheadPosition - padding, 0),
+        behavior: 'smooth',
+      });
+    } else if (playheadPosition > scrollLeft + viewportWidth - padding) {
+      scrollRef.current.scrollTo({
+        left: playheadPosition - viewportWidth + padding,
+        behavior: 'smooth',
+      });
+    }
+  }, [playheadPosition, playing]);
+
   return (
     <div className="assistant-editor-timeline-container">
       <div className="assistant-editor-timeline-controls">
@@ -161,86 +205,93 @@ export default function EditorTimeline({
       </div>
 
       <div
-        ref={timelineRef}
-        className="assistant-editor-timeline"
-        onClick={handleTimelineClick}
-        onDragOver={(e) => {
-          e.preventDefault();
-        }}
+        className="assistant-editor-timeline-body"
       >
-        <div className="assistant-editor-timeline-ruler">
-          {Array.from({ length: Math.ceil(duration) + 1 }).map((_, i) => (
-            <div
-              key={i}
-              className="assistant-editor-timeline-ruler-mark"
-              style={{ left: i * pixelsPerSecond }}
-            >
-              <div className="assistant-editor-timeline-ruler-line" />
-              <div className="assistant-editor-timeline-ruler-label">{i}s</div>
-            </div>
-          ))}
-        </div>
-
-        <div
-          className="assistant-editor-timeline-playhead"
-          style={{ left: playheadPosition }}
-        />
-
-        <div
-          className={`assistant-editor-timeline-track assistant-editor-timeline-track-video ${
-            dragOverTrack === 'video' ? 'drag-over' : ''
-          }`}
-          onDragOver={(e) => handleTimelineDragOver(e, 'video')}
-          onDrop={(e) => handleTimelineDrop(e, 'video')}
-        >
+        <div className="assistant-editor-timeline-label-column">
+          <div className="assistant-editor-timeline-label-spacer" />
           <div className="assistant-editor-timeline-track-label">Video</div>
-          <div className="assistant-editor-timeline-track-content" style={{ width: timelineWidth }}>
-            {videoClips.map((clip) => {
-              const asset = assets.find((a) => a.id === clip.assetId);
-              if (!asset) return null;
-
-              return (
-                <EditorTimelineClip
-                  key={clip.id}
-                  clip={clip}
-                  asset={asset}
-                  pixelsPerSecond={pixelsPerSecond}
-                  isSelected={selectedClipId === clip.id}
-                  onUpdate={(updates) => onUpdateClip(clip.id, updates)}
-                  onRemove={() => onRemoveClip(clip.id)}
-                  onSelect={() => onSelectClip?.(clip.id)}
-                />
-              );
-            })}
-          </div>
+          <div className="assistant-editor-timeline-track-label">Audio</div>
         </div>
 
-        <div
-          className={`assistant-editor-timeline-track assistant-editor-timeline-track-audio ${
-            dragOverTrack === 'audio' ? 'drag-over' : ''
-          }`}
-          onDragOver={(e) => handleTimelineDragOver(e, 'audio')}
-          onDrop={(e) => handleTimelineDrop(e, 'audio')}
-        >
-          <div className="assistant-editor-timeline-track-label">Audio</div>
-          <div className="assistant-editor-timeline-track-content" style={{ width: timelineWidth }}>
-            {audioClips.map((clip) => {
-              const asset = assets.find((a) => a.id === clip.assetId);
-              if (!asset) return null;
+        <div className="assistant-editor-timeline-scroll" ref={scrollRef} onClick={handleTimelineClick}>
+          <div
+            className="assistant-editor-timeline-content"
+            ref={contentRef}
+            style={{ width: timelineWidth }}
+          >
+            <div className="assistant-editor-timeline-ruler">
+              {Array.from({ length: Math.ceil(virtualDuration) + 1 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="assistant-editor-timeline-ruler-mark"
+                  style={{ left: i * pixelsPerSecond }}
+                >
+                  <div className="assistant-editor-timeline-ruler-line" />
+                  <div className="assistant-editor-timeline-ruler-label">{i}s</div>
+                </div>
+              ))}
+            </div>
 
-              return (
-                <EditorTimelineClip
-                  key={clip.id}
-                  clip={clip}
-                  asset={asset}
-                  pixelsPerSecond={pixelsPerSecond}
-                  isSelected={selectedClipId === clip.id}
-                  onUpdate={(updates) => onUpdateClip(clip.id, updates)}
-                  onRemove={() => onRemoveClip(clip.id)}
-                  onSelect={() => onSelectClip?.(clip.id)}
-                />
-              );
-            })}
+            <div
+              className="assistant-editor-timeline-playhead"
+              style={{ transform: `translateX(${playheadPosition}px)` }}
+            />
+
+            <div
+              className={`assistant-editor-timeline-track assistant-editor-timeline-track-video ${
+                dragOverTrack === 'video' ? 'drag-over' : ''
+              }`}
+              onDragOver={(e) => handleTimelineDragOver(e, 'video')}
+              onDrop={(e) => handleTimelineDrop(e, 'video')}
+            >
+              <div className="assistant-editor-timeline-track-content">
+                {videoClips.map((clip) => {
+                  const asset = assets.find((a) => a.id === clip.assetId);
+                  if (!asset) return null;
+
+                  return (
+                    <EditorTimelineClip
+                      key={clip.id}
+                      clip={clip}
+                      asset={asset}
+                      pixelsPerSecond={pixelsPerSecond}
+                      isSelected={selectedClipId === clip.id}
+                      onUpdate={(updates) => onUpdateClip(clip.id, updates)}
+                      onRemove={() => onRemoveClip(clip.id)}
+                      onSelect={() => onSelectClip?.(clip.id)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            <div
+              className={`assistant-editor-timeline-track assistant-editor-timeline-track-audio ${
+                dragOverTrack === 'audio' ? 'drag-over' : ''
+              }`}
+              onDragOver={(e) => handleTimelineDragOver(e, 'audio')}
+              onDrop={(e) => handleTimelineDrop(e, 'audio')}
+            >
+              <div className="assistant-editor-timeline-track-content">
+                {audioClips.map((clip) => {
+                  const asset = assets.find((a) => a.id === clip.assetId);
+                  if (!asset) return null;
+
+                  return (
+                    <EditorTimelineClip
+                      key={clip.id}
+                      clip={clip}
+                      asset={asset}
+                      pixelsPerSecond={pixelsPerSecond}
+                      isSelected={selectedClipId === clip.id}
+                      onUpdate={(updates) => onUpdateClip(clip.id, updates)}
+                      onRemove={() => onRemoveClip(clip.id)}
+                      onSelect={() => onSelectClip?.(clip.id)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -253,4 +304,3 @@ export default function EditorTimeline({
     </div>
   );
 }
-

@@ -111,16 +111,18 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
     }
   }, []);
 
-  // Timeline playback loop - advances playhead when playing
+  // Timeline playback loop driven by requestAnimationFrame for smoother sync
   useEffect(() => {
-    if (!editorState.playing) return;
+    let rafId: number | null = null;
+    let lastTime = performance.now();
 
-    const interval = setInterval(() => {
+    const step = (now: number) => {
       setEditorState((prev) => {
+        if (!prev.playing) return prev;
+        const deltaSeconds = (now - lastTime) / 1000;
         const speed = prev.playbackSpeed || 1;
-        const newPlayhead = prev.playhead + (speed / 60); // Account for playback speed
-        if (newPlayhead >= prev.duration) {
-          // Reached end of timeline, stop playback
+        const nextPlayhead = prev.playhead + deltaSeconds * speed;
+        if (nextPlayhead >= prev.duration) {
           return {
             ...prev,
             playhead: prev.duration,
@@ -129,13 +131,22 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
         }
         return {
           ...prev,
-          playhead: newPlayhead,
+          playhead: nextPlayhead,
         };
       });
-    }, 1000 / 60); // 60fps
+      lastTime = now;
+      rafId = requestAnimationFrame(step);
+    };
 
-    return () => clearInterval(interval);
-  }, [editorState.playing, editorState.duration, editorState.playbackSpeed]);
+    if (editorState.playing) {
+      lastTime = performance.now();
+      rafId = requestAnimationFrame(step);
+    }
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [editorState.playing, editorState.playbackSpeed, editorState.duration]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -222,7 +233,7 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, editorState.playing, editorState.playhead, editorState.duration, editorState.selectedClipId, editorState.clips, handleSetPlaying, handleSetPlayhead, handleRemoveClip, handleAddClip]);
+  }, [isOpen, editorState.playing, editorState.playhead, editorState.duration, editorState.selectedClipId, editorState.clips, handleSetPlaying, handleSetPlayhead, handleRemoveClip, handleAddClip, handleUpdateClip]);
 
   if (!isOpen) return null;
 
@@ -289,6 +300,7 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
                 zoom={editorState.zoom}
                 duration={editorState.duration}
                 selectedClipId={editorState.selectedClipId}
+                playing={editorState.playing}
                 onAddClip={handleAddClip}
                 onUpdateClip={handleUpdateClip}
                 onRemoveClip={handleRemoveClip}
@@ -306,4 +318,3 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
     </div>
   );
 }
-
