@@ -257,45 +257,32 @@ export default function EditorPreviewPanel({
   };
 
   const getProxiedUrl = (url: string) => {
+    // Don't proxy blob URLs or data URLs - they work directly
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+      return url;
+    }
     if (url.startsWith('http')) {
       return `/api/proxy?url=${encodeURIComponent(url)}`;
     }
     return url;
   };
 
-  // Debug logging (remove in production)
-  useEffect(() => {
-    console.log('Preview Panel State:', {
-      currentMedia: currentMedia?.name,
-      currentMediaType: currentMedia?.type,
-      currentMediaUrl: currentMedia?.url,
-      activeClip: activeClip?.id,
-      activeClipStart: activeClip?.startTime,
-      activeClipEnd: activeClip?.endTime,
-      currentTime,
-      playing,
-      playhead,
-      clipsCount: clips.length,
-      assetsCount: assets.length,
-      clips: clips.map(c => ({ id: c.id, assetId: c.assetId, start: c.startTime, end: c.endTime, track: c.track })),
-      assets: assets.map(a => ({ id: a.id, name: a.name, type: a.type, url: a.url?.substring(0, 50) })),
-    });
-  }, [currentMedia, activeClip, currentTime, playing, playhead, clips, assets]);
-
   const mediaUrl = currentMedia?.url ? getProxiedUrl(currentMedia.url) : '';
 
-  // Debug: Log when media should be displayed
+  // Debug logging (reduced frequency)
   useEffect(() => {
     if (currentMedia && currentMedia.url) {
-      console.log('Displaying media:', {
-        name: currentMedia.name,
+      console.log('Preview Panel:', {
+        media: currentMedia.name,
         type: currentMedia.type,
-        url: mediaUrl.substring(0, 100),
+        url: mediaUrl.substring(0, 80),
         activeClip: activeClip?.id,
-        currentTime,
+        currentTime: currentTime.toFixed(2),
+        playing,
+        playhead: playhead.toFixed(2),
       });
     }
-  }, [currentMedia, mediaUrl, activeClip, currentTime]);
+  }, [currentMedia?.name, mediaUrl, activeClip?.id, Math.floor(currentTime), playing, Math.floor(playhead)]);
 
   if (!currentMedia) {
     return (
