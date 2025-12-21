@@ -1745,8 +1745,10 @@ export async function normalizePlannerOutput(
   const firstImageUrl = media.find((m) => m.type === 'image')?.url;
   
   // Process and validate each step (async for aspect ratio detection)
-  let steps = await Promise.all((planObj.steps as AssistantPlanStep[]).map(async (s, idx) => {
+  // Use Promise.allSettled to handle errors per-step instead of failing all steps
+  const stepResults = await Promise.allSettled((planObj.steps as AssistantPlanStep[]).map(async (s, idx) => {
     const tool = (s.tool as AssistantToolKind) || 'image';
+    console.log(`[Normalize] Processing step ${idx + 1}/${planObj.steps.length}: ${s.id} (${tool})`);
     
     // Extract prompt from various possible locations
     const rawPrompt = (s as any)?.prompt;
@@ -1892,6 +1894,36 @@ export async function normalizePlannerOutput(
       validations: s.validations,
     });
   }));
+
+  // Process results - keep successful steps, log errors for failed ones
+  const steps: AssistantPlanStep[] = [];
+  const errors: string[] = [];
+  
+  stepResults.forEach((result, idx) => {
+    if (result.status === 'fulfilled') {
+      steps.push(result.value);
+      console.log(`[Normalize] ✓ Step ${idx + 1} processed successfully: ${result.value.id}`);
+    } else {
+      const step = planObj.steps[idx];
+      const errorMsg = result.reason?.message || 'Unknown error';
+      errors.push(`Step ${step?.id || idx + 1} (${step?.tool || 'unknown'}): ${errorMsg}`);
+      console.error(`[Normalize] ❌ Step ${idx + 1} failed: ${step?.id} - ${errorMsg}`);
+      console.error(`[Normalize] Step data:`, JSON.stringify(step, null, 2).slice(0, 500));
+    }
+  });
+
+  if (errors.length > 0) {
+    console.warn(`[Normalize] ⚠️  ${errors.length} step(s) failed during normalization:`);
+    errors.forEach(err => console.warn(`  - ${err}`));
+  }
+
+  if (steps.length === 0) {
+    throw new Error(`All ${planObj.steps.length} steps failed normalization. Errors: ${errors.join('; ')}`);
+  }
+
+  if (steps.length < planObj.steps.length) {
+    console.warn(`[Normalize] ⚠️  Only ${steps.length}/${planObj.steps.length} steps succeeded. Some steps were dropped due to errors.`);
+  }
 
   // VALIDATION: Ensure TTS steps are created if analysis says they're needed
   if (analysis && analysis.totalTtsSteps > 0) {

@@ -479,19 +479,28 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
       }
       
       console.log(`[Plan] ✓ Successfully extracted plan with ${planJson.steps.length} steps`);
-      
-      console.log(`[Plan] Successfully parsed ${planJson.steps.length} steps`);
+      console.log(`[Plan] Plan JSON before normalization:`, JSON.stringify(planJson, null, 2).slice(0, 2000));
       
       // Log prompts for debugging
       planJson.steps.forEach((step: any, idx: number) => {
-        const prompt = step?.inputs?.prompt || step?.prompt || '(missing)';
+        const prompt = step?.inputs?.prompt || step?.inputs?.text || step?.prompt || '(missing)';
         const preview = typeof prompt === 'string' 
           ? prompt.slice(0, 120).replace(/\n/g, ' ') 
           : '(invalid type)';
-        console.log(`[Plan] Step ${idx + 1} "${step?.title || step?.id}": ${preview}${prompt.length > 120 ? '...' : ''}`);
+        console.log(`[Plan] Step ${idx + 1} "${step?.title || step?.id}" (${step?.tool}): ${preview}${prompt.length > 120 ? '...' : ''}`);
+        console.log(`[Plan] Step ${idx + 1} inputs:`, JSON.stringify(step?.inputs || {}, null, 2).slice(0, 300));
       });
       
-      parsed = await normalizePlannerOutput(planJson, messages, media, null);
+      try {
+        parsed = await normalizePlannerOutput(planJson, messages, media, null);
+        console.log(`[Plan] ✓ Normalization succeeded with ${parsed.steps.length} steps`);
+      } catch (normalizeErr: any) {
+        console.error('[Plan] ❌ Normalization failed:', normalizeErr);
+        console.error('[Plan] Normalization error stack:', normalizeErr?.stack);
+        console.error('[Plan] Original plan had', planJson.steps.length, 'steps');
+        // Don't throw - let the error be caught by outer try-catch
+        throw normalizeErr;
+      }
       
       // Log final dependencies
       if (parsed?.steps) {
