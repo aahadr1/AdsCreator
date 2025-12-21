@@ -1,10 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import dynamic from 'next/dynamic';
 import type { EditorAsset, TimelineClip } from '../../../types/editor';
-
-const ReactPlayer = dynamic(() => import('react-player'), { ssr: false });
 
 type EditorPreviewPanelProps = {
   assets: EditorAsset[];
@@ -31,15 +28,19 @@ export default function EditorPreviewPanel({
   onSetPlayhead,
   onSetPlaying,
 }: EditorPreviewPanelProps) {
-  const playerRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [currentMedia, setCurrentMedia] = useState<EditorAsset | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [activeClip, setActiveClip] = useState<TimelineClip | null>(null);
-  const [activeAudioClips, setActiveAudioClips] = useState<TimelineClip[]>([]);
+  const [isSeeking, setIsSeeking] = useState(false);
 
-  // Priority: selectedClipId > selectedAssetId > timeline composition (clip at playhead) > first asset
+  // Determine which media to display based on priority:
+  // 1. Selected clip (highest priority)
+  // 2. Selected asset
+  // 3. Active clip at playhead (timeline composition)
   useEffect(() => {
-    // First check if there's a selected clip (highest priority)
+    // Priority 1: Selected clip
     if (selectedClipId) {
       const selectedClip = clips.find((c) => c.id === selectedClipId);
       if (selectedClip) {
@@ -51,25 +52,23 @@ export default function EditorPreviewPanel({
             ? playhead - selectedClip.startTime + selectedClip.trimStart
             : selectedClip.trimStart;
           setCurrentTime(Math.max(0, clipRelativeTime));
-          setActiveAudioClips([]);
           return;
         }
       }
     }
 
-    // Then check if there's a selected asset (asset preview mode)
+    // Priority 2: Selected asset
     if (selectedAssetId) {
       const selectedAsset = assets.find((a) => a.id === selectedAssetId);
       if (selectedAsset) {
         setCurrentMedia(selectedAsset);
         setCurrentTime(0);
         setActiveClip(null);
-        setActiveAudioClips([]);
         return;
       }
     }
 
-    // Timeline composition mode: find active clips at playhead
+    // Priority 3: Timeline composition - find active clip at playhead
     if (clips.length > 0) {
       const videoClips = clips.filter((c) => c.track === 'video');
       const audioClips = clips.filter((c) => c.track === 'audio');
@@ -79,19 +78,16 @@ export default function EditorPreviewPanel({
         (clip) => playhead >= clip.startTime && playhead < clip.endTime
       );
 
-      // Find all active audio clips
+      // Find active audio clips
       const activeAudios = audioClips.filter(
         (clip) => playhead >= clip.startTime && playhead < clip.endTime
       );
-
-      setActiveAudioClips(activeAudios);
 
       if (activeVideoClip) {
         const asset = assets.find((a) => a.id === activeVideoClip.assetId);
         if (asset) {
           setCurrentMedia(asset);
           setActiveClip(activeVideoClip);
-          // Calculate the time within the clip: playhead position - clip start + trim offset
           const clipRelativeTime = playhead - activeVideoClip.startTime + activeVideoClip.trimStart;
           const clipDuration = (activeVideoClip.endTime - activeVideoClip.startTime) + activeVideoClip.trimStart - activeVideoClip.trimEnd;
           setCurrentTime(Math.max(0, Math.min(clipRelativeTime, clipDuration)));
@@ -99,7 +95,7 @@ export default function EditorPreviewPanel({
         }
       }
 
-      // If no video clip but audio clips exist, show first audio
+      // If no video but audio exists, show first audio
       if (activeAudios.length > 0 && !activeVideoClip) {
         const firstAudioClip = activeAudios[0];
         const asset = assets.find((a) => a.id === firstAudioClip.assetId);
@@ -113,7 +109,7 @@ export default function EditorPreviewPanel({
         }
       }
 
-      // If playhead is before all clips, show first clip at its start
+      // If playhead is before all clips, show first clip
       const allClips = [...videoClips, ...audioClips].sort((a, b) => a.startTime - b.startTime);
       if (allClips.length > 0) {
         if (playhead < allClips[0].startTime) {
@@ -127,7 +123,7 @@ export default function EditorPreviewPanel({
           }
         }
         
-        // If playhead is after all clips, show last clip at its end
+        // If playhead is after all clips, show last clip
         const lastClip = allClips[allClips.length - 1];
         if (playhead >= lastClip.endTime) {
           const asset = assets.find((a) => a.id === lastClip.assetId);
@@ -140,19 +136,7 @@ export default function EditorPreviewPanel({
           }
         }
         
-        // If playhead is between clips, show the next upcoming clip
-        const nextClip = allClips.find((clip) => playhead < clip.startTime);
-        if (nextClip) {
-          const asset = assets.find((a) => a.id === nextClip.assetId);
-          if (asset) {
-            setCurrentMedia(asset);
-            setActiveClip(nextClip);
-            setCurrentTime(nextClip.trimStart);
-            return;
-          }
-        }
-        
-        // Fallback: show first clip anyway
+        // Fallback: show first clip
         const firstClip = allClips[0];
         const asset = assets.find((a) => a.id === firstClip.assetId);
         if (asset) {
@@ -165,94 +149,131 @@ export default function EditorPreviewPanel({
       }
     }
 
-    // Fallback: show first asset if available (no clips on timeline)
+    // Fallback: show first asset if available
     if (assets.length > 0) {
       setCurrentMedia(assets[0]);
       setCurrentTime(0);
       setActiveClip(null);
-      setActiveAudioClips([]);
     } else {
       setCurrentMedia(null);
       setCurrentTime(0);
       setActiveClip(null);
-      setActiveAudioClips([]);
     }
   }, [playhead, clips, assets, selectedAssetId, selectedClipId]);
 
-  // Update currentTime when playhead moves - this is critical for timeline sync
+  // Update currentTime when playhead moves (for timeline sync)
   useEffect(() => {
     if (activeClip) {
-      // Recalculate clip-relative time when playhead changes
       const clipRelativeTime = playhead - activeClip.startTime + activeClip.trimStart;
       const clipDuration = (activeClip.endTime - activeClip.startTime) + activeClip.trimStart - activeClip.trimEnd;
       const newTime = Math.max(0, Math.min(clipRelativeTime, clipDuration));
-      // Always update if there's a meaningful change
       if (Math.abs(newTime - currentTime) > 0.01) {
         setCurrentTime(newTime);
       }
     }
   }, [playhead, activeClip]);
 
-  // Sync player with playhead time - CRITICAL for timeline playback
-  // This effect continuously syncs the player's currentTime with the timeline playhead
+  // CRITICAL: Sync video element with timeline playhead
   useEffect(() => {
-    if (!playerRef.current || !currentMedia) return;
-
-    const player = playerRef.current.getInternalPlayer();
-    if (!player || typeof player.currentTime === 'undefined') return;
+    const video = videoRef.current;
+    if (!video || !currentMedia || currentMedia.type !== 'video' || isSeeking) return;
 
     try {
-      const currentPlayerTime = typeof player.currentTime === 'number' ? player.currentTime : 0;
       const targetTime = currentTime;
+      const currentPlayerTime = video.currentTime || 0;
       
-      // Always sync when there's an active clip (timeline mode)
-      // Use smaller threshold during playback for smoother sync
-      const threshold = playing && activeClip ? 0.03 : 0.1;
+      // Only sync if difference is significant (avoid constant micro-updates)
+      const threshold = playing && activeClip ? 0.05 : 0.1;
       
       if (Math.abs(currentPlayerTime - targetTime) > threshold) {
-        player.currentTime = targetTime;
+        setIsSeeking(true);
+        video.currentTime = targetTime;
+        // Reset seeking flag after a short delay
+        setTimeout(() => setIsSeeking(false), 50);
       }
     } catch (e) {
-      // Ignore errors when setting currentTime
+      setIsSeeking(false);
+      // Ignore errors
     }
-  }, [currentTime, currentMedia, activeClip, playing]);
+  }, [currentTime, currentMedia, activeClip, playing, isSeeking]);
 
-  // Handle playback state - play/pause based on timeline playing state
+  // Sync audio element with timeline playhead
   useEffect(() => {
-    if (!playerRef.current || !currentMedia) return;
+    const audio = audioRef.current;
+    if (!audio || !currentMedia || currentMedia.type !== 'audio' || isSeeking) return;
 
-    const player = playerRef.current.getInternalPlayer();
-    if (!player) return;
+    try {
+      const targetTime = currentTime;
+      const currentPlayerTime = audio.currentTime || 0;
+      const threshold = playing && activeClip ? 0.05 : 0.1;
+      
+      if (Math.abs(currentPlayerTime - targetTime) > threshold) {
+        setIsSeeking(true);
+        audio.currentTime = targetTime;
+        setTimeout(() => setIsSeeking(false), 50);
+      }
+    } catch (e) {
+      setIsSeeking(false);
+    }
+  }, [currentTime, currentMedia, activeClip, playing, isSeeking]);
 
-    // Play if timeline is playing AND we have an active clip or selected asset/clip
-    // Also play if there's a selected asset/clip even when paused (to show preview)
+  // Handle playback state (play/pause)
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    const player = currentMedia?.type === 'video' ? video : audio;
+    
+    if (!player || !currentMedia) return;
+
     const shouldPlay = playing && (activeClip || selectedClipId || selectedAssetId);
     
     if (shouldPlay) {
-      if (typeof player.play === 'function') {
-        player.play().catch(() => {
-          // Ignore play errors (e.g., autoplay restrictions)
-        });
-      }
+      player.play().catch((e) => {
+        console.error('Play error:', e);
+      });
     } else {
-      if (typeof player.pause === 'function') {
-        player.pause();
-      }
+      player.pause();
     }
   }, [playing, currentMedia, activeClip, selectedClipId, selectedAssetId]);
 
-  const handleProgress = (state: any) => {
-    // When playing timeline composition, the playhead is controlled by the timeline loop in AssistantEditor
-    // This progress handler should NOT update the playhead during timeline playback to avoid conflicts
-    // It's only used for manual playback of selected assets
-    if (playing && activeClip && state?.playedSeconds !== undefined) {
-      // Only update if we're showing a selected clip/asset (not timeline composition)
-      // Timeline composition playhead is managed by the playback loop
-      if (selectedClipId || selectedAssetId) {
-        const newPlayhead = activeClip.startTime + state.playedSeconds - activeClip.trimStart;
-        const clampedPlayhead = Math.max(activeClip.startTime, Math.min(newPlayhead, activeClip.endTime));
-        onSetPlayhead(clampedPlayhead);
-      }
+  // Update volume and playback speed
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    
+    if (video) {
+      video.volume = volume;
+      video.playbackRate = playbackSpeed;
+    }
+    if (audio) {
+      audio.volume = volume;
+      audio.playbackRate = playbackSpeed;
+    }
+  }, [volume, playbackSpeed]);
+
+  // Handle video time update (for progress tracking when playing selected clips)
+  const handleVideoTimeUpdate = () => {
+    const video = videoRef.current;
+    if (!video || !activeClip || !playing) return;
+    
+    // Only update playhead if showing selected clip/asset (not timeline composition)
+    // Timeline composition playhead is managed by AssistantEditor's playback loop
+    if (selectedClipId || selectedAssetId) {
+      const newPlayhead = activeClip.startTime + video.currentTime - activeClip.trimStart;
+      const clampedPlayhead = Math.max(activeClip.startTime, Math.min(newPlayhead, activeClip.endTime));
+      onSetPlayhead(clampedPlayhead);
+    }
+  };
+
+  // Handle audio time update
+  const handleAudioTimeUpdate = () => {
+    const audio = audioRef.current;
+    if (!audio || !activeClip || !playing) return;
+    
+    if (selectedClipId || selectedAssetId) {
+      const newPlayhead = activeClip.startTime + audio.currentTime - activeClip.trimStart;
+      const clampedPlayhead = Math.max(activeClip.startTime, Math.min(newPlayhead, activeClip.endTime));
+      onSetPlayhead(clampedPlayhead);
     }
   };
 
@@ -268,21 +289,6 @@ export default function EditorPreviewPanel({
   };
 
   const mediaUrl = currentMedia?.url ? getProxiedUrl(currentMedia.url) : '';
-
-  // Debug logging (reduced frequency)
-  useEffect(() => {
-    if (currentMedia && currentMedia.url) {
-      console.log('Preview Panel:', {
-        media: currentMedia.name,
-        type: currentMedia.type,
-        url: mediaUrl.substring(0, 80),
-        activeClip: activeClip?.id,
-        currentTime: currentTime.toFixed(2),
-        playing,
-        playhead: playhead.toFixed(2),
-      });
-    }
-  }, [currentMedia?.name, mediaUrl, activeClip?.id, Math.floor(currentTime), playing, Math.floor(playhead)]);
 
   if (!currentMedia) {
     return (
@@ -302,110 +308,75 @@ export default function EditorPreviewPanel({
       <div className="assistant-editor-preview-content">
         {currentMedia.type === 'video' && currentMedia.url && mediaUrl && (
           <div style={{ width: '100%', height: '100%', position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <ReactPlayer
-              key={mediaUrl} // Force re-render when URL changes
-              {...({
-                ref: playerRef,
-                url: mediaUrl,
-                playing: playing && !!(activeClip || selectedClipId || selectedAssetId),
-                playbackRate: playbackSpeed || 1,
-                volume: volume || 1,
-                progressInterval: activeClip ? 50 : 100,
-                onProgress: handleProgress,
-                onReady: () => {
-                  // When player is ready, sync to currentTime immediately
-                  if (playerRef.current) {
-                    const player = playerRef.current.getInternalPlayer();
-                    if (player && typeof player.currentTime !== 'undefined') {
-                      try {
-                        player.currentTime = currentTime;
-                        // Force a seek to ensure frame is displayed even when paused
-                        if (!playing) {
-                          player.pause();
-                        }
-                        console.log('ReactPlayer ready, synced to', currentTime.toFixed(2));
-                      } catch (e) {
-                        console.error('Error setting currentTime on ready:', e);
-                      }
+            <video
+              ref={videoRef}
+              key={mediaUrl}
+              src={mediaUrl}
+              preload="auto"
+              playsInline
+              muted={false}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              onLoadedData={() => {
+                if (videoRef.current) {
+                  try {
+                    videoRef.current.currentTime = currentTime;
+                    videoRef.current.volume = volume;
+                    videoRef.current.playbackRate = playbackSpeed;
+                    if (!playing) {
+                      videoRef.current.pause();
                     }
+                  } catch (e) {
+                    console.error('Error setting video properties on load:', e);
                   }
-                },
-                onError: (error: any) => {
-                  console.error('ReactPlayer error:', error, 'URL:', mediaUrl.substring(0, 80));
-                },
-                onLoadStart: () => {
-                  console.log('ReactPlayer: Load start');
-                },
-                onLoadedData: () => {
-                  console.log('ReactPlayer: Loaded data, syncing to', currentTime.toFixed(2));
-                  if (playerRef.current) {
-                    const player = playerRef.current.getInternalPlayer();
-                    if (player && typeof player.currentTime !== 'undefined') {
-                      try {
-                        player.currentTime = currentTime;
-                      } catch (e) {
-                        console.error('Error setting currentTime on load:', e);
-                      }
-                    }
+                }
+              }}
+              onLoadedMetadata={() => {
+                if (videoRef.current) {
+                  try {
+                    videoRef.current.currentTime = currentTime;
+                    videoRef.current.volume = volume;
+                    videoRef.current.playbackRate = playbackSpeed;
+                  } catch (e) {
+                    console.error('Error setting video properties on metadata:', e);
                   }
-                },
-                onSeek: () => {
-                  // Ensure frame is shown after seek
-                  if (playerRef.current && !playing) {
-                    const player = playerRef.current.getInternalPlayer();
-                    if (player) {
-                      player.pause();
-                    }
-                  }
-                },
-                controls: false,
-                width: '100%',
-                height: '100%',
-                style: { position: 'absolute', top: 0, left: 0 },
-                light: false, // Always show player, don't use thumbnail
-                pip: false,
-                stopOnUnmount: false,
-                config: {
-                  file: {
-                    attributes: {
-                      preload: 'auto',
-                      playsInline: true,
-                      crossOrigin: 'anonymous',
-                    },
-                  },
-                },
-              } as any)}
+                }
+              }}
+              onTimeUpdate={handleVideoTimeUpdate}
+              onSeeked={() => {
+                setIsSeeking(false);
+              }}
+              onError={(e) => {
+                console.error('Video error:', e, 'URL:', mediaUrl.substring(0, 80));
+              }}
             />
           </div>
         )}
 
-        {currentMedia.type === 'audio' && currentMedia.url && (
+        {currentMedia.type === 'audio' && currentMedia.url && mediaUrl && (
           <div className="assistant-editor-preview-audio">
-            <ReactPlayer
-              {...({
-                ref: playerRef,
-                url: mediaUrl,
-                playing: playing && !!(activeClip || selectedClipId || selectedAssetId),
-                playbackRate: playbackSpeed || 1,
-                volume: volume || 1,
-                progressInterval: activeClip ? 50 : 100,
-                onProgress: handleProgress,
-                onReady: () => {
-                  if (playerRef.current && activeClip) {
-                    const player = playerRef.current.getInternalPlayer();
-                    if (player && typeof player.currentTime !== 'undefined') {
-                      try {
-                        player.currentTime = currentTime;
-                      } catch (e) {
-                        // Ignore
-                      }
-                    }
+            <audio
+              ref={audioRef}
+              key={mediaUrl}
+              src={mediaUrl}
+              preload="auto"
+              onLoadedData={() => {
+                if (audioRef.current) {
+                  try {
+                    audioRef.current.currentTime = currentTime;
+                    audioRef.current.volume = volume;
+                    audioRef.current.playbackRate = playbackSpeed;
+                  } catch (e) {
+                    console.error('Error setting audio properties:', e);
                   }
-                },
-                controls: false,
-                width: '100%',
-                height: '50px',
-              } as any)}
+                }
+              }}
+              onTimeUpdate={handleAudioTimeUpdate}
+              onSeeked={() => {
+                setIsSeeking(false);
+              }}
+              onError={(e) => {
+                console.error('Audio error:', e);
+              }}
             />
             <div className="assistant-editor-preview-audio-info">
               <p>{currentMedia.name}</p>
@@ -423,7 +394,6 @@ export default function EditorPreviewPanel({
               onError={(e) => {
                 const target = e.currentTarget;
                 if (target.src.includes('/api/proxy') && target.src !== currentMedia.url) {
-                  // If proxy fails, try direct URL
                   target.src = currentMedia.url || '';
                 } else if (target.src !== currentMedia.url) {
                   target.src = currentMedia.url || '';
@@ -446,4 +416,3 @@ export default function EditorPreviewPanel({
     </div>
   );
 }
-
