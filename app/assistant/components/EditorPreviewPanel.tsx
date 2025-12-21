@@ -11,6 +11,7 @@ type EditorPreviewPanelProps = {
   clips: TimelineClip[];
   playhead: number;
   playing: boolean;
+  selectedAssetId?: string | null;
   onSetPlayhead: (time: number) => void;
   onSetPlaying: (playing: boolean) => void;
 };
@@ -20,6 +21,7 @@ export default function EditorPreviewPanel({
   clips,
   playhead,
   playing,
+  selectedAssetId,
   onSetPlayhead,
   onSetPlaying,
 }: EditorPreviewPanelProps) {
@@ -27,25 +29,50 @@ export default function EditorPreviewPanel({
   const [currentMedia, setCurrentMedia] = useState<EditorAsset | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
 
-  // Find the clip at the current playhead position
+  // Priority: selectedAssetId > clip at playhead > first asset
   useEffect(() => {
-    const activeClip = clips.find(
-      (clip) => playhead >= clip.startTime && playhead <= clip.endTime
-    );
-
-    if (activeClip) {
-      const asset = assets.find((a) => a.id === activeClip.assetId);
-      if (asset) {
-        setCurrentMedia(asset);
-        // Calculate the time within the clip
-        const clipRelativeTime = playhead - activeClip.startTime + activeClip.trimStart;
-        setCurrentTime(clipRelativeTime);
+    // First check if there's a selected asset (highest priority)
+    if (selectedAssetId) {
+      const selectedAsset = assets.find((a) => a.id === selectedAssetId);
+      if (selectedAsset) {
+        setCurrentMedia(selectedAsset);
+        setCurrentTime(0);
+        return;
       }
-    } else {
+    }
+
+    // Then check for clip at playhead (only if no selection)
+    if (!selectedAssetId) {
+      const activeClip = clips.find(
+        (clip) => playhead >= clip.startTime && playhead <= clip.endTime
+      );
+
+      if (activeClip) {
+        const asset = assets.find((a) => a.id === activeClip.assetId);
+        if (asset) {
+          setCurrentMedia(asset);
+          // Calculate the time within the clip
+          const clipRelativeTime = playhead - activeClip.startTime + activeClip.trimStart;
+          setCurrentTime(clipRelativeTime);
+          return;
+        }
+      }
+    }
+
+    // Fallback to first asset if available (only if no selection and no active clip)
+    if (assets.length > 0 && !selectedAssetId) {
+      const activeClip = clips.find(
+        (clip) => playhead >= clip.startTime && playhead <= clip.endTime
+      );
+      if (!activeClip) {
+        setCurrentMedia(assets[0]);
+        setCurrentTime(0);
+      }
+    } else if (assets.length === 0) {
       setCurrentMedia(null);
       setCurrentTime(0);
     }
-  }, [playhead, clips, assets]);
+  }, [playhead, clips, assets, selectedAssetId]);
 
   // Sync player with playhead (only when not playing to avoid conflicts)
   useEffect(() => {
@@ -109,9 +136,9 @@ export default function EditorPreviewPanel({
     return (
       <div className="assistant-editor-preview-panel">
         <div className="assistant-editor-preview-empty">
-          <p>No media at current playhead position</p>
+          <p>No media selected</p>
           <p className="assistant-editor-preview-hint">
-            Drag assets from the left panel onto the timeline to preview
+            Click on an asset from the left panel to preview, or drag assets onto the timeline
           </p>
         </div>
       </div>
@@ -162,9 +189,14 @@ export default function EditorPreviewPanel({
             <img
               src={getProxiedUrl(currentMedia.url)}
               alt={currentMedia.name}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
               onError={(e) => {
-                if (e.currentTarget.src !== currentMedia.url) {
-                  e.currentTarget.src = currentMedia.url || '';
+                const target = e.currentTarget;
+                if (target.src.includes('/api/proxy') && target.src !== currentMedia.url) {
+                  // If proxy fails, try direct URL
+                  target.src = currentMedia.url || '';
+                } else if (target.src !== currentMedia.url) {
+                  target.src = currentMedia.url || '';
                 }
               }}
             />

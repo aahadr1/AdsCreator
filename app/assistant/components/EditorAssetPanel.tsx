@@ -7,11 +7,13 @@ import EditorUploadModal from './EditorUploadModal';
 
 type EditorAssetPanelProps = {
   assets: EditorAsset[];
+  selectedAssetId?: string | null;
   onAddAsset: (asset: EditorAsset) => void;
   onRemoveAsset: (assetId: string) => void;
+  onSelectAsset?: (assetId: string | null) => void;
 };
 
-export default function EditorAssetPanel({ assets, onAddAsset, onRemoveAsset }: EditorAssetPanelProps) {
+export default function EditorAssetPanel({ assets, selectedAssetId, onAddAsset, onRemoveAsset, onSelectAsset }: EditorAssetPanelProps) {
   const [showUploadModal, setShowUploadModal] = useState(false);
 
   const getAssetIcon = (type: EditorAsset['type']) => {
@@ -59,16 +61,17 @@ export default function EditorAssetPanel({ assets, onAddAsset, onRemoveAsset }: 
           assets.map((asset) => (
             <div
               key={asset.id}
-              className="assistant-editor-asset-item"
+              className={`assistant-editor-asset-item ${selectedAssetId === asset.id ? 'selected' : ''}`}
               draggable
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectAsset?.(asset.id);
+              }}
               onDragStart={(e) => {
+                e.stopPropagation();
                 e.dataTransfer.effectAllowed = 'copy';
                 e.dataTransfer.setData('text/plain', asset.id);
                 e.dataTransfer.setData('application/json', JSON.stringify({ assetId: asset.id }));
-                // Add visual feedback
-                if (e.dataTransfer) {
-                  e.dataTransfer.effectAllowed = 'copy';
-                }
               }}
             >
               <div className="assistant-editor-asset-thumbnail">
@@ -94,7 +97,10 @@ export default function EditorAssetPanel({ assets, onAddAsset, onRemoveAsset }: 
               </div>
               <button
                 className="assistant-editor-asset-remove"
-                onClick={() => onRemoveAsset(asset.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveAsset(asset.id);
+                }}
                 type="button"
               >
                 <X size={14} />

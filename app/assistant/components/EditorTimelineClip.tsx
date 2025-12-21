@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { GripVertical, Scissors, Trash2, Copy } from 'lucide-react';
 import type { EditorAsset, TimelineClip } from '../../../types/editor';
 
@@ -21,7 +21,68 @@ export default function EditorTimelineClip({
 }: EditorTimelineClipProps) {
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
   const clipRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Generate thumbnail for video/image assets
+  useEffect(() => {
+    if (thumbnail) return; // Already have thumbnail
+    
+    if (asset.type === 'video' && asset.url) {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      const proxiedUrl = asset.url.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(asset.url)}` : asset.url;
+      video.src = proxiedUrl;
+      
+      const handleLoadedMetadata = () => {
+        if (video.duration && video.duration > 0) {
+          video.currentTime = Math.min(1, video.duration * 0.1);
+        } else {
+          video.currentTime = 0.1;
+        }
+      };
+      
+      const handleSeeked = () => {
+        try {
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.min(video.videoWidth, 320);
+            canvas.height = Math.min(video.videoHeight, 180);
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              setThumbnail(canvas.toDataURL('image/jpeg', 0.8));
+            }
+          }
+        } catch (e) {
+          console.error('Failed to generate video thumbnail:', e);
+        }
+      };
+      
+      const handleError = () => {
+        // If proxy fails, try direct URL
+        if (video.src.includes('/api/proxy') && video.src !== asset.url) {
+          video.src = asset.url;
+        }
+      };
+      
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
+      video.addEventListener('seeked', handleSeeked);
+      video.addEventListener('error', handleError);
+      
+      return () => {
+        video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        video.removeEventListener('seeked', handleSeeked);
+        video.removeEventListener('error', handleError);
+      };
+    } else if (asset.type === 'image' && asset.url) {
+      setThumbnail(asset.url);
+    }
+  }, [asset.type, asset.url, thumbnail]);
 
   const clipStart = clip.startTime * pixelsPerSecond;
   const clipWidth = (clip.endTime - clip.startTime) * pixelsPerSecond;
@@ -145,10 +206,30 @@ export default function EditorTimelineClip({
           <GripVertical size={12} />
         </div>
         <div className="assistant-editor-timeline-clip-content">
-          <div className="assistant-editor-timeline-clip-name">{asset.name}</div>
-          <div className="assistant-editor-timeline-clip-time">
-            {clip.startTime.toFixed(1)}s - {clip.endTime.toFixed(1)}s
-          </div>
+          {thumbnail && (asset.type === 'video' || asset.type === 'image') ? (
+            <div className="assistant-editor-timeline-clip-thumbnail">
+              <img
+                src={thumbnail.startsWith('data:') ? thumbnail : (thumbnail.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(thumbnail)}` : thumbnail)}
+                alt={asset.name}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (target.src.includes('/api/proxy') && target.src !== thumbnail) {
+                    target.src = thumbnail;
+                  } else if (target.src !== thumbnail) {
+                    target.src = thumbnail;
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <>
+              <div className="assistant-editor-timeline-clip-name">{asset.name}</div>
+              <div className="assistant-editor-timeline-clip-time">
+                {clip.startTime.toFixed(1)}s - {clip.endTime.toFixed(1)}s
+              </div>
+            </>
+          )}
         </div>
         <div className="assistant-editor-timeline-clip-resize-handle right" onMouseDown={(e) => handleMouseDown(e, 'right')}>
           <GripVertical size={12} />

@@ -7261,6 +7261,13 @@ body[data-page="billing"] .pricing-card.current-plan {
   border-color: var(--border-light);
 }
 
+.assistant-editor-asset-item.selected {
+  background: var(--panel-hover);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+  opacity: 0.8;
+}
+
 .assistant-editor-asset-item:active {
   cursor: grabbing;
 }
@@ -8012,6 +8019,23 @@ body[data-page="billing"] .pricing-card.current-plan {
   padding: var(--space-2);
   min-width: 0;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.assistant-editor-timeline-clip-thumbnail {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+
+.assistant-editor-timeline-clip-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .assistant-editor-timeline-clip-name {

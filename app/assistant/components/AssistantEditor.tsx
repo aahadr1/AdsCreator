@@ -15,6 +15,7 @@ type AssistantEditorProps = {
 };
 
 export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }: AssistantEditorProps) {
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<EditorState>({
     assets: initialAssets,
     clips: [],
@@ -122,8 +123,10 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
           <div className="assistant-editor-asset-panel">
             <EditorAssetPanel
               assets={editorState.assets}
+              selectedAssetId={selectedAssetId}
               onAddAsset={handleAddAsset}
               onRemoveAsset={handleRemoveAsset}
+              onSelectAsset={setSelectedAssetId}
             />
           </div>
 
@@ -134,6 +137,7 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
                 clips={editorState.clips}
                 playhead={editorState.playhead}
                 playing={editorState.playing}
+                selectedAssetId={selectedAssetId}
                 onSetPlayhead={handleSetPlayhead}
                 onSetPlaying={handleSetPlaying}
               />
