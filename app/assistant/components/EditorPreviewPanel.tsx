@@ -282,20 +282,7 @@ export default function EditorPreviewPanel({
     });
   }, [currentMedia, activeClip, currentTime, playing, playhead, clips, assets]);
 
-  if (!currentMedia) {
-    return (
-      <div className="assistant-editor-preview-panel">
-        <div className="assistant-editor-preview-empty">
-          <p>No media selected</p>
-          <p className="assistant-editor-preview-hint">
-            Click on an asset from the left panel to preview, or drag assets onto the timeline
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const mediaUrl = currentMedia.url ? getProxiedUrl(currentMedia.url) : '';
+  const mediaUrl = currentMedia?.url ? getProxiedUrl(currentMedia.url) : '';
 
   // Debug: Log when media should be displayed
   useEffect(() => {
@@ -309,6 +296,19 @@ export default function EditorPreviewPanel({
       });
     }
   }, [currentMedia, mediaUrl, activeClip, currentTime]);
+
+  if (!currentMedia) {
+    return (
+      <div className="assistant-editor-preview-panel">
+        <div className="assistant-editor-preview-empty">
+          <p>No media selected</p>
+          <p className="assistant-editor-preview-hint">
+            Click on an asset from the left panel to preview, or drag assets onto the timeline
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="assistant-editor-preview-panel">
