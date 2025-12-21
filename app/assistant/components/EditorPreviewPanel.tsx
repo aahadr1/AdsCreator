@@ -303,6 +303,7 @@ export default function EditorPreviewPanel({
         {currentMedia.type === 'video' && currentMedia.url && mediaUrl && (
           <div style={{ width: '100%', height: '100%', position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ReactPlayer
+              key={mediaUrl} // Force re-render when URL changes
               {...({
                 ref: playerRef,
                 url: mediaUrl,
@@ -348,10 +349,31 @@ export default function EditorPreviewPanel({
                     }
                   }
                 },
+                onSeek: () => {
+                  // Ensure frame is shown after seek
+                  if (playerRef.current && !playing) {
+                    const player = playerRef.current.getInternalPlayer();
+                    if (player) {
+                      player.pause();
+                    }
+                  }
+                },
                 controls: false,
                 width: '100%',
                 height: '100%',
                 style: { position: 'absolute', top: 0, left: 0 },
+                light: false, // Always show player, don't use thumbnail
+                pip: false,
+                stopOnUnmount: false,
+                config: {
+                  file: {
+                    attributes: {
+                      preload: 'auto',
+                      playsInline: true,
+                      crossOrigin: 'anonymous',
+                    },
+                  },
+                },
               } as any)}
             />
           </div>
