@@ -6,16 +6,26 @@ type EditorControlsProps = {
   playhead: number;
   duration: number;
   playing: boolean;
+  volume: number;
+  playbackSpeed: number;
   onSetPlayhead: (time: number) => void;
   onSetPlaying: (playing: boolean) => void;
+  onSetVolume: (volume: number) => void;
+  onSetPlaybackSpeed: (speed: number) => void;
+  onExport?: () => void;
 };
 
 export default function EditorControls({
   playhead,
   duration,
   playing,
+  volume,
+  playbackSpeed,
   onSetPlayhead,
   onSetPlaying,
+  onSetVolume,
+  onSetPlaybackSpeed,
+  onExport,
 }: EditorControlsProps) {
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
@@ -113,20 +123,39 @@ export default function EditorControls({
           <span>Frame</span>
         </button>
 
-        <button
-          className="assistant-editor-control-button"
-          type="button"
-          title="Volume"
-          disabled
-        >
+        <div className="assistant-editor-control-volume">
           <Volume2 size={18} />
-        </button>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={volume * 100}
+            onChange={(e) => onSetVolume(parseFloat(e.target.value) / 100)}
+            className="assistant-editor-control-volume-slider"
+            title={`Volume: ${Math.round(volume * 100)}%`}
+          />
+        </div>
+
+        <select
+          className="assistant-editor-control-speed"
+          value={playbackSpeed}
+          onChange={(e) => onSetPlaybackSpeed(parseFloat(e.target.value))}
+          title="Playback Speed"
+        >
+          <option value={0.25}>0.25x</option>
+          <option value={0.5}>0.5x</option>
+          <option value={1}>1x</option>
+          <option value={1.5}>1.5x</option>
+          <option value={2}>2x</option>
+        </select>
 
         <button
           className="assistant-editor-control-button assistant-editor-control-export"
           type="button"
-          title="Export (coming soon)"
-          disabled
+          title="Export"
+          onClick={onExport}
+          disabled={!onExport}
         >
           <Download size={18} />
           <span>Export</span>

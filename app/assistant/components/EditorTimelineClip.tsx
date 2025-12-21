@@ -8,16 +8,20 @@ type EditorTimelineClipProps = {
   clip: TimelineClip;
   asset: EditorAsset;
   pixelsPerSecond: number;
+  isSelected?: boolean;
   onUpdate: (updates: Partial<TimelineClip>) => void;
   onRemove: () => void;
+  onSelect?: () => void;
 };
 
 export default function EditorTimelineClip({
   clip,
   asset,
   pixelsPerSecond,
+  isSelected = false,
   onUpdate,
   onRemove,
+  onSelect,
 }: EditorTimelineClipProps) {
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
@@ -193,13 +197,18 @@ export default function EditorTimelineClip({
     <>
       <div
         ref={clipRef}
-        className="assistant-editor-timeline-clip"
+        className={`assistant-editor-timeline-clip ${isSelected ? 'selected' : ''}`}
         style={{
           left: clipStart,
           width: clipWidth,
           backgroundColor: getClipColor(),
         }}
-        onMouseDown={handleClipDrag}
+        onMouseDown={(e) => {
+          if (onSelect && e.button === 0) {
+            onSelect();
+          }
+          handleClipDrag(e);
+        }}
         onContextMenu={handleContextMenu}
       >
         <div className="assistant-editor-timeline-clip-resize-handle left" onMouseDown={(e) => handleMouseDown(e, 'left')}>

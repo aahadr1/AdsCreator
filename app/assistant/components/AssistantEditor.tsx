@@ -105,7 +105,124 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
       ...prev,
       playing,
     }));
+    // Clear selected asset when playing to show timeline composition
+    if (playing) {
+      setSelectedAssetId(null);
+    }
   }, []);
+
+  // Timeline playback loop - advances playhead when playing
+  useEffect(() => {
+    if (!editorState.playing) return;
+
+    const interval = setInterval(() => {
+      setEditorState((prev) => {
+        const speed = prev.playbackSpeed || 1;
+        const newPlayhead = prev.playhead + (speed / 60); // Account for playback speed
+        if (newPlayhead >= prev.duration) {
+          // Reached end of timeline, stop playback
+          return {
+            ...prev,
+            playhead: prev.duration,
+            playing: false,
+          };
+        }
+        return {
+          ...prev,
+          playhead: newPlayhead,
+        };
+      });
+    }, 1000 / 60); // 60fps
+
+    return () => clearInterval(interval);
+  }, [editorState.playing, editorState.duration, editorState.playbackSpeed]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent shortcuts when typing in inputs
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key) {
+        case ' ': // Space - play/pause
+          e.preventDefault();
+          handleSetPlaying(!editorState.playing);
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          handleSetPlayhead(Math.max(0, editorState.playhead - 1));
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          handleSetPlayhead(Math.min(editorState.duration, editorState.playhead + 1));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          handleSetPlayhead(Math.min(editorState.duration, editorState.playhead + 10));
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          handleSetPlayhead(Math.max(0, editorState.playhead - 10));
+          break;
+        case 'Delete':
+        case 'Backspace':
+          if (editorState.selectedClipId) {
+            e.preventDefault();
+            handleRemoveClip(editorState.selectedClipId);
+            setEditorState((prev) => ({ ...prev, selectedClipId: null }));
+          }
+          break;
+        case 's':
+        case 'S':
+          if (editorState.selectedClipId && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            // Split clip at playhead
+            const clip = editorState.clips.find((c) => c.id === editorState.selectedClipId);
+            if (clip && editorState.playhead > clip.startTime && editorState.playhead < clip.endTime) {
+              const splitTime = editorState.playhead;
+              const firstClip: TimelineClip = {
+                ...clip,
+                endTime: splitTime,
+                trimEnd: clip.trimEnd + (clip.endTime - splitTime),
+              };
+              const secondClip: TimelineClip = {
+                ...clip,
+                id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                startTime: splitTime,
+                trimStart: clip.trimStart + (splitTime - clip.startTime),
+              };
+              handleUpdateClip(clip.id, { endTime: firstClip.endTime, trimEnd: firstClip.trimEnd });
+              handleAddClip(secondClip);
+            }
+          }
+          break;
+        case 'd':
+        case 'D':
+          if (editorState.selectedClipId && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            // Duplicate clip
+            const clip = editorState.clips.find((c) => c.id === editorState.selectedClipId);
+            if (clip) {
+              const newClip: TimelineClip = {
+                ...clip,
+                id: `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                startTime: clip.endTime + 0.1,
+                endTime: clip.endTime + 0.1 + (clip.endTime - clip.startTime),
+              };
+              handleAddClip(newClip);
+            }
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, editorState.playing, editorState.playhead, editorState.duration, editorState.selectedClipId, editorState.clips, handleSetPlaying, handleSetPlayhead, handleRemoveClip, handleAddClip]);
 
   if (!isOpen) return null;
 
@@ -138,6 +255,9 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
                 playhead={editorState.playhead}
                 playing={editorState.playing}
                 selectedAssetId={selectedAssetId}
+                selectedClipId={editorState.selectedClipId}
+                volume={editorState.volume || 1}
+                playbackSpeed={editorState.playbackSpeed || 1}
                 onSetPlayhead={handleSetPlayhead}
                 onSetPlaying={handleSetPlaying}
               />
@@ -148,8 +268,16 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
                 playhead={editorState.playhead}
                 duration={editorState.duration}
                 playing={editorState.playing}
+                volume={editorState.volume || 1}
+                playbackSpeed={editorState.playbackSpeed || 1}
                 onSetPlayhead={handleSetPlayhead}
                 onSetPlaying={handleSetPlaying}
+                onSetVolume={(volume) => setEditorState((prev) => ({ ...prev, volume }))}
+                onSetPlaybackSpeed={(speed) => setEditorState((prev) => ({ ...prev, playbackSpeed: speed }))}
+                onExport={() => {
+                  // Export functionality will be implemented
+                  console.log('Export clicked');
+                }}
               />
             </div>
 
@@ -160,11 +288,16 @@ export default function AssistantEditor({ isOpen, onClose, initialAssets = [] }:
                 playhead={editorState.playhead}
                 zoom={editorState.zoom}
                 duration={editorState.duration}
+                selectedClipId={editorState.selectedClipId}
                 onAddClip={handleAddClip}
                 onUpdateClip={handleUpdateClip}
                 onRemoveClip={handleRemoveClip}
                 onSetPlayhead={handleSetPlayhead}
                 onSetZoom={handleSetZoom}
+                onSelectClip={(clipId) => {
+                  setEditorState((prev) => ({ ...prev, selectedClipId: clipId }));
+                  setSelectedAssetId(null); // Clear asset selection when clip is selected
+                }}
               />
             </div>
           </div>

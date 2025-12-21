@@ -11,11 +11,13 @@ type EditorTimelineProps = {
   playhead: number;
   zoom: number;
   duration: number;
+  selectedClipId?: string | null;
   onAddClip: (clip: TimelineClip) => void;
   onUpdateClip: (clipId: string, updates: Partial<TimelineClip>) => void;
   onRemoveClip: (clipId: string) => void;
   onSetPlayhead: (time: number) => void;
   onSetZoom: (zoom: number) => void;
+  onSelectClip?: (clipId: string | null) => void;
 };
 
 const PIXELS_PER_SECOND = 50; // Base pixels per second at zoom 1
@@ -26,11 +28,13 @@ export default function EditorTimeline({
   playhead,
   zoom,
   duration,
+  selectedClipId,
   onAddClip,
   onUpdateClip,
   onRemoveClip,
   onSetPlayhead,
   onSetZoom,
+  onSelectClip,
 }: EditorTimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
   const [dragOverTrack, setDragOverTrack] = useState<'video' | 'audio' | null>(null);
@@ -201,8 +205,10 @@ export default function EditorTimeline({
                   clip={clip}
                   asset={asset}
                   pixelsPerSecond={pixelsPerSecond}
+                  isSelected={selectedClipId === clip.id}
                   onUpdate={(updates) => onUpdateClip(clip.id, updates)}
                   onRemove={() => onRemoveClip(clip.id)}
+                  onSelect={() => onSelectClip?.(clip.id)}
                 />
               );
             })}
@@ -228,8 +234,10 @@ export default function EditorTimeline({
                   clip={clip}
                   asset={asset}
                   pixelsPerSecond={pixelsPerSecond}
+                  isSelected={selectedClipId === clip.id}
                   onUpdate={(updates) => onUpdateClip(clip.id, updates)}
                   onRemove={() => onRemoveClip(clip.id)}
+                  onSelect={() => onSelectClip?.(clip.id)}
                 />
               );
             })}

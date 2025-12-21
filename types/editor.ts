@@ -28,5 +28,10 @@ export type EditorState = {
   zoom: number;
   duration: number; // total timeline duration
   playing: boolean;
+  selectedClipId?: string | null;
+  volume?: number; // 0-1, default 1
+  playbackSpeed?: number; // 0.25, 0.5, 1, 1.5, 2, default 1
+  history?: EditorState[];
+  historyIndex?: number;
 };
 

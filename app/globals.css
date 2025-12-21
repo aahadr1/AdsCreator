@@ -7282,6 +7282,7 @@ body[data-page="billing"] .pricing-card.current-plan {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .assistant-editor-asset-thumbnail img {
@@ -8012,6 +8013,13 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-timeline-clip:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 15;
+}
+
+.assistant-editor-timeline-clip.selected {
+  border-color: var(--accent);
+  border-width: 2px;
+  box-shadow: 0 0 0 2px var(--accent);
+  z-index: 16;
 }
 
 .assistant-editor-timeline-clip-content {

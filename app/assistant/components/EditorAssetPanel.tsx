@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Upload, X, Image as ImageIcon, Video, Music, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Upload, X, Image as ImageIcon, Video, Music, FileText, Play } from 'lucide-react';
 import type { EditorAsset } from '../../../types/editor';
 import EditorUploadModal from './EditorUploadModal';
 
@@ -15,6 +15,7 @@ type EditorAssetPanelProps = {
 
 export default function EditorAssetPanel({ assets, selectedAssetId, onAddAsset, onRemoveAsset, onSelectAsset }: EditorAssetPanelProps) {
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
 
   const getAssetIcon = (type: EditorAsset['type']) => {
     switch (type) {
@@ -37,6 +38,80 @@ export default function EditorAssetPanel({ assets, selectedAssetId, onAddAsset, 
     }
     return url;
   };
+
+  // Generate thumbnails for video assets
+  useEffect(() => {
+    const generateThumbnails = async () => {
+      for (const asset of assets) {
+        if (asset.type === 'video' && asset.url && !thumbnails[asset.id] && !asset.thumbnail) {
+          try {
+            const video = document.createElement('video');
+            video.crossOrigin = 'anonymous';
+            video.preload = 'metadata';
+            video.muted = true;
+            video.playsInline = true;
+            const proxiedUrl = asset.url.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(asset.url)}` : asset.url;
+            video.src = proxiedUrl;
+            
+            await new Promise<void>((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                resolve();
+              }, 3000);
+              
+              const handleLoadedMetadata = () => {
+                clearTimeout(timeout);
+                if (video.duration && video.duration > 0) {
+                  video.currentTime = Math.min(1, video.duration * 0.1);
+                } else {
+                  video.currentTime = 0.1;
+                }
+              };
+              
+              const handleSeeked = () => {
+                try {
+                  if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.min(video.videoWidth, 160);
+                    canvas.height = Math.min(video.videoHeight, 90);
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                      setThumbnails(prev => ({
+                        ...prev,
+                        [asset.id]: canvas.toDataURL('image/jpeg', 0.8)
+                      }));
+                    }
+                  }
+                } catch (e) {
+                  console.error('Failed to generate thumbnail:', e);
+                }
+                resolve();
+              };
+              
+              const handleError = () => {
+                clearTimeout(timeout);
+                resolve();
+              };
+              
+              video.addEventListener('loadedmetadata', handleLoadedMetadata);
+              video.addEventListener('seeked', handleSeeked);
+              video.addEventListener('error', handleError);
+            });
+          } catch (e) {
+            console.error('Error generating thumbnail:', e);
+          }
+        } else if (asset.type === 'image' && asset.url && !thumbnails[asset.id] && !asset.thumbnail) {
+          // Use image URL as thumbnail
+          setThumbnails(prev => ({
+            ...prev,
+            [asset.id]: asset.url
+          }));
+        }
+      }
+    };
+
+    generateThumbnails();
+  }, [assets, thumbnails]);
 
   return (
     <div className="assistant-editor-asset-panel">
@@ -75,19 +150,29 @@ export default function EditorAssetPanel({ assets, selectedAssetId, onAddAsset, 
               }}
             >
               <div className="assistant-editor-asset-thumbnail">
-                {asset.type === 'image' && asset.url ? (
+                {(asset.thumbnail || thumbnails[asset.id]) ? (
                   <img
-                    src={getProxiedUrl(asset.url)}
+                    src={getProxiedUrl(asset.thumbnail || thumbnails[asset.id] || '')}
                     alt={asset.name}
                     onError={(e) => {
-                      if (e.currentTarget.src !== asset.url) {
-                        e.currentTarget.src = asset.url;
+                      const target = e.currentTarget;
+                      if (target.src.includes('/api/proxy') && target.src !== asset.url) {
+                        target.src = asset.url;
+                      } else if (target.src !== asset.url && asset.url) {
+                        target.src = asset.url;
+                      } else {
+                        // Fallback to icon
+                        target.style.display = 'none';
+                        const iconDiv = target.nextElementSibling as HTMLElement;
+                        if (iconDiv) iconDiv.style.display = 'flex';
                       }
                     }}
                   />
-                ) : (
-                  <div className="assistant-editor-asset-icon">{getAssetIcon(asset.type)}</div>
-                )}
+                ) : null}
+                <div className="assistant-editor-asset-icon" style={{ display: (asset.thumbnail || thumbnails[asset.id]) ? 'none' : 'flex' }}>
+                  {getAssetIcon(asset.type)}
+                  {asset.type === 'video' && <Play size={12} className="assistant-editor-asset-play-overlay" />}
+                </div>
               </div>
               <div className="assistant-editor-asset-info">
                 <div className="assistant-editor-asset-name">{asset.name}</div>

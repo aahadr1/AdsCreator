@@ -29,20 +29,71 @@ export default function EditorUploadModal({ onClose, onAddAssets }: EditorUpload
       if (fileType === 'image') {
         type = 'image';
         url = URL.createObjectURL(file);
+        // Use image URL as thumbnail
+        newAssets.push({
+          id: assetId,
+          type,
+          url,
+          name: file.name,
+          source: 'upload',
+          thumbnail: url,
+        });
+        continue;
       } else if (fileType === 'video') {
         type = 'video';
         url = URL.createObjectURL(file);
-        // Get duration for video
+        // Get duration and thumbnail for video
         try {
           const video = document.createElement('video');
           video.preload = 'metadata';
+          video.muted = true;
+          video.playsInline = true;
           video.src = url;
-          await new Promise<void>((resolve, reject) => {
-            video.onloadedmetadata = () => resolve();
-            video.onerror = () => resolve(); // Resolve even on error to continue
-            setTimeout(() => resolve(), 2000); // Timeout after 2s
+          
+          let duration = 0;
+          let thumbnail = '';
+          
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => resolve(), 3000);
+            
+            const handleLoadedMetadata = () => {
+              duration = video.duration && !isNaN(video.duration) ? video.duration : 0;
+              if (duration > 0) {
+                video.currentTime = Math.min(1, duration * 0.1);
+              } else {
+                video.currentTime = 0.1;
+              }
+            };
+            
+            const handleSeeked = () => {
+              try {
+                if (video.videoWidth > 0 && video.videoHeight > 0) {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = Math.min(video.videoWidth, 160);
+                  canvas.height = Math.min(video.videoHeight, 90);
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    thumbnail = canvas.toDataURL('image/jpeg', 0.8);
+                  }
+                }
+              } catch (e) {
+                console.error('Failed to generate thumbnail:', e);
+              }
+              clearTimeout(timeout);
+              resolve();
+            };
+            
+            const handleError = () => {
+              clearTimeout(timeout);
+              resolve();
+            };
+            
+            video.addEventListener('loadedmetadata', handleLoadedMetadata);
+            video.addEventListener('seeked', handleSeeked);
+            video.addEventListener('error', handleError);
           });
-          const duration = video.duration && !isNaN(video.duration) ? video.duration : 0;
+          
           newAssets.push({
             id: assetId,
             type,
@@ -50,6 +101,7 @@ export default function EditorUploadModal({ onClose, onAddAssets }: EditorUpload
             name: file.name,
             source: 'upload',
             duration: duration > 0 ? duration : undefined,
+            thumbnail: thumbnail || undefined,
           });
           continue;
         } catch {
