@@ -5377,9 +5377,22 @@ body[data-page="billing"] .pricing-card.current-plan {
 /* Assistant Page Layout */
 .assistant-page-layout {
   display: flex;
+  position: relative;
   height: 100vh;
   background: var(--bg);
   overflow: hidden;
+}
+
+.conversation-sidebar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
+  transition: width var(--motion-duration-fast) ease-in-out;
+  overflow: hidden;
+}
+
+.conversation-sidebar-wrapper.open {
+  width: 250px;
 }
 
 .chat-container {
@@ -5456,25 +5469,32 @@ body[data-page="billing"] .pricing-card.current-plan {
 }
 
 .chat-container.with-sidebar {
-  margin-left: 200px;
+  margin-left: 0;
 }
 
 /* Old sidebar-toggle-button styles removed - now using assistant-topbar-button */
 
 /* Conversation Sidebar */
 .conversation-sidebar {
-  position: fixed;
+  position: absolute;
   left: 0;
   top: 0;
-  width: 200px;
+  width: 250px;
   height: 100vh;
   background: var(--panel-elevated);
   border-right: 1px solid var(--separator);
   display: flex;
   flex-direction: column;
-  z-index: 50;
+  z-index: 10;
   overflow: hidden;
-  transition: transform var(--motion-duration-fast);
+}
+
+.chat-container {
+  transition: margin-left var(--motion-duration-fast) ease-in-out;
+}
+
+.chat-container.with-sidebar {
+  margin-left: 250px;
 }
 
 .conversation-sidebar-header {

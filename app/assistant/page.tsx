@@ -845,28 +845,28 @@ export default function AssistantPage() {
 
   return (
     <div className="assistant-page-layout">
-      {userId && sidebarOpen && (
-        <ConversationSidebar
-          userId={userId}
-          currentConversationId={conversationId}
-          onSelectConversation={handleSelectConversation}
-          onNewConversation={handleNewConversation}
-        />
+      {userId && (
+        <div className={`conversation-sidebar-wrapper ${sidebarOpen ? 'open' : ''}`}>
+          <ConversationSidebar
+            userId={userId}
+            currentConversationId={conversationId}
+            onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
+          />
+        </div>
       )}
       <div className={`chat-container ${userId && sidebarOpen ? 'with-sidebar' : ''}`}>
         {/* Topbar with title and buttons */}
         <div className="assistant-topbar">
           <div className="assistant-topbar-left">
-            {userId && (
-              <button
-                className="assistant-topbar-button"
-                onClick={() => setEditorOpen(true)}
-                title="Open Assistant Editor"
-                type="button"
-              >
-                <Edit size={18} />
-              </button>
-            )}
+            <button
+              className="assistant-topbar-button"
+              onClick={() => setEditorOpen(true)}
+              title="Open Assistant Editor"
+              type="button"
+            >
+              <Edit size={18} />
+            </button>
           </div>
           <div className="assistant-topbar-center">
             <h1 className="assistant-title">Assistant</h1>
