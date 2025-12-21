@@ -132,8 +132,20 @@ export async function POST(req: NextRequest) {
           .filter((url): url is string => Boolean(url));
         if (sanitized.length > 0) input.input_images = sanitized;
       }
+      // Validate and correct aspect_ratio for GPT Image 1.5 (only accepts: "1:1", "3:2", "2:3")
       if (typeof (body as any).aspect_ratio === 'string' && (body as any).aspect_ratio.trim()) {
-        input.aspect_ratio = (body as any).aspect_ratio.trim();
+        const providedRatio = (body as any).aspect_ratio.trim();
+        const validRatios = ['1:1', '3:2', '2:3'];
+        if (validRatios.includes(providedRatio)) {
+          input.aspect_ratio = providedRatio;
+        } else {
+          // Invalid ratio - default to "2:3" for GPT Image 1.5
+          console.warn(`[Image] Invalid aspect_ratio "${providedRatio}" for GPT Image 1.5. Valid options: ${validRatios.join(', ')}. Defaulting to "2:3".`);
+          input.aspect_ratio = '2:3';
+        }
+      } else {
+        // No aspect_ratio provided - default to "2:3" for GPT Image 1.5
+        input.aspect_ratio = '2:3';
       }
       if (typeof (body as any).input_fidelity === 'string' && (body as any).input_fidelity.trim()) {
         input.input_fidelity = (body as any).input_fidelity.trim();

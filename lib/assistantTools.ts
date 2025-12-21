@@ -444,7 +444,7 @@ export function buildUnifiedPlannerSystemPrompt(): string {
       let useCases = '';
       if (tool.id === 'image') {
         if (model.id === 'openai/gpt-image-1.5') {
-          useCases = '      Use cases: Product cards with text, marketing visuals, social media posts, high-quality brand imagery. Best for: Typography fidelity, reference image support (up to 10), aspect ratios 1:1, 3:2, 2:3.';
+          useCases = '      Use cases: Product cards with text, marketing visuals, social media posts, high-quality brand imagery. Best for: Typography fidelity, reference image support (up to 10). CRITICAL: Only accepts aspect ratios: "1:1", "3:2", "2:3" (default: "2:3").';
         } else if (model.id.includes('flux-kontext')) {
           useCases = '      Use cases: Wide format images, banners, landscape visuals, cinematic compositions. Best for: 16:9, 21:9, wide aspect ratios, contextual understanding.';
         } else if (model.id.includes('flux-krea')) {
@@ -526,7 +526,7 @@ ${toolSections}
 MODEL SELECTION GUIDELINES:
 
 Image Generation:
-- openai/gpt-image-1.5: Best overall quality, typography fidelity, reference image support (up to 10), aspect ratios: 1:1, 3:2, 2:3. Use for: Product cards, marketing visuals, text-heavy images.
+- openai/gpt-image-1.5: Best overall quality, typography fidelity, reference image support (up to 10). CRITICAL: Only accepts aspect ratios: "1:1", "3:2", "2:3" (default: "2:3"). Use for: Product cards, marketing visuals, text-heavy images.
 - black-forest-labs/flux-kontext-max: Wide format specialist, contextual understanding. Use for: Banners, landscape visuals, wide compositions (16:9, 21:9, etc.).
 - black-forest-labs/flux-krea-dev: Square format optimized, multiple outputs (1-4). Use for: Instagram posts, square social media, balanced compositions.
 - google/nano-banana: Fast generation, lightweight. Use for: Quick iterations, simple images, speed priority.
@@ -1882,30 +1882,47 @@ export async function normalizePlannerOutput(
     }
 
     // Intelligently detect and set aspect ratio for image/video steps
-    if ((tool === 'image' || tool === 'video') && !inputs.aspect_ratio) {
-      const model = coerceString(s.model) || TOOL_SPECS[tool]?.models[0]?.id || '';
+    const model = coerceString(s.model) || TOOL_SPECS[tool]?.models[0]?.id || '';
+    if ((tool === 'image' || tool === 'video')) {
       const availableRatios = getAvailableAspectRatios(model, tool);
       
-      // Find reference image: uploaded image or from dependency
-      let referenceImageUrl: string | undefined = firstImageUrl;
-      if (tool === 'video' && s.dependencies && s.dependencies.length > 0) {
-        // For video, check if dependency is an image step
-        const depStep = (planObj.steps as AssistantPlanStep[]).find(st => s.dependencies?.includes(st.id));
-        if (depStep && depStep.tool === 'image') {
-          // Will be resolved at runtime, but we can use uploaded image as fallback
-          referenceImageUrl = firstImageUrl;
+      // For GPT Image 1.5, validate and correct aspect ratio
+      if (tool === 'image' && model === 'openai/gpt-image-1.5') {
+        const validRatios = ['1:1', '3:2', '2:3'] as const;
+        if (inputs.aspect_ratio) {
+          // Validate existing aspect_ratio
+          if (!validRatios.includes(inputs.aspect_ratio as any)) {
+            console.warn(`[Normalize] ⚠️  Invalid aspect_ratio "${inputs.aspect_ratio}" for GPT Image 1.5. Valid options: ${validRatios.join(', ')}. Defaulting to "2:3".`);
+            inputs.aspect_ratio = '2:3';
+          }
+        } else {
+          // No aspect_ratio provided - default to "2:3" for GPT Image 1.5
+          inputs.aspect_ratio = '2:3';
+          console.log(`[Normalize] ✓ Set default aspect_ratio "2:3" for GPT Image 1.5 step ${s.id}`);
         }
-      }
-      
-      // Combine prompt with user messages for better detection
-      const allText = [
-        prompt,
-        ...messages.filter(m => m.role === 'user').map(m => m.content),
-      ].filter(Boolean).join(' ');
+      } else if (!inputs.aspect_ratio) {
+        // For other models, detect aspect ratio if not provided
+        // Find reference image: uploaded image or from dependency
+        let referenceImageUrl: string | undefined = firstImageUrl;
+        if (tool === 'video' && s.dependencies && s.dependencies.length > 0) {
+          // For video, check if dependency is an image step
+          const depStep = (planObj.steps as AssistantPlanStep[]).find(st => s.dependencies?.includes(st.id));
+          if (depStep && depStep.tool === 'image') {
+            // Will be resolved at runtime, but we can use uploaded image as fallback
+            referenceImageUrl = firstImageUrl;
+          }
+        }
+        
+        // Combine prompt with user messages for better detection
+        const allText = [
+          prompt,
+          ...messages.filter(m => m.role === 'user').map(m => m.content),
+        ].filter(Boolean).join(' ');
 
-      const detectedRatio = await determineAspectRatio(s, allText, referenceImageUrl, availableRatios);
-      inputs.aspect_ratio = detectedRatio;
-      console.log(`[Normalize] ✓ Detected aspect ratio for ${s.id}: ${detectedRatio} (from prompt analysis${referenceImageUrl ? ' and image analysis' : ''})`);
+        const detectedRatio = await determineAspectRatio(s, allText, referenceImageUrl, availableRatios);
+        inputs.aspect_ratio = detectedRatio;
+        console.log(`[Normalize] ✓ Detected aspect ratio for ${s.id}: ${detectedRatio} (from prompt analysis${referenceImageUrl ? ' and image analysis' : ''})`);
+      }
     }
     
     // Preserve ALL fields from Claude's original step
