@@ -6226,10 +6226,13 @@ body[data-page="billing"] .pricing-card.current-plan {
   padding: var(--space-3) var(--space-4) 0;
   background: var(--bg);
   border-bottom: 1px solid var(--separator);
-  max-height: 400px;
-  overflow-y: auto;
   display: flex;
   justify-content: center;
+  position: relative;
+  /* Prevent scroll jumping - no overflow on container */
+  overflow: visible;
+  /* Prevent layout shifts */
+  contain: layout style;
 }
 
 /* Compact Plan Widget */
@@ -6246,6 +6249,10 @@ body[data-page="billing"] .pricing-card.current-plan {
   /* Prevent scroll jumping */
   scroll-margin-top: 0;
   scroll-margin-bottom: 0;
+  /* Prevent layout shifts when content expands */
+  contain: layout style;
+  /* Prevent focus scroll */
+  scroll-behavior: auto;
 }
 
 .compact-plan-widget-header {
@@ -6308,6 +6315,10 @@ body[data-page="billing"] .pricing-card.current-plan {
   gap: var(--space-1);
   max-height: 300px;
   overflow-y: auto;
+  /* Prevent scroll jumping when content expands */
+  scroll-behavior: auto;
+  /* Smooth scrolling but prevent jumps */
+  overscroll-behavior: contain;
 }
 
 .compact-plan-step {
@@ -6316,13 +6327,17 @@ body[data-page="billing"] .pricing-card.current-plan {
   border: 1px solid var(--separator);
   border-radius: 8px;
   cursor: pointer;
-  transition: all var(--motion-duration-fast);
+  transition: background-color var(--motion-duration-fast), border-color var(--motion-duration-fast);
   position: relative;
   /* Prevent scroll on click */
   scroll-margin: 0;
   /* Prevent text selection causing scroll */
   user-select: none;
   -webkit-user-select: none;
+  /* Prevent layout shifts */
+  contain: layout;
+  /* Prevent focus scroll */
+  scroll-behavior: auto;
 }
 
 .compact-plan-step:hover {

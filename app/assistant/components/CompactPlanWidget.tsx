@@ -75,14 +75,19 @@ export default function CompactPlanWidget({
       <div 
         className="compact-plan-widget"
         onMouseDown={(e) => {
-          // Prevent scroll when clicking inside widget
-          if ((e.target as HTMLElement).closest('.compact-plan-step') || 
-              (e.target as HTMLElement).closest('button') ||
-              (e.target as HTMLElement).closest('input') ||
-              (e.target as HTMLElement).closest('textarea') ||
-              (e.target as HTMLElement).closest('select')) {
+          // Prevent scroll when clicking on widget container, but allow clicks on interactive elements
+          const target = e.target as HTMLElement;
+          if (!target.closest('button') && 
+              !target.closest('input') && 
+              !target.closest('textarea') && 
+              !target.closest('select') &&
+              !target.closest('.compact-plan-step-main')) {
             e.preventDefault();
           }
+        }}
+        onClick={(e) => {
+          // Prevent clicks from causing scroll
+          e.stopPropagation();
         }}
       >
       <div className="compact-plan-widget-header">
@@ -115,6 +120,14 @@ export default function CompactPlanWidget({
           // Prevent clicks from bubbling up
           e.stopPropagation();
         }}
+        onMouseDown={(e) => {
+          // Prevent scroll on content area
+          e.stopPropagation();
+        }}
+        onTouchStart={(e) => {
+          // Prevent touch scroll
+          e.stopPropagation();
+        }}
       >
         <div className="compact-plan-widget-steps">
             {plan.steps.map((step, idx) => {
@@ -131,13 +144,20 @@ export default function CompactPlanWidget({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    onStepClick?.(step.id);
+                    // Only trigger click if clicking on step main area, not on inputs/buttons
+                    if ((e.target as HTMLElement).closest('.compact-plan-step-main') || 
+                        e.target === e.currentTarget) {
+                      onStepClick?.(step.id);
+                    }
                   }}
                   onMouseDown={(e) => {
-                    // Prevent default to avoid focus/scroll issues
-                    if (e.target === e.currentTarget || (e.target as HTMLElement).closest('.compact-plan-step-main')) {
-                      e.preventDefault();
-                    }
+                    // Always prevent default to avoid scroll/focus issues
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onTouchStart={(e) => {
+                    // Prevent touch scroll
+                    e.stopPropagation();
                   }}
                 >
                   <div className="compact-plan-step-main">
@@ -166,6 +186,10 @@ export default function CompactPlanWidget({
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                      }}
+                      onFocus={(e) => {
+                        // Prevent focus scroll
+                        e.target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
                       }}
                       type="button"
                     >
@@ -244,6 +268,10 @@ export default function CompactPlanWidget({
                                 e.preventDefault();
                                 e.stopPropagation();
                               }}
+                              onFocus={(e) => {
+                                // Prevent focus scroll
+                                e.target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+                              }}
                               type="button"
                             >
                               Edit Parameters
@@ -306,12 +334,29 @@ function CompactStepEditor({ step, config, onConfigChange, onSave, onCancel }: C
   };
 
   return (
-    <div className="compact-step-editor">
+    <div 
+      className="compact-step-editor"
+      onMouseDown={(e) => {
+        // Prevent scroll when interacting with editor
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        // Prevent clicks from bubbling
+        e.stopPropagation();
+      }}
+    >
       <div className="compact-step-editor-field">
         <label>Model</label>
         <select
           value={config.model}
           onChange={(e) => handleModelChange(e.target.value)}
+          onFocus={(e) => {
+            // Prevent focus scroll
+            e.target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
         >
           {availableModels.map((model) => (
             <option key={model} value={model}>
@@ -337,6 +382,13 @@ function CompactStepEditor({ step, config, onConfigChange, onSave, onCancel }: C
                     inputs: { ...config.inputs, [field.key]: e.target.value },
                   })
                 }
+                onFocus={(e) => {
+                  // Prevent focus scroll
+                  e.target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                }}
               />
             ) : field.type === 'select' && field.options ? (
               <select
@@ -347,6 +399,13 @@ function CompactStepEditor({ step, config, onConfigChange, onSave, onCancel }: C
                     inputs: { ...config.inputs, [field.key]: e.target.value },
                   })
                 }
+                onFocus={(e) => {
+                  // Prevent focus scroll
+                  e.target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                }}
               >
                 {field.options.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -364,6 +423,13 @@ function CompactStepEditor({ step, config, onConfigChange, onSave, onCancel }: C
                     inputs: { ...config.inputs, [field.key]: e.target.value },
                   })
                 }
+                onFocus={(e) => {
+                  // Prevent focus scroll
+                  e.target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                }}
               />
             )}
             {field.helper && (
