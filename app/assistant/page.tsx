@@ -14,7 +14,7 @@ import ProgressWidget from './components/ProgressWidget';
 import OutputPreview from './components/OutputPreview';
 import ConversationSidebar from './components/ConversationSidebar';
 import AssistantEditor from './components/AssistantEditor';
-import { Menu, ChevronLeft, Edit } from 'lucide-react';
+import { Menu, ChevronLeft, Edit, History } from 'lucide-react';
 import type { EditorAsset } from '../../types/editor';
 
 type StepConfig = { model: string; inputs: Record<string, any> };
@@ -854,16 +854,37 @@ export default function AssistantPage() {
         />
       )}
       <div className={`chat-container ${userId && sidebarOpen ? 'with-sidebar' : ''}`}>
-        {userId && (
-          <button
-            className="sidebar-toggle-button"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-            type="button"
-          >
-            {sidebarOpen ? <ChevronLeft size={18} /> : <Menu size={18} />}
-          </button>
-        )}
+        {/* Topbar with title and buttons */}
+        <div className="assistant-topbar">
+          <div className="assistant-topbar-left">
+            {userId && (
+              <button
+                className="assistant-topbar-button"
+                onClick={() => setEditorOpen(true)}
+                title="Open Assistant Editor"
+                type="button"
+              >
+                <Edit size={18} />
+              </button>
+            )}
+          </div>
+          <div className="assistant-topbar-center">
+            <h1 className="assistant-title">Assistant</h1>
+            {userId && (
+              <button
+                className="assistant-topbar-button"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                title={sidebarOpen ? 'Hide chat history' : 'Show chat history'}
+                type="button"
+              >
+                <History size={18} />
+              </button>
+            )}
+          </div>
+          <div className="assistant-topbar-right">
+            {/* Reserved for future actions */}
+          </div>
+        </div>
         <div className="chat-messages" ref={chatEndRef}>
           {chatMessages.map((msg) => {
           let widgetContent: React.ReactNode = null;

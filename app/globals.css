@@ -5391,15 +5391,50 @@ body[data-page="billing"] .pricing-card.current-plan {
   transition: margin-left var(--motion-duration-fast);
 }
 
-.chat-container.with-sidebar {
-  margin-left: 200px;
+/* Assistant Topbar */
+.assistant-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--separator);
+  background: var(--panel-elevated);
+  flex-shrink: 0;
+  z-index: 10;
+  position: relative;
 }
 
-.sidebar-toggle-button {
-  position: fixed;
-  top: var(--space-4);
-  left: var(--space-4);
-  z-index: 100;
+.assistant-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.assistant-topbar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.assistant-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.assistant-title {
+  margin: 0;
+  font-size: var(--font-2xl);
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.assistant-topbar-button {
   width: 36px;
   height: 36px;
   display: flex;
@@ -5410,20 +5445,21 @@ body[data-page="billing"] .pricing-card.current-plan {
   border-radius: 8px;
   color: var(--text);
   cursor: pointer;
-  font-size: 18px;
   transition: all var(--motion-duration-fast);
   box-shadow: var(--shadow-soft);
 }
 
-.sidebar-toggle-button:hover {
+.assistant-topbar-button:hover {
   background: var(--panel-hover);
   border-color: var(--border-light);
   transform: scale(1.05);
 }
 
-.chat-container.with-sidebar .sidebar-toggle-button {
-  left: calc(200px + var(--space-4));
+.chat-container.with-sidebar {
+  margin-left: 200px;
 }
+
+/* Old sidebar-toggle-button styles removed - now using assistant-topbar-button */
 
 /* Conversation Sidebar */
 .conversation-sidebar {
