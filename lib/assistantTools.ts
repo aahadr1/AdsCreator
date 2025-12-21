@@ -1677,10 +1677,32 @@ export async function normalizePlannerOutput(
   // Coerce common malformed shapes into a plan-like object
   const coercePlan = (val: any): any | null => {
     if (!val) return null;
-    if (Array.isArray(val)) {
-      const firstWithSteps = val.find((item) => item && typeof item === 'object' && Array.isArray((item as any).steps));
-      if (firstWithSteps) return firstWithSteps;
+
+    // If it's already a valid plan, return it
+    if (typeof val === 'object' && Array.isArray((val as any).steps)) {
+      return val;
     }
+
+    if (Array.isArray(val)) {
+      // Look for plan objects in array
+      const firstWithSteps = val.find(
+        (item) => item && typeof item === 'object' && Array.isArray((item as any).steps),
+      );
+      if (firstWithSteps) return firstWithSteps;
+      
+      // Try to parse as JSON string array
+      if (val.length > 0 && typeof val[0] === 'string') {
+        const joined = val.join('');
+        try {
+          const parsed = JSON.parse(joined);
+          const coerced = coercePlan(parsed);
+          if (coerced) return coerced;
+        } catch {
+          // Not JSON, continue
+        }
+      }
+    }
+
     if (typeof val === 'string') {
       try {
         const parsed = JSON.parse(val);
@@ -1689,7 +1711,26 @@ export async function normalizePlannerOutput(
         return null;
       }
     }
-    if (typeof val === 'object' && Array.isArray((val as any).steps)) return val;
+
+    if (typeof val === 'object') {
+      // Check for nested wrappers - extended list
+      const nestedKeys = ['plan', 'output', 'result', 'data', 'response', 'body', 'content', 'message'];
+      for (const key of nestedKeys) {
+        if (val[key] !== undefined && val[key] !== null) {
+          const nested = coercePlan(val[key]);
+          if (nested) return nested;
+        }
+      }
+      
+      // Check if any property is a plan
+      for (const key in val) {
+        if (val.hasOwnProperty(key)) {
+          const nested = coercePlan(val[key]);
+          if (nested) return nested;
+        }
+      }
+    }
+
     return null;
   };
 

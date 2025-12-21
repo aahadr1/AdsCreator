@@ -5374,13 +5374,25 @@ body[data-page="billing"] .pricing-card.current-plan {
    CHAT INTERFACE STYLES
    ======================================== */
 
+/* Assistant Page Layout */
+.assistant-page-layout {
+  display: flex;
+  height: 100vh;
+  background: var(--bg);
+  overflow: hidden;
+}
+
 .chat-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-width: 1200px;
-  margin: 0 auto;
+  flex: 1;
   background: var(--bg);
+  transition: margin-left var(--motion-duration-fast);
+}
+
+.chat-container.with-sidebar {
+  margin-left: 280px;
 }
 
 .chat-messages {

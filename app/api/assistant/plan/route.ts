@@ -170,6 +170,95 @@ function normalizeMedia(list: any[]): AssistantMedia[] {
   })).filter((m) => m.url);
 }
 
+function chunkToString(chunk: any): string {
+  if (!chunk && chunk !== 0) return '';
+  if (typeof chunk === 'string' || typeof chunk === 'number') return String(chunk);
+  if (Array.isArray(chunk)) return chunk.map(chunkToString).join('');
+
+  if (typeof chunk === 'object') {
+    // Ignore metadata and control events from Claude streaming
+    const ignorableTypes = new Set([
+      'message_start',
+      'message_stop',
+      'content_block_start',
+      'content_block_stop',
+      'metadata',
+      'response.completed',
+      'response.output_audio.delta',
+      'ping',
+      'error',
+    ]);
+
+    if (chunk.type && ignorableTypes.has(chunk.type)) return '';
+
+    // Handle Claude streaming format - extract text from content blocks
+    if (chunk.type === 'content_block_delta') {
+      if (chunk.delta) {
+        // Delta can be text or have nested structure
+        if (typeof chunk.delta === 'string') return chunk.delta;
+        if (chunk.delta.text) return chunk.delta.text;
+        if (chunk.delta.type === 'text_delta' && chunk.delta.text) return chunk.delta.text;
+        return chunkToString(chunk.delta);
+      }
+      return '';
+    }
+
+    if (chunk.type === 'content_block') {
+      // Content block can have text directly or nested
+      if (chunk.text) return chunk.text;
+      if (chunk.content) return chunkToString(chunk.content);
+      return '';
+    }
+
+    if (chunk.type === 'message_delta' && chunk.delta) {
+      return chunkToString(chunk.delta);
+    }
+
+    if (chunk.type === 'message') {
+      // Message can have content array or direct text
+      if (Array.isArray(chunk.content)) {
+        return chunk.content.map(chunkToString).join('');
+      }
+      if (chunk.message) return chunkToString(chunk.message);
+      if (chunk.text) return chunk.text;
+      return '';
+    }
+
+    // Handle Replicate output wrapper
+    if (chunk.type === 'output' && chunk.output !== undefined) {
+      return chunkToString(chunk.output);
+    }
+
+    // Direct text fields (various formats)
+    if (typeof chunk.text === 'string') return chunk.text;
+    if (typeof chunk.delta === 'string') return chunk.delta;
+    if (typeof chunk.value === 'string') return chunk.value;
+
+    // Nested content structures
+    if (Array.isArray(chunk.content)) {
+      return chunk.content.map(chunkToString).join('');
+    }
+    if (typeof chunk.message === 'object') {
+      return chunkToString(chunk.message);
+    }
+    if (chunk.output !== undefined) {
+      return chunkToString(chunk.output);
+    }
+
+    // If it's already a plan object with steps, return empty (we'll handle it separately)
+    if (Array.isArray(chunk.steps)) {
+      return '';
+    }
+  }
+
+  // Last resort: stringify if it's not a plan object
+  try {
+    return JSON.stringify(chunk);
+  } catch {
+    return '';
+  }
+}
+
 // Robust extraction: even if JSON is malformed, try to extract steps
 function extractPlanFromText(
   text: string,
@@ -305,30 +394,79 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
           max_tokens: maxTokens,
         },
       });
+      
+      let planJsonCandidate: any | null = null;
+      rawText = '';
 
-      if (Array.isArray(planOutput)) {
-        rawText = planOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('\n');
+      // Short-circuit: Check if Replicate already gave us a valid plan object
+      if (planOutput && typeof planOutput === 'object' && !Array.isArray(planOutput)) {
+        // Check if it's already a plan with steps
+        if (Array.isArray((planOutput as any).steps)) {
+          planJsonCandidate = planOutput;
+          rawText = JSON.stringify(planOutput);
+          console.log('[Plan] ✓ Replicate returned plan object directly with', (planOutput as any).steps.length, 'steps');
+        }
+        // Check for nested wrappers (plan, output, result, data)
+        else if ((planOutput as any).plan && Array.isArray((planOutput as any).plan.steps)) {
+          planJsonCandidate = (planOutput as any).plan;
+          rawText = JSON.stringify((planOutput as any).plan);
+          console.log('[Plan] ✓ Found plan in nested wrapper');
+        }
+        else if ((planOutput as any).output && typeof (planOutput as any).output === 'object') {
+          const output = (planOutput as any).output;
+          if (Array.isArray(output.steps)) {
+            planJsonCandidate = output;
+            rawText = JSON.stringify(output);
+            console.log('[Plan] ✓ Found plan in output wrapper');
+          } else {
+            rawText = chunkToString(planOutput);
+          }
+        }
+        else {
+          rawText = chunkToString(planOutput);
+        }
+      } else if (Array.isArray(planOutput)) {
+        // Handle array of chunks - reconstruct JSON from streaming events
+        rawText = planOutput.map(chunkToString).join('');
+        console.log('[Plan] Reconstructed text from', planOutput.length, 'chunks, length:', rawText.length);
       } else if (typeof planOutput === 'string') {
         rawText = planOutput;
-      } else if (planOutput && typeof planOutput === 'object') {
-        rawText = JSON.stringify(planOutput);
+      } else {
+        rawText = String(planOutput || '');
       }
 
       console.log(`[Plan] Got response (${rawText.length} chars)`);
       console.log(`[Plan] First 500 chars:`, rawText.slice(0, 500));
+      if (rawText.length > 500) {
+        console.log(`[Plan] Last 500 chars:`, rawText.slice(-500));
+      }
 
       // Try robust parsing with fallback extraction
-      let planJson = parseJSONFromString(rawText);
+      let planJson = planJsonCandidate;
       
+      // If we don't have a candidate, try parsing the text
+      if (!planJson) {
+        planJson = parseJSONFromString(rawText);
+        if (planJson && Array.isArray(planJson.steps)) {
+          console.log('[Plan] ✓ Parsed JSON from text, found', planJson.steps.length, 'steps');
+        }
+      }
+      
+      // If still no plan, try extraction
       if (!planJson || !planJson.steps || !Array.isArray(planJson.steps)) {
         console.warn('[Plan] JSON parsing failed or no steps found, attempting extraction...');
         planJson = extractPlanFromText(rawText, messages, media, null);
       }
       
       if (!planJson || !planJson.steps || planJson.steps.length === 0) {
-        console.error('[Plan] Could not extract valid plan. Raw output:', rawText.slice(0, 1500));
+        console.error('[Plan] Could not extract valid plan.');
+        console.error('[Plan] Raw output (first 2000 chars):', rawText.slice(0, 2000));
+        console.error('[Plan] Raw output (last 2000 chars):', rawText.slice(-2000));
+        console.error('[Plan] PlanJson candidate:', planJsonCandidate ? 'exists' : 'null');
         throw new Error('Failed to generate valid plan. Please try rephrasing your request.');
       }
+      
+      console.log(`[Plan] ✓ Successfully extracted plan with ${planJson.steps.length} steps`);
       
       console.log(`[Plan] Successfully parsed ${planJson.steps.length} steps`);
       

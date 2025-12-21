@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServer } from '@/lib/supabaseServer';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 
@@ -77,8 +78,8 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const { id, user_id, messages, plan, title } = body;
 
-    if (!id || !user_id) {
-      return NextResponse.json({ error: 'id and user_id required' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'id required' }, { status: 400 });
     }
 
     const updateData: any = {
@@ -88,18 +89,54 @@ export async function PUT(req: NextRequest) {
     if (plan !== undefined) updateData.plan = plan;
     if (title !== undefined) updateData.title = title;
 
-    const { data, error } = await supabase
+    const query = supabase
       .from('assistant_conversations')
       .update(updateData)
-      .eq('id', id)
-      .eq('user_id', user_id)
-      .select()
-      .single();
+      .eq('id', id);
+    
+    if (user_id) {
+      query.eq('user_id', user_id);
+    }
+
+    const { data, error } = await query.select().single();
 
     if (error) throw error;
     return NextResponse.json(data);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    }
+
+    const token = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!token) {
+      return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 });
+    }
+
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, token);
+
+    const { error } = await supabase
+      .from('assistant_conversations')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting conversation:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('Error in DELETE:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 

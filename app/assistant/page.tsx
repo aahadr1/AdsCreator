@@ -12,6 +12,7 @@ import CompactPlanWidget from './components/CompactPlanWidget';
 import StepWidget from './components/StepWidget';
 import ProgressWidget from './components/ProgressWidget';
 import OutputPreview from './components/OutputPreview';
+import ConversationSidebar from './components/ConversationSidebar';
 
 type StepConfig = { model: string; inputs: Record<string, any> };
 type StepState = { 
@@ -108,6 +109,7 @@ export default function AssistantPage() {
   const [runError, setRunError] = useState<string | null>(null);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -686,10 +688,77 @@ export default function AssistantPage() {
     }
   }, [chatMessages, plan, userId]);
 
+  const handleNewConversation = () => {
+    setConversationId(null);
+    setChatMessages([{
+      id: 'welcome',
+      role: 'assistant',
+      content: 'Hello! I can help you create workflows for image generation, video creation, text-to-speech, and more. What would you like to create?',
+      timestamp: new Date(),
+    }]);
+    setPlan(EMPTY_PLAN);
+    setStepConfigs({});
+    setStepStates({});
+    setDraft('');
+    setAttachments([]);
+  };
+
+  const handleSelectConversation = async (id: string | null) => {
+    if (!id) {
+      handleNewConversation();
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/assistant/conversations?user_id=${userId}&id=${id}`);
+      if (res.ok) {
+        const conv = await res.json();
+        setConversationId(conv.id);
+        
+        // Load messages
+        const messages = (conv.messages || []).map((m: any) => ({
+          ...m,
+          timestamp: new Date(m.timestamp || conv.created_at),
+        }));
+        setChatMessages(messages.length > 0 ? messages : [{
+          id: 'welcome',
+          role: 'assistant',
+          content: 'Hello! I can help you create workflows for image generation, video creation, text-to-speech, and more. What would you like to create?',
+          timestamp: new Date(),
+        }]);
+        
+        // Load plan
+        if (conv.plan) {
+          setPlan(conv.plan);
+          // Restore step configs
+          const configs: Record<string, StepConfig> = {};
+          conv.plan.steps.forEach((step: AssistantPlanStep) => {
+            configs[step.id] = {
+              model: step.model,
+              inputs: step.inputs || {},
+            };
+          });
+          setStepConfigs(configs);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+    }
+  };
+
   return (
-    <div className="chat-container">
-      <div className="chat-messages" ref={chatEndRef}>
-        {chatMessages.map((msg) => {
+    <div className="assistant-page-layout">
+      {userId && (
+        <ConversationSidebar
+          userId={userId}
+          currentConversationId={conversationId}
+          onSelectConversation={handleSelectConversation}
+          onNewConversation={handleNewConversation}
+        />
+      )}
+      <div className={`chat-container ${userId ? 'with-sidebar' : ''}`}>
+        <div className="chat-messages" ref={chatEndRef}>
+          {chatMessages.map((msg) => {
           let widgetContent: React.ReactNode = null;
 
           if (msg.widgetType === 'step' && msg.widgetData?.step) {
@@ -755,21 +824,21 @@ export default function AssistantPage() {
                     );
           }
 
-                return (
-            <MessageBubble
-              key={msg.id}
-              role={msg.role}
-              content={msg.content}
-              attachments={msg.attachments}
-            >
-              {widgetContent}
-            </MessageBubble>
-                );
-              })}
-        <div ref={messagesEndRef} />
-      </div>
+            return (
+              <MessageBubble
+                key={msg.id}
+                role={msg.role}
+                content={msg.content}
+                attachments={msg.attachments}
+              >
+                {widgetContent}
+              </MessageBubble>
+            );
+          })}
+          <div ref={messagesEndRef} />
+        </div>
 
-      <div className="chat-input-area">
+        <div className="chat-input-area">
         {plan.steps.length > 0 && (
           <div className="compact-plan-widget-sticky">
             <CompactPlanWidget
@@ -797,6 +866,7 @@ export default function AssistantPage() {
             loading={planLoading}
             placeholder={userId ? 'Send a message...' : 'Sign in to continue...'}
           />
+        </div>
         </div>
       </div>
     </div>
