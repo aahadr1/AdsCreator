@@ -91,8 +91,11 @@ export default function EditorPreviewPanel({
         setCurrentMedia(asset);
         setActiveClip(activeVideoClip);
         // Calculate the time within the clip: playhead position - clip start + trim offset
+        // This is the exact time in the source media that should be playing
         const clipRelativeTime = playhead - activeVideoClip.startTime + activeVideoClip.trimStart;
-        setCurrentTime(Math.max(0, clipRelativeTime));
+        // Clamp to the actual clip duration (accounting for trims)
+        const clipDuration = (activeVideoClip.endTime - activeVideoClip.startTime) + activeVideoClip.trimStart - activeVideoClip.trimEnd;
+        setCurrentTime(Math.max(0, Math.min(clipRelativeTime, clipDuration)));
         return;
       }
     }
@@ -105,24 +108,20 @@ export default function EditorPreviewPanel({
         setCurrentMedia(asset);
         setActiveClip(firstAudioClip);
         const clipRelativeTime = playhead - firstAudioClip.startTime + firstAudioClip.trimStart;
-        setCurrentTime(Math.max(0, clipRelativeTime));
+        const clipDuration = (firstAudioClip.endTime - firstAudioClip.startTime) + firstAudioClip.trimStart - firstAudioClip.trimEnd;
+        setCurrentTime(Math.max(0, Math.min(clipRelativeTime, clipDuration)));
         return;
       }
     }
 
-    // Fallback to first asset if available (only if no clips on timeline)
-    if (assets.length > 0 && clips.length === 0) {
+    // Fallback: show first asset if available
+    // This handles: no clips on timeline, or playhead not at any clip
+    if (assets.length > 0) {
       setCurrentMedia(assets[0]);
       setCurrentTime(0);
       setActiveClip(null);
       setActiveAudioClips([]);
-    } else if (assets.length === 0) {
-      setCurrentMedia(null);
-      setCurrentTime(0);
-      setActiveClip(null);
-      setActiveAudioClips([]);
     } else {
-      // No active clip at playhead
       setCurrentMedia(null);
       setCurrentTime(0);
       setActiveClip(null);
@@ -130,33 +129,66 @@ export default function EditorPreviewPanel({
     }
   }, [playhead, clips, assets, selectedAssetId, selectedClipId]);
 
-  // Sync player with playhead time
+  // Update currentTime when playhead moves during timeline playback
+  // This ensures the player shows the correct frame as playhead advances
+  useEffect(() => {
+    if (activeClip && playing) {
+      // Recalculate clip-relative time when playhead changes during playback
+      const clipRelativeTime = playhead - activeClip.startTime + activeClip.trimStart;
+      const clipDuration = (activeClip.endTime - activeClip.startTime) + activeClip.trimStart - activeClip.trimEnd;
+      const newTime = Math.max(0, Math.min(clipRelativeTime, clipDuration));
+      if (Math.abs(newTime - currentTime) > 0.01) {
+        setCurrentTime(newTime);
+      }
+    }
+  }, [playhead, activeClip, playing]);
+
+  // Sync player with playhead time - critical for timeline playback
   useEffect(() => {
     if (playerRef.current && currentMedia && activeClip) {
       const player = playerRef.current.getInternalPlayer();
       if (player && typeof player.currentTime !== 'undefined') {
         try {
           const currentPlayerTime = typeof player.currentTime === 'number' ? player.currentTime : 0;
-          // Only sync if difference is significant (avoid constant updates)
-          if (Math.abs(currentPlayerTime - currentTime) > 0.1) {
-            player.currentTime = currentTime;
+          // Always sync when there's an active clip (timeline composition mode)
+          // This ensures the player follows the playhead as it moves through clips
+          const targetTime = currentTime;
+          // Sync more aggressively during timeline playback (smaller threshold)
+          const threshold = playing ? 0.05 : 0.1;
+          if (Math.abs(currentPlayerTime - targetTime) > threshold) {
+            player.currentTime = targetTime;
           }
         } catch (e) {
           // Ignore errors when setting currentTime
         }
       }
+    } else if (playerRef.current && currentMedia && !activeClip && !playing) {
+      // When not playing and no active clip, sync for manual seeks
+      const player = playerRef.current.getInternalPlayer();
+      if (player && typeof player.currentTime !== 'undefined') {
+        try {
+          const currentPlayerTime = typeof player.currentTime === 'number' ? player.currentTime : 0;
+          if (Math.abs(currentPlayerTime - currentTime) > 0.1) {
+            player.currentTime = currentTime;
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+      }
     }
-  }, [currentTime, currentMedia, activeClip]);
+  }, [currentTime, currentMedia, activeClip, playing]);
 
-  // Handle playback
+  // Handle playback state - play/pause based on timeline playing state
   useEffect(() => {
     if (playerRef.current && currentMedia) {
       const player = playerRef.current.getInternalPlayer();
       if (player) {
-        if (playing) {
+        // Only play if there's an active clip (timeline composition mode) or selected asset/clip
+        const shouldPlay = playing && (activeClip || selectedClipId || selectedAssetId);
+        if (shouldPlay) {
           if (typeof player.play === 'function') {
             player.play().catch(() => {
-              // Ignore play errors
+              // Ignore play errors (e.g., autoplay restrictions)
             });
           }
         } else {
@@ -166,17 +198,20 @@ export default function EditorPreviewPanel({
         }
       }
     }
-  }, [playing, currentMedia]);
+  }, [playing, currentMedia, activeClip, selectedClipId, selectedAssetId]);
 
   const handleProgress = (state: any) => {
-    // When playing timeline composition, the playhead is controlled by the timeline loop
-    // This progress handler is mainly for when user manually seeks or when showing selected asset
+    // When playing timeline composition, the playhead is controlled by the timeline loop in AssistantEditor
+    // This progress handler should NOT update the playhead during timeline playback to avoid conflicts
+    // It's only used for manual playback of selected assets
     if (playing && activeClip && state?.playedSeconds !== undefined) {
-      // Calculate new playhead based on clip progress
-      const newPlayhead = activeClip.startTime + state.playedSeconds - activeClip.trimStart;
-      // Clamp to clip boundaries
-      const clampedPlayhead = Math.max(activeClip.startTime, Math.min(newPlayhead, activeClip.endTime));
-      onSetPlayhead(clampedPlayhead);
+      // Only update if we're showing a selected clip/asset (not timeline composition)
+      // Timeline composition playhead is managed by the playback loop
+      if (selectedClipId || selectedAssetId) {
+        const newPlayhead = activeClip.startTime + state.playedSeconds - activeClip.trimStart;
+        const clampedPlayhead = Math.max(activeClip.startTime, Math.min(newPlayhead, activeClip.endTime));
+        onSetPlayhead(clampedPlayhead);
+      }
     }
   };
 
@@ -208,14 +243,21 @@ export default function EditorPreviewPanel({
             {...({
               ref: playerRef,
               url: getProxiedUrl(currentMedia.url),
-              playing,
+              playing: playing && (activeClip || selectedClipId || selectedAssetId), // Only play if there's context
               playbackRate: playbackSpeed || 1,
               volume: volume || 1,
-              progressInterval: 100,
+              progressInterval: activeClip ? 50 : 100, // More frequent updates during timeline playback
               onProgress: handleProgress,
               controls: false,
               width: '100%',
               height: '100%',
+              config: {
+                file: {
+                  attributes: {
+                    controlsList: 'nodownload',
+                  },
+                },
+              },
             } as any)}
           />
         )}
@@ -226,10 +268,10 @@ export default function EditorPreviewPanel({
               {...({
                 ref: playerRef,
                 url: getProxiedUrl(currentMedia.url),
-                playing,
-                playbackRate: playbackSpeed,
-                volume: volume,
-                progressInterval: 100,
+                playing: playing && (activeClip || selectedClipId || selectedAssetId), // Only play if there's context
+                playbackRate: playbackSpeed || 1,
+                volume: volume || 1,
+                progressInterval: activeClip ? 50 : 100, // More frequent updates during timeline playback
                 onProgress: handleProgress,
                 controls: false,
                 width: '100%',
