@@ -112,6 +112,11 @@ function parseJSONFromString(raw: string, seen: Set<string> = new Set()): any | 
     try {
       const parsed = JSON.parse(text);
       
+      // If it's already a valid plan with steps, return it immediately
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.steps)) {
+        return parsed;
+      }
+      
       // Handle wrapped responses like { "output": [...] }
       if (parsed && typeof parsed === 'object' && parsed.output !== undefined) {
         const inner = parsed.output;
@@ -133,19 +138,26 @@ function parseJSONFromString(raw: string, seen: Set<string> = new Set()): any | 
     }
   };
 
-  for (const candidate of candidates) {
+  // Remove duplicates and prioritize candidates
+  const uniqueCandidates = Array.from(new Set(candidates.filter(c => c && c.trim().length > 10)));
+
+  for (const candidate of uniqueCandidates) {
     const trimmed = candidate.trim();
-    if (!trimmed) continue;
+    if (!trimmed || trimmed.length < 10) continue; // Skip very short candidates
     
     // Try as-is
     const parsed = tryParse(trimmed);
-    if (parsed) return parsed;
+    if (parsed && parsed.steps && Array.isArray(parsed.steps)) {
+      return parsed;
+    }
     
     // Try with repaired quotes
     const repaired = repairJsonString(trimmed);
     if (repaired !== trimmed) {
       const repairedParsed = tryParse(repaired);
-      if (repairedParsed) return repairedParsed;
+      if (repairedParsed && repairedParsed.steps && Array.isArray(repairedParsed.steps)) {
+        return repairedParsed;
+      }
     }
   }
 
