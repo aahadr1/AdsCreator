@@ -297,10 +297,23 @@ export default function EditorPreviewPanel({
 
   const mediaUrl = currentMedia.url ? getProxiedUrl(currentMedia.url) : '';
 
+  // Debug: Log when media should be displayed
+  useEffect(() => {
+    if (currentMedia && currentMedia.url) {
+      console.log('Displaying media:', {
+        name: currentMedia.name,
+        type: currentMedia.type,
+        url: mediaUrl.substring(0, 100),
+        activeClip: activeClip?.id,
+        currentTime,
+      });
+    }
+  }, [currentMedia, mediaUrl, activeClip, currentTime]);
+
   return (
     <div className="assistant-editor-preview-panel">
       <div className="assistant-editor-preview-content">
-        {currentMedia.type === 'video' && currentMedia.url && (
+        {currentMedia.type === 'video' && currentMedia.url && mediaUrl && (
           <ReactPlayer
             {...({
               ref: playerRef,
