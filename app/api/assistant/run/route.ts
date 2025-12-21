@@ -1,5 +1,5 @@
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+export const maxDuration = 1800; // 30 minutes for slow models
 
 import { NextRequest } from 'next/server';
 import Replicate from 'replicate';
@@ -361,7 +361,8 @@ async function runImageStep(origin: string, step: AssistantPlanStep, inputs: Rec
   const predictionId = json?.id;
   if (!predictionId) throw new Error('Missing prediction id');
 
-  for (let i = 0; i < 40; i++) {
+  // Poll for up to 30 minutes (600 iterations * 3s = 1800s)
+  for (let i = 0; i < 600; i++) {
     await sleep(3000);
     const statusRes = await fetch(`${origin}/api/replicate/status?id=${predictionId}`, { cache: 'no-store' });
     if (!statusRes.ok) continue;
@@ -372,16 +373,19 @@ async function runImageStep(origin: string, step: AssistantPlanStep, inputs: Rec
     if (statusJson.status === 'failed' || statusJson.status === 'canceled') {
       throw new Error(statusJson.error || 'Image generation failed');
     }
+    if (i % 20 === 0 && i > 0) { // Log every minute
+      console.log(`[RunImage] Still processing... (${i * 3 / 60} minutes elapsed)`);
+    }
   }
-  throw new Error('Image generation timed out');
+  throw new Error('Image generation timed out after 30 minutes');
 }
 
 async function runVideoStep(origin: string, step: AssistantPlanStep, inputs: Record<string, any>): Promise<StepResult> {
   console.log(`[RunVideo] Starting video generation for model: ${step.model}`);
   console.log(`[RunVideo] Inputs:`, JSON.stringify(inputs, null, 2).slice(0, 300));
   
-  // Video generation can take 2-10 minutes, set generous timeout
-  const TIMEOUT_MS = 600000; // 10 minutes
+  // Video generation can take up to 30 minutes for slow models
+  const TIMEOUT_MS = 1800000; // 30 minutes
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     console.error(`[RunVideo] ⏰ Timeout after ${TIMEOUT_MS / 1000}s`);
@@ -505,7 +509,8 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
 
     console.log(`[RunLipsync] InfiniteTalk job created: ${predictionId}, polling status...`);
 
-    for (let i = 0; i < 120; i++) { // 10 minutes max (120 * 5s)
+    // Poll for up to 30 minutes (360 iterations * 5s = 1800s)
+    for (let i = 0; i < 360; i++) {
       await sleep(5000);
       const statusRes = await fetch(`${origin}/api/wavespeed/status?id=${predictionId}`, { cache: 'no-store' });
       if (!statusRes.ok) continue;
@@ -518,11 +523,11 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
       if (statusJson.status === 'error' || statusJson.status === 'failed') {
         throw new Error(statusJson.error || 'InfiniteTalk failed');
       }
-      if (i % 6 === 0) { // Log every 30 seconds
+      if (i % 12 === 0 && i > 0) { // Log every minute
         console.log(`[RunLipsync] InfiniteTalk still processing... (${(i * 5) / 60} minutes elapsed)`);
       }
     }
-    throw new Error('InfiniteTalk timed out after 10 minutes');
+    throw new Error('InfiniteTalk timed out after 30 minutes');
   }
 
   if (!videoUrl || !audioUrl) throw new Error('Missing video/image and audio URLs for lipsync');
@@ -566,7 +571,8 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
     
     console.log(`[RunLipsync] Wan job created: ${predictionId}, polling status...`);
     
-    for (let i = 0; i < 120; i++) { // 10 minutes max (120 * 5s)
+    // Poll for up to 30 minutes (360 iterations * 5s = 1800s)
+    for (let i = 0; i < 360; i++) {
       await sleep(5000);
       const statusRes = await fetch(`${origin}/api/replicate/status?id=${predictionId}`, { cache: 'no-store' });
       if (!statusRes.ok) continue;
@@ -579,11 +585,11 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
       if (statusJson.status === 'failed' || statusJson.status === 'canceled') {
         throw new Error(statusJson.error || 'Wan S2V failed');
       }
-      if (i % 6 === 0) { // Log every 30 seconds
+      if (i % 12 === 0 && i > 0) { // Log every minute
         console.log(`[RunLipsync] Wan S2V still processing... (${(i * 5) / 60} minutes elapsed)`);
       }
     }
-    throw new Error('Wan S2V timed out after 10 minutes');
+    throw new Error('Wan S2V timed out after 30 minutes');
   }
 
   if (backend.includes('latentsync')) {
@@ -595,7 +601,8 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
     if (!res.ok) throw new Error(await res.text());
     const json = await res.json();
     if (!json?.id) throw new Error('LatentSync missing job id');
-    for (let i = 0; i < 60; i++) {
+    // Poll for up to 30 minutes (600 iterations * 3s = 1800s)
+    for (let i = 0; i < 600; i++) {
       await sleep(3000);
       const statusRes = await fetch(`${origin}/api/latentsync/status?id=${json.id}`, { cache: 'no-store' });
       if (!statusRes.ok) continue;
@@ -604,8 +611,11 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
       if (statusJson.status === 'failed' || statusJson.status === 'canceled') {
         throw new Error(statusJson.error || 'LatentSync failed');
       }
+      if (i % 20 === 0 && i > 0) { // Log every minute
+        console.log(`[RunLipsync] LatentSync still processing... (${i * 3 / 60} minutes elapsed)`);
+      }
     }
-    throw new Error('LatentSync timed out');
+    throw new Error('LatentSync timed out after 30 minutes');
   }
 
   const res = await fetch(`${origin}/api/lipsync/push`, {
@@ -616,7 +626,8 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
   if (!res.ok) throw new Error(await res.text());
   const json = await res.json();
   if (!json?.id) throw new Error('Lipsync missing job id');
-  for (let i = 0; i < 60; i++) {
+  // Poll for up to 30 minutes (450 iterations * 4s = 1800s)
+  for (let i = 0; i < 450; i++) {
     await sleep(4000);
     const statusRes = await fetch(`${origin}/api/lipsync/status?id=${json.id}`, { cache: 'no-store' });
     if (!statusRes.ok) continue;
@@ -629,8 +640,11 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
     if (statusJson.status === 'failed' || statusJson.status === 'error' || statusJson.status === 'cancelled') {
       throw new Error(statusJson.error || 'Lipsync failed');
     }
+    if (i % 15 === 0 && i > 0) { // Log every minute
+      console.log(`[RunLipsync] Lipsync still processing... (${i * 4 / 60} minutes elapsed)`);
+    }
   }
-  throw new Error('Lipsync timed out');
+  throw new Error('Lipsync timed out after 30 minutes');
 }
 
 async function runBackgroundStep(origin: string, inputs: Record<string, any>): Promise<StepResult> {
@@ -834,7 +848,7 @@ export async function POST(req: NextRequest) {
           
           // Long-running operations warning
           if (step.tool === 'video') {
-            console.log(`[Run] ⏳ Video generation may take 2-10 minutes, please wait...`);
+            console.log(`[Run] ⏳ Video generation may take up to 30 minutes for slow models, please wait...`);
           }
           
           usedInputs[step.id] = injected;
