@@ -253,23 +253,61 @@ export default function EditorPreviewPanel({
     );
   }
 
-  const mediaUrl = getProxiedUrl(currentMedia.url);
+  const mediaUrl = currentMedia.url ? getProxiedUrl(currentMedia.url) : '';
 
   return (
     <div className="assistant-editor-preview-panel">
       <div className="assistant-editor-preview-content">
         {currentMedia.type === 'video' && currentMedia.url && (
           <ReactPlayer
-            {...({
-              ref: playerRef,
-              url: mediaUrl,
-              playing: playing && (activeClip || selectedClipId || selectedAssetId),
-              playbackRate: playbackSpeed || 1,
-              volume: volume || 1,
-              progressInterval: activeClip ? 50 : 100,
-              onProgress: handleProgress,
+            ref={playerRef}
+            url={mediaUrl}
+            playing={playing && !!(activeClip || selectedClipId || selectedAssetId)}
+            playbackRate={playbackSpeed || 1}
+            volume={volume || 1}
+            progressInterval={activeClip ? 50 : 100}
+            onProgress={handleProgress}
+            onReady={() => {
+              // When player is ready, sync to currentTime
+              if (playerRef.current && activeClip) {
+                const player = playerRef.current.getInternalPlayer();
+                if (player && typeof player.currentTime !== 'undefined') {
+                  try {
+                    player.currentTime = currentTime;
+                  } catch (e) {
+                    // Ignore
+                  }
+                }
+              }
+            }}
+            onError={(error: any) => {
+              console.error('ReactPlayer error:', error);
+            }}
+            controls={false}
+            width="100%"
+            height="100%"
+            config={{
+              file: {
+                attributes: {
+                  controlsList: 'nodownload',
+                  preload: 'auto',
+                },
+              },
+            }}
+          />
+        )}
+
+        {currentMedia.type === 'audio' && currentMedia.url && (
+          <div className="assistant-editor-preview-audio">
+            <ReactPlayer
+              ref={playerRef}
+              url={mediaUrl}
+              playing={playing && !!(activeClip || selectedClipId || selectedAssetId)}
+              playbackRate={playbackSpeed || 1}
+              volume={volume || 1}
+              progressInterval={activeClip ? 50 : 100}
+              onProgress={handleProgress}
               onReady={() => {
-                // When player is ready, sync to currentTime
                 if (playerRef.current && activeClip) {
                   const player = playerRef.current.getInternalPlayer();
                   if (player && typeof player.currentTime !== 'undefined') {
@@ -280,52 +318,10 @@ export default function EditorPreviewPanel({
                     }
                   }
                 }
-              },
-              onError: (error: any) => {
-                console.error('ReactPlayer error:', error);
-              },
-              controls: false,
-              width: '100%',
-              height: '100%',
-              config: {
-                file: {
-                  attributes: {
-                    controlsList: 'nodownload',
-                    preload: 'auto',
-                  },
-                },
-              },
-            } as any)}
-          />
-        )}
-
-        {currentMedia.type === 'audio' && currentMedia.url && (
-          <div className="assistant-editor-preview-audio">
-            <ReactPlayer
-              {...({
-                ref: playerRef,
-                url: mediaUrl,
-                playing: playing && (activeClip || selectedClipId || selectedAssetId),
-                playbackRate: playbackSpeed || 1,
-                volume: volume || 1,
-                progressInterval: activeClip ? 50 : 100,
-                onProgress: handleProgress,
-                onReady={() => {
-                  if (playerRef.current && activeClip) {
-                    const player = playerRef.current.getInternalPlayer();
-                    if (player && typeof player.currentTime !== 'undefined') {
-                      try {
-                        player.currentTime = currentTime;
-                      } catch (e) {
-                        // Ignore
-                      }
-                    }
-                  }
-                },
-                controls: false,
-                width: '100%',
-                height: '50px',
-              } as any)}
+              }}
+              controls={false}
+              width="100%"
+              height="50px"
             />
             <div className="assistant-editor-preview-audio-info">
               <p>{currentMedia.name}</p>
