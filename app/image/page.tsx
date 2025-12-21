@@ -313,7 +313,12 @@ const sharedPromptValue = useMemo(
       const payload = await statusRes.json();
       const st: ReplicateStatus = payload.status || 'unknown';
 
-      patchJob(jobId, { status: st === 'succeeded' ? 'success' : st === 'failed' || st === 'canceled' ? 'error' : 'running' });
+      const jobStatus = st === 'succeeded' ? 'success' : st === 'failed' || st === 'canceled' ? 'error' : 'running';
+      patchJob(jobId, { status: jobStatus });
+      
+      // Update global task state for favicon
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus(jobStatus);
 
       const supabaseUpdate: Record<string, any> = { status: st };
       if (payload.outputUrl && typeof payload.outputUrl === 'string') {
@@ -360,6 +365,9 @@ const sharedPromptValue = useMemo(
       return;
     }
     patchJob(job.id, { status: 'running', error: null, outputUrl: null, rawOutputUrl: null });
+    // Update global task state for favicon
+    const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+    updateTaskStateFromJobStatus('running');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Please sign in at /auth before creating a task.');
@@ -421,6 +429,9 @@ const sharedPromptValue = useMemo(
     } catch (e: any) {
       const message = e?.message || 'Failed to generate image';
       patchJob(job.id, { status: 'error', error: message });
+      // Update global task state for favicon
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus('error');
       const targetKv = job.kvTaskId;
       if (targetKv) {
         try {

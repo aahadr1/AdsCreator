@@ -430,6 +430,9 @@ export default function VeoPage() {
 
     let kvIdLocal: string | null = null;
     patchJob(job.id, { status: 'running', error: null, videoUrl: null, rawVideoUrl: null });
+    // Update global task state for favicon
+    const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+    updateTaskStateFromJobStatus('running');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Please sign in at /auth before creating a task.');
@@ -521,6 +524,9 @@ export default function VeoPage() {
       const persisted = await persistUrlIfPossible(json.url);
       const proxied = `/api/proxy?type=video&url=${encodeURIComponent(persisted)}`;
       patchJob(job.id, { status: 'success', rawVideoUrl: persisted, videoUrl: proxied });
+      // Update global task state for favicon
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus('success');
 
       if (kvIdLocal) {
         try {
@@ -534,6 +540,9 @@ export default function VeoPage() {
     } catch (e: any) {
       const message = e?.message || 'Failed to generate video';
       patchJob(job.id, { status: 'error', error: message });
+      // Update global task state for favicon
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus('error');
       const targetKv = kvIdLocal || job.kvTaskId;
       if (targetKv) {
         try {

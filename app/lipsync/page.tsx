@@ -97,6 +97,9 @@ export default function LipsyncPage() {
       setStatus('queued');
       setLogLines([]);
       pushLog('Creating task...');
+      // Update global task state for favicon
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus('queued');
 
       const options = engine === 'sieve' ? {
         backend,
@@ -287,6 +290,15 @@ export default function LipsyncPage() {
             lastStatusRef.current = mapped;
           }
           setStatus(mapped as JobStatus);
+          // Update global task state for favicon
+          const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+          if (mapped === 'finished') {
+            updateTaskStateFromJobStatus('success');
+          } else if (mapped === 'error') {
+            updateTaskStateFromJobStatus('error');
+          } else {
+            updateTaskStateFromJobStatus(mapped === 'running' ? 'running' : 'queued');
+          }
           if (mapped === 'finished' || mapped === 'error') {
             clearInterval(pollRef.current!);
             pollRef.current = null;

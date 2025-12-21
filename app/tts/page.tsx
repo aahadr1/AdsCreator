@@ -106,6 +106,9 @@ export default function TtsPage() {
     setIsLoading(true);
     setError(null);
     setAudioUrl(null);
+    // Update global task state for favicon
+    const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+    updateTaskStateFromJobStatus('queued');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Please sign in at /auth before creating a task.');
@@ -206,6 +209,9 @@ export default function TtsPage() {
       const json = (await res.json()) as TtsResponse;
       if (!json.url) throw new Error('No audio URL returned');
       setAudioUrl(json.url);
+      // Update global task state for favicon - success
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus('success');
 
       if (inserted?.id) {
         await supabase
@@ -218,6 +224,9 @@ export default function TtsPage() {
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to run TTS');
+      // Update global task state for favicon - error
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus('error');
       if (taskId) {
         await supabase.from('tasks').update({ status: 'error' }).eq('id', taskId);
       }
