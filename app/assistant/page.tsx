@@ -13,6 +13,7 @@ import StepWidget from './components/StepWidget';
 import ProgressWidget from './components/ProgressWidget';
 import OutputPreview from './components/OutputPreview';
 import ConversationSidebar from './components/ConversationSidebar';
+import { Menu, ChevronLeft } from 'lucide-react';
 
 type StepConfig = { model: string; inputs: Record<string, any> };
 type StepState = { 
@@ -109,7 +110,7 @@ export default function AssistantPage() {
   const [runError, setRunError] = useState<string | null>(null);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed by default
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -772,7 +773,7 @@ export default function AssistantPage() {
 
   return (
     <div className="assistant-page-layout">
-      {userId && (
+      {userId && sidebarOpen && (
         <ConversationSidebar
           userId={userId}
           currentConversationId={conversationId}
@@ -780,7 +781,17 @@ export default function AssistantPage() {
           onNewConversation={handleNewConversation}
         />
       )}
-      <div className={`chat-container ${userId ? 'with-sidebar' : ''}`}>
+      <div className={`chat-container ${userId && sidebarOpen ? 'with-sidebar' : ''}`}>
+        {userId && (
+          <button
+            className="sidebar-toggle-button"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            type="button"
+          >
+            {sidebarOpen ? <ChevronLeft size={18} /> : <Menu size={18} />}
+          </button>
+        )}
         <div className="chat-messages" ref={chatEndRef}>
           {chatMessages.map((msg) => {
           let widgetContent: React.ReactNode = null;
