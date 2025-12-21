@@ -2,7 +2,7 @@
 'use client';
 
 import '../globals.css';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 import type { AssistantPlan, AssistantPlanMessage, AssistantMedia, AssistantPlanStep, AssistantRunEvent } from '../../types/assistant';
 import { TOOL_SPECS, fieldsForModel, defaultsForModel } from '../../lib/assistantTools';
@@ -13,7 +13,9 @@ import StepWidget from './components/StepWidget';
 import ProgressWidget from './components/ProgressWidget';
 import OutputPreview from './components/OutputPreview';
 import ConversationSidebar from './components/ConversationSidebar';
-import { Menu, ChevronLeft } from 'lucide-react';
+import AssistantEditor from './components/AssistantEditor';
+import { Menu, ChevronLeft, Edit } from 'lucide-react';
+import type { EditorAsset } from '../../types/editor';
 
 type StepConfig = { model: string; inputs: Record<string, any> };
 type StepState = { 
@@ -111,6 +113,7 @@ export default function AssistantPage() {
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed by default
+  const [editorOpen, setEditorOpen] = useState(false);
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -288,6 +291,51 @@ export default function AssistantPage() {
     };
     setChatMessages((prev) => [...prev, msg]);
   };
+
+  // Collect workflow outputs as EditorAssets
+  const getWorkflowAssets = useCallback((): EditorAsset[] => {
+    const assets: EditorAsset[] = [];
+    
+    plan.steps.forEach((step) => {
+      const state = stepStates[step.id];
+      if (!state || state.status !== 'complete') return;
+
+      if (state.outputUrl) {
+        let type: EditorAsset['type'] = 'text';
+        const url = state.outputUrl;
+        
+        if (step.outputType === 'image' || /\.(png|jpg|jpeg|gif|webp)/i.test(url)) {
+          type = 'image';
+        } else if (step.outputType === 'video' || /\.(mp4|webm|mov|avi)/i.test(url)) {
+          type = 'video';
+        } else if (step.outputType === 'audio' || /\.(mp3|wav|ogg|m4a)/i.test(url)) {
+          type = 'audio';
+        } else if (step.outputType === 'text' || state.outputText) {
+          type = 'text';
+        }
+
+        assets.push({
+          id: `workflow-${step.id}`,
+          type,
+          url: state.outputUrl,
+          name: step.title || `Step ${step.id}`,
+          source: 'workflow',
+          sourceId: step.id,
+        });
+      } else if (state.outputText) {
+        assets.push({
+          id: `workflow-${step.id}-text`,
+          type: 'text',
+          url: `data:text/plain;base64,${btoa(state.outputText)}`,
+          name: `${step.title || `Step ${step.id}`} (text)`,
+          source: 'workflow',
+          sourceId: step.id,
+        });
+      }
+    });
+
+    return assets;
+  }, [plan, stepStates]);
 
   const parseSse = (chunk: string): AssistantRunEvent[] => {
     return chunk
@@ -574,7 +622,8 @@ export default function AssistantPage() {
                   urls.length
                     ? `Workflow complete! Generated ${urls.length} output${urls.length > 1 ? 's' : ''}.`
                     : 'Workflow complete!',
-                  'output'
+                  'output',
+                  { showEditorButton: true }
                 );
               } else {
                 updateTaskStateFromJobStatus('error');
@@ -874,6 +923,25 @@ export default function AssistantPage() {
                 />
               );
             }
+            
+            // Add "Show on Editor" button if workflow is complete and has outputs
+            if (outputData.showEditorButton && runState === 'done' && getWorkflowAssets().length > 0) {
+              widgetContent = (
+                <div>
+                  {widgetContent}
+                  <div style={{ marginTop: 'var(--space-3)', display: 'flex', justifyContent: 'center' }}>
+                    <button
+                      className="assistant-editor-open-button"
+                      onClick={() => setEditorOpen(true)}
+                      type="button"
+                    >
+                      <Edit size={16} />
+                      Show on Editor
+                    </button>
+                  </div>
+                </div>
+              );
+            }
           } else if (msg.widgetType === 'error') {
             widgetContent = (
               <div className="widget-card error-widget">
@@ -927,6 +995,12 @@ export default function AssistantPage() {
         </div>
         </div>
       </div>
+
+      <AssistantEditor
+        isOpen={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        initialAssets={getWorkflowAssets()}
+      />
     </div>
   );
 }

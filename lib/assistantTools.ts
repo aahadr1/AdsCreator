@@ -249,6 +249,47 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
       { key: 'voice_id', label: 'Voice ID', type: 'text' },
     ],
   },
+  {
+    model: 'wavespeed-ai/infinitetalk',
+    defaults: { resolution: '480p', seed: -1 },
+    fields: [
+      { key: 'image', label: 'Image URL', type: 'url', required: true, helper: 'Image of person to animate' },
+      { key: 'audio', label: 'Audio URL', type: 'url', required: true, helper: 'Audio for lipsync' },
+      { key: 'prompt', label: 'Prompt (optional)', type: 'textarea', required: false, helper: 'Describe expression, style, or pose' },
+      { key: 'mask_image', label: 'Mask Image URL (optional)', type: 'url', required: false, helper: 'Specify which regions can move (do NOT use full image)' },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: [{ value: '480p', label: '480p' }, { value: '720p', label: '720p' }], required: false },
+      { key: 'seed', label: 'Seed', type: 'number', required: false, helper: '-1 for random' },
+    ],
+  },
+  {
+    model: 'wavespeed-ai/infinitetalk/multi',
+    defaults: { resolution: '480p', seed: -1, order: 'meanwhile' },
+    fields: [
+      { key: 'image', label: 'Image URL', type: 'url', required: true, helper: 'Image with two people clearly visible' },
+      { key: 'left_audio', label: 'Left Audio URL', type: 'url', required: true, helper: 'Audio for person on the left' },
+      { key: 'right_audio', label: 'Right Audio URL', type: 'url', required: true, helper: 'Audio for person on the right' },
+      { key: 'order', label: 'Speaking Order', type: 'select', options: [
+        { value: 'meanwhile', label: 'Meanwhile (both at same time)' },
+        { value: 'left_right', label: 'Left to Right (left first, then right)' },
+        { value: 'right_left', label: 'Right to Left (right first, then left)' },
+      ], required: false },
+      { key: 'prompt', label: 'Prompt (optional)', type: 'textarea', required: false, helper: 'Describe additional visual elements' },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: [{ value: '480p', label: '480p' }, { value: '720p', label: '720p' }], required: false },
+      { key: 'seed', label: 'Seed', type: 'number', required: false, helper: '-1 for random' },
+    ],
+  },
+  {
+    model: 'wavespeed-ai/infinitetalk/video-to-video',
+    defaults: { resolution: '480p', seed: -1 },
+    fields: [
+      { key: 'video', label: 'Video URL', type: 'url', required: true, helper: 'Base video for lipsync' },
+      { key: 'audio', label: 'Audio URL', type: 'url', required: true, helper: 'Audio for lipsync' },
+      { key: 'prompt', label: 'Prompt (optional)', type: 'textarea', required: false, helper: 'Describe style, pose, or expressions' },
+      { key: 'mask_image', label: 'Mask Image URL (optional)', type: 'url', required: false, helper: 'Specify which regions can move (do NOT use full image)' },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: [{ value: '480p', label: '480p' }, { value: '720p', label: '720p' }], required: false },
+      { key: 'seed', label: 'Seed', type: 'number', required: false, helper: '-1 for random' },
+    ],
+  },
 ];
 
 export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
@@ -301,15 +342,34 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
         { value: 'sievesync-1.1', label: 'Sieve Sync 1.1 (fast lipsync)' },
         { value: 'latentsync', label: 'LatentSync (high quality)' },
         { value: 'wan-2.2-s2v', label: 'Wan 2.2 S2V (cinematic audio-driven video)' },
+        { value: 'wavespeed-ai/infinitetalk', label: 'InfiniteTalk (Image + Audio)' },
+        { value: 'wavespeed-ai/infinitetalk/multi', label: 'InfiniteTalk Multi (2 Characters)' },
+        { value: 'wavespeed-ai/infinitetalk/video-to-video', label: 'InfiniteTalk Video-to-Video' },
       ], required: true },
-      { key: 'prompt', label: 'Prompt (for Wan S2V)', type: 'textarea', required: false, helper: 'Describe video content (e.g., "woman speaking", "man singing") - only for Wan 2.2 S2V' },
+      { key: 'prompt', label: 'Prompt (optional)', type: 'textarea', required: false, helper: 'Describe video content (e.g., "woman speaking", "man singing") - for Wan S2V and InfiniteTalk models' },
       { key: 'num_frames_per_chunk', label: 'Frames per chunk (Wan S2V)', type: 'number', required: false, helper: 'Default: 81' },
       { key: 'interpolate', label: 'Interpolate to 25fps (Wan S2V)', type: 'text', required: false, helper: 'true/false' },
+      { key: 'left_audio', label: 'Left Audio URL (InfiniteTalk Multi)', type: 'url', required: false, helper: 'Audio for the person on the left' },
+      { key: 'right_audio', label: 'Right Audio URL (InfiniteTalk Multi)', type: 'url', required: false, helper: 'Audio for the person on the right' },
+      { key: 'order', label: 'Speaking Order (InfiniteTalk Multi)', type: 'select', options: [
+        { value: 'meanwhile', label: 'Meanwhile' },
+        { value: 'left_right', label: 'Left to Right' },
+        { value: 'right_left', label: 'Right to Left' },
+      ], required: false, helper: 'Order of audio sources' },
+      { key: 'resolution', label: 'Resolution (InfiniteTalk)', type: 'select', options: [
+        { value: '480p', label: '480p' },
+        { value: '720p', label: '720p' },
+      ], required: false, helper: 'Output video resolution' },
+      { key: 'seed', label: 'Seed (InfiniteTalk)', type: 'number', required: false, helper: '-1 for random' },
+      { key: 'mask_image', label: 'Mask Image (InfiniteTalk)', type: 'url', required: false, helper: 'Optional mask image to specify regions to animate' },
     ],
     models: [
       { id: 'sievesync-1.1', label: 'Sieve Sync 1.1' },
       { id: 'bytedance/latentsync', label: 'LatentSync' },
       { id: 'wan-video/wan-2.2-s2v', label: 'Wan 2.2 S2V (Cinematic)' },
+      { id: 'wavespeed-ai/infinitetalk', label: 'InfiniteTalk (Image + Audio)' },
+      { id: 'wavespeed-ai/infinitetalk/multi', label: 'InfiniteTalk Multi (2 Characters)' },
+      { id: 'wavespeed-ai/infinitetalk/video-to-video', label: 'InfiniteTalk Video-to-Video' },
     ],
   },
   background_remove: {
@@ -485,6 +545,12 @@ export function buildUnifiedPlannerSystemPrompt(): string {
           useCases = '      Use cases: High-quality lipsync, professional results. Best for: Quality, existing videos, backend: "latentsync".';
         } else if (model.id.includes('wan-2.2-s2v')) {
           useCases = '      Use cases: Cinematic talking videos from images, audio-driven video generation. Best for: Images + audio, cinematic results, backend: "wan-2.2-s2v", requires prompt field.';
+        } else if (model.id.includes('infinitetalk/multi')) {
+          useCases = '      Use cases: Multi-character talking videos, conversations, duets, interviews. Best for: Two people in one image with separate audio tracks, up to 10 minutes, 480p/720p. Requires: image with two people, left_audio, right_audio, order (meanwhile/left_right/right_left).';
+        } else if (model.id.includes('infinitetalk/video-to-video')) {
+          useCases = '      Use cases: Lipsync existing videos with new audio, video redubbing. Best for: Replacing audio in existing videos, up to 10 minutes, 480p/720p. Requires: video, audio. Optional: mask_image (do NOT use full image), prompt for style control.';
+        } else if (model.id.includes('infinitetalk')) {
+          useCases = '      Use cases: Image-to-video talking avatars, single character lipsync from photos. Best for: Creating talking videos from static photos, up to 10 minutes, 480p/720p. Requires: image, audio. Optional: mask_image (do NOT use full image), prompt for expression/style/pose control.';
         }
       } else if (tool.id === 'enhance') {
         useCases = '      Use cases: Image upscaling, face enhancement, quality improvement. Best for: Upscaling (2x/4x/6x), face enhancement, quality improvement.';
@@ -555,6 +621,9 @@ Lip Sync:
 - sievesync-1.1: Fast lipsync. Use for: Quick lipsync on existing videos, backend: "sievesync-1.1".
 - bytedance/latentsync: High-quality lipsync. Use for: Professional lipsync, backend: "latentsync".
 - wan-video/wan-2.2-s2v: Cinematic audio-driven video. Use for: Creating talking videos from images + audio, backend: "wan-2.2-s2v", requires prompt field.
+- wavespeed-ai/infinitetalk: Image-to-video talking avatars. Use for: Single character talking videos from static photos, up to 10 minutes, 480p/720p, backend: "wavespeed-ai/infinitetalk", requires: image, audio. Optional: prompt, mask_image (do NOT use full image), resolution, seed.
+- wavespeed-ai/infinitetalk/multi: Multi-character talking videos. Use for: Two people in one image with separate audio tracks, conversations, duets, up to 10 minutes, 480p/720p, backend: "wavespeed-ai/infinitetalk/multi", requires: image (with two people), left_audio, right_audio. Optional: order (meanwhile/left_right/right_left), prompt, resolution, seed.
+- wavespeed-ai/infinitetalk/video-to-video: Video-to-video lipsync. Use for: Lipsyncing existing videos with new audio, video redubbing, up to 10 minutes, 480p/720p, backend: "wavespeed-ai/infinitetalk/video-to-video", requires: video, audio. Optional: prompt, mask_image (do NOT use full image), resolution, seed.
 
 Other Tools:
 - enhance (topazlabs/image-upscale): Image upscaling, face enhancement. Use for: Quality improvement, upscaling (2x/4x/6x).
@@ -826,7 +895,242 @@ VALIDATION CHECKLIST BEFORE RETURNING:
 ✓ Are dependencies correctly set?
 ✓ Is the JSON valid (no trailing commas, proper escaping)?
 
-Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
+Return ONLY valid JSON. No markdown, no explanation, no code fences.
+
+================================================================================
+DETAILED MODEL REFERENCE GUIDE - VALIDATION RULES AND INPUT SPECIFICATIONS
+================================================================================
+
+CRITICAL: The assistant must validate all inputs before creating steps. Never guess inputs; validate that every required field is provided and within allowed ranges/enumerations. Use sensible defaults for optional fields. Select aspect ratios/resolutions that match the intended output medium.
+
+IMAGE GENERATION MODELS:
+
+1. openai/gpt-image-1.5 – GPT Image 1.5
+   Required: prompt (string) – describe the image. Use descriptive phrases; avoid banned content.
+   Aspect ratio: MUST be one of: "1:1", "3:2", "2:3". Default: "2:3" (mobile-friendly).
+   Quality: enum "low" | "medium" | "high" | "auto" (default: "auto").
+   Background: enum "auto" | "transparent" | "opaque" (default: "auto").
+   Moderation: enum "auto" | "low" (default: "auto").
+   Image editing: If input_images array provided, input_fidelity must be "low" or "high" (default: "low"), aspect ratio inherited from first image.
+   Output format: enum "png" | "jpeg" | "webp" (default: "webp").
+   Number of images: integer 1–10 (default: 1).
+   Output compression: integer 0–100 (default: 90).
+   Optional: openai_api_key (string) for higher rate limits.
+
+2. black-forest-labs/flux-kontext-max – Flux Kontext Max
+   Required: prompt (string).
+   Optional: input_image (URI). If provided, aspect_ratio MUST be "match_input_image".
+   Aspect ratio: enum "match_input_image" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "4:5" | "5:4" | "21:9" | "9:21" | "2:1" | "1:2" (default: "match_input_image").
+   Output format: enum "jpg" | "png" (default: "png").
+   Safety tolerance: integer 0–6 (default: 2, strict). If input_image provided, MUST NOT exceed 2.
+   Prompt upsampling: boolean (default: false) – enriches prompts but increases time.
+   Optional: seed (integer).
+
+3. black-forest-labs/flux-krea-dev – Flux Krea Dev
+   Required: prompt (string).
+   Optional: image (URI) for image-to-image; output aspect ratio matches this image.
+   Guidance: float 0–10 (default: 4.5) – lower = more realistic.
+   Go fast: boolean (default: true) – faster but lower fidelity.
+   Outputs: num_outputs integer 1–4 (default: 1), num_inference_steps integer 1–50 (default: 28).
+   Aspect ratio: enum "1:1" | "16:9" | "21:9" | "3:2" | "2:3" | "4:3" | "3:4" | "4:5" | "5:4" | "9:16" | "9:21" (default: "1:1").
+   Output format: enum "webp" | "jpg" | "png" (default: "webp").
+   Output quality: integer 0–100 (default: 80).
+   Prompt strength: float 0–1 (default: 0.8) – controls blending with input image.
+   Safety checker: disable_safety_checker boolean (default: false).
+
+4. google/nano-banana – Nano Banana
+   Required: prompt (string).
+   Image inputs: image_input (array of URIs) – multiple images to blend (default: empty array).
+   Aspect ratio: enum "match_input_image" | "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "5:4" | "9:16" | "16:9" | "21:9" (if images provided, use "match_input_image").
+   Output format: enum "jpg" | "png" (default: "jpg").
+
+5. google/nano-banana-pro – Nano Banana Pro
+   Required: prompt (string).
+   Resolution: enum "1K" | "2K" | "4K" (default: "2K").
+   Image inputs: image_input (array of up to 14 URIs) – multi-image blending.
+   Aspect ratio: enum "match_input_image" | "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "5:4" | "9:16" | "16:9" | "21:9" (default: "match_input_image").
+   Output format: enum "jpg" | "png" (default: "jpg").
+   Safety filter: enum "block_low_and_above" | "block_medium_and_above" | "block_only_high" (default: "block_only_high").
+
+VIDEO GENERATION MODELS:
+
+6-9. google/veo-3.1-fast, google/veo-3-fast, google/veo-3.1, google/veo-3
+   Required: prompt (string).
+   Optional: negative_prompt (string), seed (integer), image (URI) – first frame (overrides aspect ratio).
+   Duration: enum 4 | 6 | 8 seconds (default: 8).
+   Resolution: enum "720p" | "1080p" (default: "1080p").
+   Aspect ratio: enum "16:9" | "9:16" (default: "16:9").
+   Audio: generate_audio boolean (default: true) – context-aware soundtrack.
+
+10. openai/sora-2 – Sora 2
+   Required: prompt (string).
+   Duration: enum 4 | 8 | 12 seconds (default: 4).
+   Aspect ratio: enum "portrait" (720×1280) | "landscape" (1280×720) (default: "portrait").
+   Optional: input_reference (URI) – starting image, openai_api_key (string).
+
+11. openai/sora-2-pro – Sora 2 Pro
+   Required: prompt (string).
+   Duration: enum 4 | 8 | 12 seconds (default: 4).
+   Resolution: enum "standard" (720p) | "high" (1024p) (default: "standard").
+   Aspect ratio: enum "portrait" | "landscape" (default: "portrait").
+   Optional: input_reference (URI), openai_api_key (string).
+
+12. kwaivgi/kling-v2.5-turbo-pro – Kling v2.5 Turbo Pro
+   Required: prompt (string).
+   Duration: enum 5 | 10 seconds (default: 5).
+   Aspect ratio: enum "16:9" | "9:16" | "1:1" (default: "16:9").
+   Optional: start_image (URI) – if provided, aspect ratio inherited, negative_prompt (string).
+
+13. kwaivgi/kling-v2.1 – Kling v2.1
+   Required: start_image (URI) – seeds the video.
+   Mode: enum "default" (720p) | "photo2video" | "video2video" (default: "default"). Use "photo2video" for image-to-video.
+   Duration: enum 4 | 6 | 8 seconds (default: 4).
+   Optional: end_image (URI) – final frame (only valid when mode is "video2video"), negative_prompt (string).
+
+14. wan-video/wan-2.2-i2v-fast – WAN 2.2 i2v Fast
+   Required: image (URI), prompt (string).
+   Resolution: enum "480p" | "720p" (default: "480p").
+   Frames: num_frames integer 81–121 (default: 81).
+   Sample shift: number 1–20 (default: 12).
+   Frame rate: frames_per_second integer 5–30 (default: 16).
+   Optional: last_image (URI), seed (integer), interpolate_output (boolean), lora parameters, disable_safety_checker (boolean, default: false).
+
+15. wan-video/wan-2.2-animate-replace – WAN 2.2 Animate Replace
+   Required: video (URI), character_image (URI) – replaces character in video.
+   Resolution: enum "720" | "480" (default: "720").
+   Referent frames: referent_num enum 1 | 5 (default: 1).
+   Frame rate: frames_per_second integer 5–60 (default: 24).
+   Optional: seed (integer), go_fast (boolean, default: true), merge_audio (boolean, default: true).
+
+16. bytedance/seedance-1-lite – Seedance 1 Lite
+   Required: prompt (string).
+   Optional: image (URI) – switches to image-to-video mode.
+   Duration: integer 2–12 seconds (default: 5).
+   FPS: enum [24] (only 24 fps).
+   Resolution: enum "480p" | "720p" | "1080p" (default: "720p").
+   Aspect ratio: enum "16:9" | "4:3" | "1:1" | "3:4" | "9:16" | "21:9" | "9:21" (default: "16:9").
+   Optional: camera_fixed (boolean, default: false), last_frame_image (URI), reference_images (array of 1–4 URIs).
+
+17. bytedance/seedance-1-pro – Seedance 1 Pro
+   Same as Lite, but default resolution is "1080p" and reference_images field is not present.
+
+18. wan-video/wan-2.2-s2v – WAN 2.2 S2V (Cinematic)
+   Required: audio (URI), image (URI) – audio drives lip-sync, image is first frame.
+   Optional: prompt (string) – describe additional visual elements.
+   Frames per chunk: num_frames_per_chunk integer 1–121 (default: 81).
+   Interpolation: interpolate boolean (default: false) – converts to 25 fps if true.
+   Optional: seed (integer).
+
+TEXT-TO-SPEECH MODELS:
+
+20. minimax-speech-02-hd – Minimax Speech 02 HD
+   Required: text (string) – up to 10,000 characters. Use markers like <#0.5#> for pauses.
+   Pitch: integer -12 to +12 semitones (default: 0).
+   Speed: float 0.5–2.0 (default: 1).
+   Volume: float 0–10 (default: 1).
+   Bitrate: enum 32000 | 64000 | 128000 | 256000 (default: 128000) – applies only when audio_format is "mp3".
+   Channel: enum "mono" | "stereo" (default: "mono").
+   Emotion: enum "auto" | "happy" | "sad" | "angry" | "fearful" | "disgusted" | "surprised" | "calm" | "fluent" | "neutral" (default: "auto").
+   Voice ID: string (default: "Wise_Woman").
+   Sample rate: enum 8000 | 16000 | 22050 | 24000 | 32000 | 44100 Hz (default: 32000).
+   Audio format: enum "mp3" | "wav" | "flac" | "pcm" (default: "mp3").
+   Language boost: enum with language names or "Automatic" | "None" (default: "None").
+   Subtitle enable: boolean (default: false).
+   English normalization: boolean (default: false).
+
+21. elevenlabs-tts – ElevenLabs TTS
+   Required: text (string), voice_id (string).
+   Optional: model_id (string, e.g., "eleven_turbo_v2", "eleven_multilingual_v2"), voice_settings (object with stability, similarity_boost, style, use_speaker_boost).
+
+22. dia-tts (zsxkib/dia) – Dia 1.6B
+   Required: text (string) – use markers like [S1], [S2] for speaker changes, parentheses for non-verbal actions (e.g., "(laughs)").
+   Top P: float 0.1–1 (default: 0.95).
+   CFG scale: float 1–5 (default: 3).
+   Temperature: float 1–2.5 (default: 1.8).
+   Optional: audio_prompt (URI to .wav/.mp3/.flac) – voice cloning, audio_prompt_text (string), max_audio_prompt_seconds (int 1–120, default: 10).
+   Speed factor: float 0.5–1.5 (default: 1).
+   Pause factor: float 0.5–2 (default: 1).
+   Max new tokens: integer 500–6144 (default: 3072) – approx. 86 tokens per second.
+   CFG filter top K: integer 10–100 (default: 45).
+   Optional: seed (integer).
+
+LIP SYNC MODELS:
+
+23. sievesync-1.1 – Sieve Sync 1.1
+   Required: video (URI), audio (URI).
+   Backend: string "sievesync-1.1" (default).
+   Optional: enable_multispeaker (boolean), enhance (boolean), check_quality (boolean), downsample (boolean), cut_by (string).
+
+24. bytedance/latentsync – LatentSync
+   Required: audio (URI), video (URI).
+   Guidance scale: number (default: 1, max: 10).
+   Optional: seed (integer, 0 for random).
+
+25. wan-video/wan-2.2-s2v – Wan 2.2 S2V (see section 18 above)
+
+26. wavespeed-ai/infinitetalk – InfiniteTalk (Image-to-Video)
+   Required: image (URI), audio (URI).
+   Optional: prompt (string) – describe expression, style, or pose.
+   Optional: mask_image (URI) – specify which regions can move (CRITICAL: do NOT upload full image, only the regions to animate).
+   Resolution: enum "480p" | "720p" (default: "480p"). Pricing: $0.15/5s (480p), $0.30/5s (720p).
+   Seed: integer -1 to 2147483647 (default: -1, random).
+   Max length: 10 minutes (600 seconds). Processing: ~10-30 seconds wall time per 1 second of video.
+   Use for: Single character talking videos from static photos, image-to-video lipsync.
+
+27. wavespeed-ai/infinitetalk/multi – InfiniteTalk Multi (Two Characters)
+   Required: image (URI) – must clearly show two people, left_audio (URI), right_audio (URI).
+   Optional: prompt (string) – describe additional visual elements.
+   Order: enum "meanwhile" | "left_right" | "right_left" (default: "meanwhile").
+     - "meanwhile": Both audio sources play simultaneously.
+     - "left_right": Left audio plays first, then right audio.
+     - "right_left": Right audio plays first, then left audio.
+   Resolution: enum "480p" | "720p" (default: "480p"). Pricing: $0.15/5s (480p), $0.30/5s (720p).
+   Seed: integer -1 to 2147483647 (default: -1, random).
+   Max length: 10 minutes (600 seconds). Processing: ~10-30 seconds wall time per 1 second of video.
+   Use for: Multi-character talking videos, conversations, duets, interviews with two people.
+
+28. wavespeed-ai/infinitetalk/video-to-video – InfiniteTalk Video-to-Video
+   Required: video (URI), audio (URI).
+   Optional: prompt (string) – describe style, pose, or expressions.
+   Optional: mask_image (URI) – specify which regions can move (CRITICAL: do NOT upload full image, only the regions to animate).
+   Resolution: enum "480p" | "720p" (default: "480p"). Pricing: $0.15/5s (480p), $0.30/5s (720p).
+   Seed: integer -1 to 2147483647 (default: -1, random).
+   Max length: 10 minutes (600 seconds). Processing: ~10-30 seconds wall time per 1 second of video.
+   Use for: Lipsyncing existing videos with new audio, video redubbing, replacing audio tracks.
+
+OTHER TOOLS:
+
+29. background-remover (851-labs/background-remover)
+   Required: image (URI) or video_url (URI for videos).
+   Output format: enum "png" | "jpg" (default: "png").
+   Optional: reverse (boolean), threshold (float 0.0–1.0), background_type (string: "rgba" | "map" | "green" | "white" | [R,G,B] | "blur" | "overlay" | image path, default: "rgba").
+
+30. topazlabs/image-upscale – Topaz Upscale (Enhance)
+   Required: image (URI).
+   Enhance model: enum "Standard V2" | "Low Resolution V2" | "CGI" | "High Fidelity V2" | "Text Refine" (default: "Standard V2").
+   Output format: enum "jpg" | "png" (default: "jpg").
+   Upscale factor: enum "None" | "2x" | "4x" | "6x" (default: "None").
+   Face enhancement: boolean (default: false). If true: subject_detection enum "None" | "ALL" | "Foreground" | "Background" (default: "None"), face_enhancement_strength float 0–1 (default: 0.8), face_enhancement_creativity float 0–1 (default: 0).
+
+31. openai/gpt-4o-transcribe – GPT-4o Transcribe
+   Required: audio_file (URI) – formats: mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm.
+   Optional: prompt (string) – guide transcription, language (ISO-639-1 code), temperature (float 0–1, default: 0).
+
+VALIDATION RULES FOR THE ASSISTANT:
+
+1. Validate inputs: Ensure required fields are present. Use enumerated values from the lists above. Never guess or invent values.
+2. Clamp ranges: For integers/floats, clamp user input to allowed ranges (e.g., duration 2–12 for Seedance, speed 0.5–2.0 for TTS).
+3. Match aspect ratios: Choose aspect ratios compatible with the model AND intended output medium:
+   - Mobile/Stories: "9:16" or "2:3"
+   - Landscape/YouTube: "16:9"
+   - Square/Social: "1:1"
+   - For GPT Image 1.5: ONLY "1:1", "3:2", "2:3" (default: "2:3")
+4. Respect limits: Do not exceed maximums (e.g., max 10 images for GPT-Image 1.5, max 14 for Nano Banana Pro, max 121 frames for WAN models, max 10,000 chars for Minimax TTS).
+5. Use defaults: When user doesn't specify, use the default values listed above.
+6. Plan sequential workflows: For complex tasks (image → video, image + audio → lipsync), ensure intermediate outputs are generated before feeding to next model. Match file formats to next model's requirements.
+7. Safety: Leave moderation/safety controls at defaults unless user explicitly requests otherwise.
+
+By following these validation rules and referencing the detailed schema above, construct accurate workflow plans with valid inputs for all 31 models.`;
 }
 
 

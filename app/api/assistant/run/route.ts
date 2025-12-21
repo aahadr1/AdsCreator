@@ -435,6 +435,96 @@ async function runLipsyncStep(origin: string, step: AssistantPlanStep, inputs: R
   const videoUrl = inputs.video || inputs.video_url || inputs.start_video || inputs.image;
   const audioUrl = inputs.audio || inputs.audio_url || inputs.voice;
 
+  // InfiniteTalk models - use Wavespeed API
+  if (step.model?.includes('infinitetalk') || backend.includes('infinitetalk')) {
+    let modelName = 'wavespeed-ai/infinitetalk';
+    const modelOrBackend = step.model || backend;
+    if (modelOrBackend.includes('multi')) {
+      modelName = 'wavespeed-ai/infinitetalk/multi';
+    } else if (modelOrBackend.includes('video-to-video')) {
+      modelName = 'wavespeed-ai/infinitetalk/video-to-video';
+    }
+
+    console.log(`[RunLipsync] Using InfiniteTalk model: ${modelName}`);
+
+    let wavespeedInput: Record<string, any> = {
+      resolution: inputs.resolution || '480p',
+      seed: inputs.seed !== undefined && inputs.seed !== null && inputs.seed !== '' ? Number(inputs.seed) : -1,
+    };
+
+    if (modelName === 'wavespeed-ai/infinitetalk/multi') {
+      const imageUrl = inputs.image || videoUrl;
+      const leftAudio = inputs.left_audio;
+      const rightAudio = inputs.right_audio;
+      if (!imageUrl || !leftAudio || !rightAudio) {
+        throw new Error('InfiniteTalk Multi requires: image, left_audio, right_audio');
+      }
+      wavespeedInput.image = imageUrl;
+      wavespeedInput.left_audio = leftAudio;
+      wavespeedInput.right_audio = rightAudio;
+      wavespeedInput.order = inputs.order || 'meanwhile';
+      if (inputs.prompt) wavespeedInput.prompt = inputs.prompt;
+    } else if (modelName === 'wavespeed-ai/infinitetalk/video-to-video') {
+      const video = inputs.video || videoUrl;
+      const audio = inputs.audio || audioUrl;
+      if (!video || !audio) {
+        throw new Error('InfiniteTalk Video-to-Video requires: video, audio');
+      }
+      wavespeedInput.video = video;
+      wavespeedInput.audio = audio;
+      if (inputs.prompt) wavespeedInput.prompt = inputs.prompt;
+      if (inputs.mask_image) wavespeedInput.mask_image = inputs.mask_image;
+    } else {
+      // InfiniteTalk (single character)
+      const image = inputs.image || videoUrl;
+      const audio = inputs.audio || audioUrl;
+      if (!image || !audio) {
+        throw new Error('InfiniteTalk requires: image, audio');
+      }
+      wavespeedInput.image = image;
+      wavespeedInput.audio = audio;
+      if (inputs.prompt) wavespeedInput.prompt = inputs.prompt;
+      if (inputs.mask_image) wavespeedInput.mask_image = inputs.mask_image;
+    }
+
+    console.log(`[RunLipsync] InfiniteTalk inputs:`, JSON.stringify(wavespeedInput, null, 2));
+
+    const res = await fetch(`${origin}/api/wavespeed/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelName,
+        input: wavespeedInput,
+      }),
+    });
+
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    const predictionId = json?.id;
+    if (!predictionId) throw new Error('InfiniteTalk missing prediction id');
+
+    console.log(`[RunLipsync] InfiniteTalk job created: ${predictionId}, polling status...`);
+
+    for (let i = 0; i < 120; i++) { // 10 minutes max (120 * 5s)
+      await sleep(5000);
+      const statusRes = await fetch(`${origin}/api/wavespeed/status?id=${predictionId}`, { cache: 'no-store' });
+      if (!statusRes.ok) continue;
+      const statusJson = await statusRes.json();
+      if (statusJson.status === 'finished') {
+        const outputUrl = statusJson.outputUrl || (Array.isArray(statusJson.outputs) && statusJson.outputs.length > 0 ? statusJson.outputs[0] : null);
+        console.log(`[RunLipsync] ✓ InfiniteTalk completed: ${outputUrl}`);
+        return { url: outputUrl || null };
+      }
+      if (statusJson.status === 'error' || statusJson.status === 'failed') {
+        throw new Error(statusJson.error || 'InfiniteTalk failed');
+      }
+      if (i % 6 === 0) { // Log every 30 seconds
+        console.log(`[RunLipsync] InfiniteTalk still processing... (${(i * 5) / 60} minutes elapsed)`);
+      }
+    }
+    throw new Error('InfiniteTalk timed out after 10 minutes');
+  }
+
   if (!videoUrl || !audioUrl) throw new Error('Missing video/image and audio URLs for lipsync');
 
   // Wan 2.2 S2V - uses Replicate API directly
