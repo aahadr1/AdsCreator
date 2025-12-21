@@ -301,36 +301,60 @@ export default function EditorPreviewPanel({
     <div className="assistant-editor-preview-panel">
       <div className="assistant-editor-preview-content">
         {currentMedia.type === 'video' && currentMedia.url && mediaUrl && (
-          <ReactPlayer
-            {...({
-              ref: playerRef,
-              url: mediaUrl,
-              playing: playing && !!(activeClip || selectedClipId || selectedAssetId),
-              playbackRate: playbackSpeed || 1,
-              volume: volume || 1,
-              progressInterval: activeClip ? 50 : 100,
-              onProgress: handleProgress,
-              onReady: () => {
-                // When player is ready, sync to currentTime
-                if (playerRef.current && activeClip) {
-                  const player = playerRef.current.getInternalPlayer();
-                  if (player && typeof player.currentTime !== 'undefined') {
-                    try {
-                      player.currentTime = currentTime;
-                    } catch (e) {
-                      // Ignore
+          <div style={{ width: '100%', height: '100%', position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ReactPlayer
+              {...({
+                ref: playerRef,
+                url: mediaUrl,
+                playing: playing && !!(activeClip || selectedClipId || selectedAssetId),
+                playbackRate: playbackSpeed || 1,
+                volume: volume || 1,
+                progressInterval: activeClip ? 50 : 100,
+                onProgress: handleProgress,
+                onReady: () => {
+                  // When player is ready, sync to currentTime immediately
+                  if (playerRef.current) {
+                    const player = playerRef.current.getInternalPlayer();
+                    if (player && typeof player.currentTime !== 'undefined') {
+                      try {
+                        player.currentTime = currentTime;
+                        // Force a seek to ensure frame is displayed even when paused
+                        if (!playing) {
+                          player.pause();
+                        }
+                        console.log('ReactPlayer ready, synced to', currentTime.toFixed(2));
+                      } catch (e) {
+                        console.error('Error setting currentTime on ready:', e);
+                      }
                     }
                   }
-                }
-              },
-              onError: (error: any) => {
-                console.error('ReactPlayer error:', error);
-              },
-              controls: false,
-              width: '100%',
-              height: '100%',
-            } as any)}
-          />
+                },
+                onError: (error: any) => {
+                  console.error('ReactPlayer error:', error, 'URL:', mediaUrl.substring(0, 80));
+                },
+                onLoadStart: () => {
+                  console.log('ReactPlayer: Load start');
+                },
+                onLoadedData: () => {
+                  console.log('ReactPlayer: Loaded data, syncing to', currentTime.toFixed(2));
+                  if (playerRef.current) {
+                    const player = playerRef.current.getInternalPlayer();
+                    if (player && typeof player.currentTime !== 'undefined') {
+                      try {
+                        player.currentTime = currentTime;
+                      } catch (e) {
+                        console.error('Error setting currentTime on load:', e);
+                      }
+                    }
+                  }
+                },
+                controls: false,
+                width: '100%',
+                height: '100%',
+                style: { position: 'absolute', top: 0, left: 0 },
+              } as any)}
+            />
+          </div>
         )}
 
         {currentMedia.type === 'audio' && currentMedia.url && (
