@@ -311,6 +311,10 @@ export default function AssistantPage() {
     const boundedStart = startIndex >= 0 ? startIndex : 0;
     setRunState('running');
     setRunError(null);
+    
+    // Update global task state for favicon - workflow starting
+    const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+    updateTaskStateFromJobStatus('running');
 
     // Add progress widget message
     const progressMsgId = `progress-${Date.now()}`;
@@ -397,6 +401,9 @@ export default function AssistantPage() {
                 ...prev,
                 [event.stepId]: { ...(prev[event.stepId] || { status: 'idle' }), status: 'running' },
               }));
+              // Update global task state for favicon - step starting (keep in_progress)
+              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+              updateTaskStateFromJobStatus('running');
               // Update or create step widget message (avoid duplicates)
               setChatMessages((prev) => {
                 const existingStepMsg = prev.find(
@@ -472,6 +479,11 @@ export default function AssistantPage() {
                   outputText: event.outputText ?? prev[event.stepId]?.outputText,
                 },
               }));
+              // Update global task state for favicon - step completed (still in_progress if more steps)
+              // Will be updated to 'done' when workflow completes
+              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+              // Keep as in_progress until all steps are done
+              updateTaskStateFromJobStatus('running');
               // Update existing step message instead of creating new one
               setChatMessages((prev) => {
                 const existingStepMsg = prev.find(
@@ -520,6 +532,9 @@ export default function AssistantPage() {
                 ...prev,
                 [event.stepId]: { status: 'error', error: event.error },
               }));
+              // Update global task state for favicon - step failed
+              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+              updateTaskStateFromJobStatus('error');
               // Update existing step message instead of creating new one
               setChatMessages((prev) => {
                 const existingStepMsg = prev.find(
@@ -545,7 +560,10 @@ export default function AssistantPage() {
               });
             } else if (event.type === 'done') {
               setRunState(event.status === 'success' ? 'done' : 'idle');
+              // Update global task state for favicon - workflow complete
+              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
               if (event.status === 'success') {
+                updateTaskStateFromJobStatus('success');
                 const outputs = event.outputs && typeof event.outputs === 'object'
                   ? Object.values(event.outputs as Record<string, any>)
                   : [];
@@ -558,6 +576,8 @@ export default function AssistantPage() {
                     : 'Workflow complete!',
                   'output'
                 );
+              } else {
+                updateTaskStateFromJobStatus('error');
               }
               // Update progress to complete
               setChatMessages((prev) =>
@@ -581,6 +601,9 @@ export default function AssistantPage() {
     } catch (err: any) {
       addAssistantMessage(err?.message || 'Workflow execution failed.', 'error');
       setRunState('idle');
+      // Update global task state for favicon - workflow failed
+      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
+      updateTaskStateFromJobStatus('error');
     } finally {
       streamRef.current = null;
     }
