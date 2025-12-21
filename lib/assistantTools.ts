@@ -1487,7 +1487,8 @@ function createVideoStep(
   });
 }
 
-const TOOLS_REQUIRING_PROMPTS: AssistantToolKind[] = ['image', 'video', 'tts', 'lipsync', 'enhance', 'background_remove'];
+// Tools that require a 'prompt' field (TTS uses 'text' instead)
+const TOOLS_REQUIRING_PROMPTS: AssistantToolKind[] = ['image', 'video', 'lipsync', 'enhance', 'background_remove'];
 
 // Aspect ratio detection and selection functions
 
@@ -1757,7 +1758,17 @@ export async function normalizePlannerOutput(
     }
     
     // Look for prompt in inputs (prefer 'prompt' over 'prompt_outline')
+    // For TTS, we need 'text' instead of 'prompt'
     let prompt = inputsFromStep.prompt || inputsFromStep.prompt_outline || '';
+    
+    // TTS uses 'text' field, not 'prompt'
+    if (tool === 'tts') {
+      const text = inputsFromStep.text || '';
+      if (text && !prompt) {
+        // TTS doesn't need a prompt, it needs text - skip prompt validation
+        prompt = text; // Use text as prompt for logging purposes, but validation will check text separately
+      }
+    }
     
     // Clean up the prompt
     if (typeof prompt === 'string') {
@@ -1779,8 +1790,16 @@ export async function normalizePlannerOutput(
         : analysis.imageModificationInstruction;
     }
 
-    // Validate that we have a prompt
-    if (!prompt && TOOLS_REQUIRING_PROMPTS.includes(tool)) {
+    // Validate that we have required input based on tool type
+    if (tool === 'tts') {
+      // TTS requires 'text', not 'prompt'
+      const text = inputsFromStep.text || '';
+      if (!text || (typeof text === 'string' && text.trim().length === 0)) {
+        console.error(`[Normalize] Missing text for TTS step ${s.id} (${s.title})`);
+        throw new Error(`Missing text for TTS step ${s.id}`);
+      }
+    } else if (!prompt && TOOLS_REQUIRING_PROMPTS.includes(tool)) {
+      // Other tools require 'prompt'
       console.error(`[Normalize] Missing prompt for step ${s.id} (${s.title})`);
       throw new Error(`Missing prompt for step ${s.id}`);
     }
