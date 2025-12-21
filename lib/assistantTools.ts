@@ -796,12 +796,35 @@ User: "Create an image of a person, generate voiceover, then make them speak it"
 
 CRITICAL RULES:
 1. TTS Detection: ALWAYS create TTS steps when user mentions: "audio files", "voiceover", "narration", "speaking", "text to speech", "generate voice", "woman/man speaking", "create audio"
+   - If user says "create a text to speech" or "generate voiceover" → you MUST include a TTS step
+   - If user mentions multiple audio files → create one TTS step per audio file
+   - TTS steps use "text" field in inputs, NOT "prompt"
 2. One-to-One Mapping: If user wants to animate each image separately, create one video step per image step with matching dependencies
-3. Text Content: TTS text should be EXACTLY the content to speak, nothing more - extract from user's request
+3. Text Content: TTS text should be EXACTLY the content to speak, nothing more - extract from user's request or create appropriate script
 4. Media Usage: Use uploaded media intelligently - as start frames, references, or for modification based on user intent
 5. Model Selection: Choose models based on quality needs, speed requirements, and format constraints
 6. Dependencies: Always set dependencies correctly - if step uses output from another step, reference it in dependencies array
 7. Aspect Ratios: Auto-detect from user prompt or default to mobile (2:3 or 9:16) for social media content
+8. Complete Workflows: If user requests multiple steps (e.g., image + TTS + lipsync), you MUST include ALL steps in your response
+
+JSON FORMAT REQUIREMENTS (CRITICAL):
+- Return ONLY valid JSON - no markdown code fences, no code blocks, no explanations
+- Start with { and end with }
+- The "steps" array MUST contain ALL steps the user requested
+- Each step MUST have: id, title, tool, model, inputs, outputType, dependencies
+- For TTS steps: inputs must contain "text" (not "prompt") and "provider": "replicate"
+- For image/video steps: inputs must contain "prompt" with detailed description
+- For lipsync steps: inputs must contain "video", "audio", "backend", and optionally "prompt"
+- Dependencies array must be an array (even if empty: [])
+- All string values must be properly escaped (use \\" for quotes inside strings)
+
+VALIDATION CHECKLIST BEFORE RETURNING:
+✓ Does the JSON parse correctly?
+✓ Are ALL requested steps included? (Check: images, videos, TTS, lipsync, etc.)
+✓ Do TTS steps have "text" field (not "prompt")?
+✓ Do image/video steps have "prompt" field?
+✓ Are dependencies correctly set?
+✓ Is the JSON valid (no trailing commas, proper escaping)?
 
 Return ONLY valid JSON. No markdown, no explanation, no code fences.`;
 }

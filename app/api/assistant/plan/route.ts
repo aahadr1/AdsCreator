@@ -330,7 +330,7 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
           max_tokens: maxTokens,
         },
       });
-      
+
       let planJsonCandidate: any | null = null;
       rawText = '';
 
@@ -388,14 +388,70 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
         }
       }
       
-      // CRITICAL: If we can't parse Claude's output, fail - no fallbacks
+      // CRITICAL: If we can't parse Claude's output, try repair with another LLM call
       if (!planJson || !planJson.steps || !Array.isArray(planJson.steps) || planJson.steps.length === 0) {
-        console.error('[Plan] ❌ CRITICAL: Could not parse Claude\'s output - NO FALLBACKS ALLOWED');
+        console.error('[Plan] ❌ CRITICAL: Could not parse Claude\'s output');
         console.error('[Plan] Raw Claude output (first 3000 chars):', rawText.slice(0, 3000));
         console.error('[Plan] Raw Claude output (last 3000 chars):', rawText.slice(-3000));
         console.error('[Plan] PlanJson candidate:', planJsonCandidate ? JSON.stringify(planJsonCandidate).slice(0, 1000) : 'null');
         console.error('[Plan] Parsed planJson:', planJson ? JSON.stringify(planJson).slice(0, 1000) : 'null');
-        throw new Error('Failed to parse Claude\'s plan output. Claude must return valid JSON with a steps array.');
+        
+        // Try to repair with another LLM call
+        console.log('[Plan] 🔧 Attempting to repair Claude\'s output with repair LLM call...');
+        try {
+          const repairPrompt = `The following is Claude's output that failed to parse. Extract or repair the JSON plan from it. Return ONLY valid JSON with a "summary" and "steps" array. No markdown, no explanation.
+
+Claude's output:
+${rawText.slice(0, 8000)}
+
+User's original request:
+${messages.filter(m => m.role === 'user').map(m => m.content).join('\n')}
+
+Return ONLY valid JSON in this exact format:
+{
+  "summary": "...",
+  "steps": [
+    {
+      "id": "...",
+      "title": "...",
+      "tool": "...",
+      "model": "...",
+      "inputs": {...},
+      "outputType": "...",
+      "dependencies": []
+    }
+  ]
+}`;
+
+          const repairOutput = await replicate.run(SONNET_4_5_MODEL as `${string}/${string}`, {
+            input: {
+              system_prompt: 'You are a JSON repair specialist. Extract valid JSON from malformed text. Return ONLY valid JSON, no markdown, no explanation.',
+              prompt: repairPrompt,
+              max_tokens: 8000,
+            },
+          });
+
+          let repairText = '';
+          if (Array.isArray(repairOutput)) {
+            repairText = repairOutput.map((o) => (typeof o === 'string' ? o : JSON.stringify(o))).join('');
+          } else if (typeof repairOutput === 'string') {
+            repairText = repairOutput;
+          } else if (repairOutput && typeof repairOutput === 'object') {
+            repairText = JSON.stringify(repairOutput);
+          }
+
+          const repairedJson = parseJSONFromString(repairText);
+          if (repairedJson && Array.isArray(repairedJson.steps) && repairedJson.steps.length > 0) {
+            console.log('[Plan] ✓ Repair successful! Got', repairedJson.steps.length, 'steps from repair');
+            planJson = repairedJson;
+          } else {
+            console.error('[Plan] ❌ Repair also failed');
+            throw new Error('Failed to parse Claude\'s plan output and repair attempt also failed. Claude must return valid JSON with a steps array.');
+          }
+        } catch (repairErr: any) {
+          console.error('[Plan] ❌ Repair attempt failed:', repairErr);
+          throw new Error('Failed to parse Claude\'s plan output. Claude must return valid JSON with a steps array.');
+        }
       }
       
       // Store Claude's original output for comparison (moved to outer scope)
