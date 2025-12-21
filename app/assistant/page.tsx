@@ -214,6 +214,30 @@ export default function AssistantPage() {
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const nextPlan: AssistantPlan = json.plan || json;
+      
+      // VERIFICATION: Log what we received from API
+      console.log('[Frontend] 📥 Received plan from API:');
+      console.log('[Frontend]   Summary:', nextPlan.summary);
+      console.log('[Frontend]   Steps count:', nextPlan.steps?.length || 0);
+      console.log('[Frontend]   Full plan JSON:', JSON.stringify(nextPlan, null, 2));
+      
+      if (!nextPlan.steps || !Array.isArray(nextPlan.steps)) {
+        console.error('[Frontend] ❌ CRITICAL: Received plan with invalid steps!');
+        console.error('[Frontend] Plan object:', nextPlan);
+        throw new Error('Received plan with invalid steps from API');
+      }
+      
+      if (nextPlan.steps.length === 0) {
+        console.error('[Frontend] ❌ CRITICAL: Received plan with no steps!');
+        throw new Error('Received plan with no steps from API');
+      }
+      
+      nextPlan.steps.forEach((step, idx) => {
+        console.log(`[Frontend]   ${idx + 1}. ${step.id} (${step.tool}) - ${step.model} - "${step.title}"`);
+        console.log(`[Frontend]      Inputs:`, JSON.stringify(step.inputs || {}, null, 2));
+        console.log(`[Frontend]      Dependencies:`, step.dependencies || []);
+      });
+      
       setPlan(nextPlan);
 
       const nextConfigs: Record<string, StepConfig> = {};

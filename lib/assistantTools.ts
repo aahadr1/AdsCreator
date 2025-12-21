@@ -778,9 +778,9 @@ User: "Create an image of a person, generate voiceover, then make them speak it"
       "dependencies": []
     },
     {
-      "id": "lipsync1",
+      "id": "lipsync1", 
       "title": "Talking Video",
-      "tool": "lipsync",
+      "tool": "lipsync", 
       "model": "wan-video/wan-2.2-s2v",
       "inputs": {
         "video": "{{steps.img1.url}}",
@@ -1674,6 +1674,7 @@ export async function normalizePlannerOutput(
   messages: AssistantPlanMessage[],
   media: AssistantMedia[],
   analysis?: AnalyzedRequest | null,
+  claudeOriginal?: any, // Claude's original output for comparison
 ): Promise<AssistantPlan> {
   // Coerce common malformed shapes into a plan-like object
   const coercePlan = (val: any): any | null => {
@@ -1792,18 +1793,23 @@ export async function normalizePlannerOutput(
         : analysis.imageModificationInstruction;
     }
 
-    // Validate that we have required input based on tool type
+    // LENIENT VALIDATION: Fix missing fields instead of throwing errors
+    // We want to preserve ALL of Claude's steps, just fill in missing required fields
     if (tool === 'tts') {
       // TTS requires 'text', not 'prompt'
       const text = inputsFromStep.text || '';
       if (!text || (typeof text === 'string' && text.trim().length === 0)) {
-        console.error(`[Normalize] Missing text for TTS step ${s.id} (${s.title})`);
-        throw new Error(`Missing text for TTS step ${s.id}`);
+        console.warn(`[Normalize] ⚠️  TTS step ${s.id} missing text - using title as fallback`);
+        // Use title or a default instead of throwing
+        inputsFromStep.text = s.title || 'Text to speech';
+        console.log(`[Normalize] ✓ Fixed TTS step ${s.id} with text: "${inputsFromStep.text}"`);
       }
     } else if (!prompt && TOOLS_REQUIRING_PROMPTS.includes(tool)) {
-      // Other tools require 'prompt'
-      console.error(`[Normalize] Missing prompt for step ${s.id} (${s.title})`);
-      throw new Error(`Missing prompt for step ${s.id}`);
+      // Other tools require 'prompt' - use title or create a basic prompt
+      console.warn(`[Normalize] ⚠️  Step ${s.id} (${tool}) missing prompt - using title as fallback`);
+      prompt = s.title || s.description || `Generate ${tool} content`;
+      inputsFromStep.prompt = prompt;
+      console.log(`[Normalize] ✓ Fixed step ${s.id} with prompt: "${prompt.slice(0, 100)}..."`);
     }
     
     // Detect generic prompts and try to improve them (but don't fail)
@@ -1879,7 +1885,8 @@ export async function normalizePlannerOutput(
       console.log(`[Normalize] ✓ Detected aspect ratio for ${s.id}: ${detectedRatio} (from prompt analysis${referenceImageUrl ? ' and image analysis' : ''})`);
     }
     
-    return normalizeInputs({
+    // Preserve ALL fields from Claude's original step
+    const normalizedStep = normalizeInputs({
       id: s.id || `step-${idx + 1}`,
       title: s.title || `Step ${idx + 1}`,
       description: s.description || '',
@@ -1889,10 +1896,23 @@ export async function normalizePlannerOutput(
       inputs,
       suggestedParams: s.suggestedParams || {},
       fields: s.fields,
-      outputType: s.outputType,
+      outputType: s.outputType || (s as any).outputType,
       dependencies: s.dependencies || [],
       validations: s.validations,
     });
+    
+    // Preserve any additional fields Claude might have included
+    const originalKeys = Object.keys(s as any);
+    const normalizedKeys = Object.keys(normalizedStep);
+    const missingKeys = originalKeys.filter((key: string) => !normalizedKeys.includes(key) && key !== 'inputs' && key !== 'prompt');
+    if (missingKeys.length > 0) {
+      console.log(`[Normalize] Preserving additional fields from Claude: ${missingKeys.join(', ')}`);
+      missingKeys.forEach((key: string) => {
+        (normalizedStep as any)[key] = (s as any)[key];
+      });
+    }
+    
+    return normalizedStep;
   }));
 
   // Process results - keep successful steps, log errors for failed ones
@@ -1917,62 +1937,77 @@ export async function normalizePlannerOutput(
     errors.forEach(err => console.warn(`  - ${err}`));
   }
 
+  // CRITICAL: We must preserve ALL of Claude's steps
   if (steps.length === 0) {
     throw new Error(`All ${planObj.steps.length} steps failed normalization. Errors: ${errors.join('; ')}`);
   }
 
   if (steps.length < planObj.steps.length) {
-    console.warn(`[Normalize] ⚠️  Only ${steps.length}/${planObj.steps.length} steps succeeded. Some steps were dropped due to errors.`);
+    console.error(`[Normalize] ❌ CRITICAL: Lost ${planObj.steps.length - steps.length} steps from Claude's output!`);
+    console.error(`[Normalize] Claude's step IDs:`, planObj.steps.map((s: any) => s.id));
+    console.error(`[Normalize] Normalized step IDs:`, steps.map((s: any) => s.id));
+    const missingIds = planObj.steps
+      .map((s: any) => s.id)
+      .filter((id: string) => !steps.find((ns) => ns.id === id));
+    console.error(`[Normalize] Missing step IDs:`, missingIds);
+    throw new Error(`Lost ${planObj.steps.length - steps.length} steps from Claude's output. This should never happen.`);
   }
 
-  // VALIDATION: Ensure TTS steps are created if analysis says they're needed
+  // Verify we have all of Claude's steps
+  if (claudeOriginal && claudeOriginal.steps) {
+    const claudeStepIds = new Set<string>(claudeOriginal.steps.map((s: any) => String(s.id || '')));
+    const normalizedStepIds = new Set<string>(steps.map((s) => s.id));
+    const missing: string[] = [];
+    claudeStepIds.forEach((id: string) => {
+      if (!normalizedStepIds.has(id)) {
+        missing.push(id);
+      }
+    });
+    if (missing.length > 0) {
+      console.error(`[Normalize] ❌ CRITICAL: Missing Claude steps:`, missing);
+      throw new Error(`Lost Claude steps during normalization: ${missing.join(', ')}`);
+    }
+    console.log(`[Normalize] ✓ Verified: All ${claudeOriginal.steps.length} Claude steps preserved`);
+  }
+
+  // NO FALLBACKS: We only use Claude's output. If Claude didn't create TTS steps, we don't create them.
+  // Log if analysis expected more steps than Claude provided, but don't create fallback steps
   if (analysis && analysis.totalTtsSteps > 0) {
     const existingTtsSteps = steps.filter(s => s.tool === 'tts');
-    const missingTtsCount = analysis.totalTtsSteps - existingTtsSteps.length;
-    
-    if (missingTtsCount > 0) {
-      console.warn(`[Normalize] ⚠️  Analysis requires ${analysis.totalTtsSteps} TTS steps but only ${existingTtsSteps.length} found. Creating ${missingTtsCount} missing TTS step(s)...`);
-      
-      // Find image steps to match TTS to content
-      const imageSteps = steps.filter(s => s.tool === 'image');
-      
-      for (let i = 0; i < missingTtsCount; i++) {
-        const ttsIndex = existingTtsSteps.length + i;
-        const contentText = analysis.contentVariations?.[ttsIndex] || analysis.contentVariations?.[i] || '';
-        
-        if (contentText) {
-          const ttsStep: AssistantPlanStep = normalizeInputs({
-            id: `tts-${ttsIndex + 1}`,
-            title: `Generate Audio ${ttsIndex + 1}`,
-            tool: 'tts',
-            model: 'minimax-speech-02-hd',
-            inputs: {
-              text: contentText,
-              provider: 'replicate',
-            },
-            outputType: 'audio',
-            dependencies: [],
-          });
-          
-          steps.push(ttsStep);
-          console.log(`[Normalize] ✓ Created TTS step ${ttsStep.id} with text: "${contentText.slice(0, 50)}..."`);
-        } else {
-          console.warn(`[Normalize] ⚠️  Cannot create TTS step ${ttsIndex + 1}: no content text available`);
-        }
-      }
+    if (existingTtsSteps.length < analysis.totalTtsSteps) {
+      console.warn(`[Normalize] ⚠️  Analysis expected ${analysis.totalTtsSteps} TTS steps but Claude only provided ${existingTtsSteps.length}. Using Claude's output as-is (no fallbacks).`);
     }
   }
   
   let finalPlan: AssistantPlan = {
-      summary: typeof raw.summary === 'string' ? raw.summary : 'Generated workflow',
+      summary: typeof raw.summary === 'string' ? raw.summary : (claudeOriginal?.summary || 'Generated workflow'),
       steps,
   };
   
-  // Auto-correct image→video dependencies
+  // Preserve Claude's step order - don't reorder
+  // Auto-correct image→video dependencies (but preserve all steps)
+  const stepCountBefore = finalPlan.steps.length;
   finalPlan = correctImageToVideoDependencies(finalPlan);
+  if (finalPlan.steps.length !== stepCountBefore) {
+    console.error(`[Normalize] ❌ CRITICAL: correctImageToVideoDependencies changed step count!`);
+    throw new Error(`Step count changed in correctImageToVideoDependencies`);
+  }
   
-  // Attach uploaded media
+  // Attach uploaded media (but preserve all steps)
   finalPlan = attachMediaToPlan(finalPlan, media);
+  if (finalPlan.steps.length !== stepCountBefore) {
+    console.error(`[Normalize] ❌ CRITICAL: attachMediaToPlan changed step count!`);
+    throw new Error(`Step count changed in attachMediaToPlan`);
+  }
+  
+  // Final verification
+  if (finalPlan.steps.length !== planObj.steps.length) {
+    console.error(`[Normalize] ❌ CRITICAL: Step count changed after post-processing!`);
+    console.error(`[Normalize] Before post-processing: ${planObj.steps.length}, After: ${finalPlan.steps.length}`);
+    throw new Error(`Step count mismatch after post-processing. This should never happen.`);
+  }
+  
+  console.log(`[Normalize] ✓ Final plan has ${finalPlan.steps.length} steps (matching Claude's ${planObj.steps.length} steps)`);
   
   return finalPlan;
 }

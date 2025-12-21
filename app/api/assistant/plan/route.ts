@@ -271,84 +271,7 @@ function chunkToString(chunk: any): string {
   }
 }
 
-// Robust extraction: even if JSON is malformed, try to extract steps
-function extractPlanFromText(
-  text: string,
-  messages: AssistantPlanMessage[],
-  media: AssistantMedia[],
-  analysis: any | null,
-): any {
-  console.log('[Extract] Attempting to extract plan from malformed output...');
-  
-  // Try to find steps array even in partial JSON
-  const stepsMatch = text.match(/"steps"\s*:\s*\[([\s\S]*)\]/i);
-  if (stepsMatch) {
-    try {
-      const stepsJson = `[${stepsMatch[1]}]`;
-      const steps = JSON.parse(stepsJson);
-      if (Array.isArray(steps) && steps.length > 0) {
-        console.log(`[Extract] Extracted ${steps.length} steps from partial JSON`);
-        return { summary: 'Generated workflow', steps };
-      }
-    } catch (e) {
-      console.warn('[Extract] Failed to parse extracted steps array');
-    }
-  }
-  
-  // Fallback: Create minimal plan from analysis
-  if (analysis) {
-    console.log('[Extract] Creating minimal plan from analysis');
-    const steps: any[] = [];
-    let stepNum = 1;
-    
-    // Create image steps
-    for (let i = 0; i < (analysis.totalImageSteps || 0); i++) {
-      const contentText = analysis.contentVariations?.[i] || '';
-      steps.push({
-        id: `image-${stepNum}`,
-        title: `Generate Image ${stepNum}`,
-        tool: 'image',
-        model: 'openai/gpt-image-1.5',
-        inputs: {
-          prompt: contentText 
-            ? `Professional image featuring "${contentText}" with clean composition and good lighting`
-            : `Professional image based on user request with clean composition`,
-          aspect_ratio: '1:1',
-          number_of_images: 1,
-        },
-        outputType: 'image',
-        dependencies: [],
-      });
-      stepNum++;
-    }
-    
-    // Create video steps
-    for (let i = 0; i < (analysis.totalVideoSteps || 0); i++) {
-      const prevImageId = steps.find(s => s.tool === 'image')?.id;
-      steps.push({
-        id: `video-${stepNum}`,
-        title: `Animate Video ${stepNum}`,
-        tool: 'video',
-        model: 'google/veo-3-fast',
-        inputs: {
-          prompt: analysis.videoSceneDescription || 'Natural motion with stable camera, 4 seconds',
-          start_image: prevImageId ? `{{steps.${prevImageId}.url}}` : undefined,
-          resolution: '720p',
-        },
-        outputType: 'video',
-        dependencies: prevImageId ? [prevImageId] : [],
-      });
-      stepNum++;
-    }
-    
-    if (steps.length > 0) {
-      console.log(`[Extract] Created fallback plan with ${steps.length} steps`);
-      return { summary: 'Generated workflow from request analysis', steps };
-    }
-  }
-  
-  return null;
-}
+// REMOVED: extractPlanFromText - we only use Claude's output, no fallbacks
 
 
 export async function POST(req: NextRequest) {
@@ -371,6 +294,7 @@ export async function POST(req: NextRequest) {
   let usedModel = DEFAULT_PLANNER_MODEL;
   let parsed: AssistantPlan | null = null;
   let rawText = '';
+  let claudeOriginalPlan: any = null; // Store Claude's original output for verification
 
   const token = process.env.REPLICATE_API_TOKEN;
   if (token) {
@@ -453,52 +377,64 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
         console.log(`[Plan] Last 500 chars:`, rawText.slice(-500));
       }
 
-      // Try robust parsing with fallback extraction
+      // STRICT: Only use Claude's output - no fallbacks
       let planJson = planJsonCandidate;
       
       // If we don't have a candidate, try parsing the text
       if (!planJson) {
         planJson = parseJSONFromString(rawText);
         if (planJson && Array.isArray(planJson.steps)) {
-          console.log('[Plan] ✓ Parsed JSON from text, found', planJson.steps.length, 'steps');
+          console.log('[Plan] ✓ Parsed JSON from Claude text, found', planJson.steps.length, 'steps');
         }
       }
       
-      // If still no plan, try extraction
-      if (!planJson || !planJson.steps || !Array.isArray(planJson.steps)) {
-        console.warn('[Plan] JSON parsing failed or no steps found, attempting extraction...');
-        planJson = extractPlanFromText(rawText, messages, media, null);
+      // CRITICAL: If we can't parse Claude's output, fail - no fallbacks
+      if (!planJson || !planJson.steps || !Array.isArray(planJson.steps) || planJson.steps.length === 0) {
+        console.error('[Plan] ❌ CRITICAL: Could not parse Claude\'s output - NO FALLBACKS ALLOWED');
+        console.error('[Plan] Raw Claude output (first 3000 chars):', rawText.slice(0, 3000));
+        console.error('[Plan] Raw Claude output (last 3000 chars):', rawText.slice(-3000));
+        console.error('[Plan] PlanJson candidate:', planJsonCandidate ? JSON.stringify(planJsonCandidate).slice(0, 1000) : 'null');
+        console.error('[Plan] Parsed planJson:', planJson ? JSON.stringify(planJson).slice(0, 1000) : 'null');
+        throw new Error('Failed to parse Claude\'s plan output. Claude must return valid JSON with a steps array.');
       }
       
-      if (!planJson || !planJson.steps || planJson.steps.length === 0) {
-        console.error('[Plan] Could not extract valid plan.');
-        console.error('[Plan] Raw output (first 2000 chars):', rawText.slice(0, 2000));
-        console.error('[Plan] Raw output (last 2000 chars):', rawText.slice(-2000));
-        console.error('[Plan] PlanJson candidate:', planJsonCandidate ? 'exists' : 'null');
-        throw new Error('Failed to generate valid plan. Please try rephrasing your request.');
-      }
+      // Store Claude's original output for comparison (moved to outer scope)
+      claudeOriginalPlan = JSON.parse(JSON.stringify(planJson));
       
-      console.log(`[Plan] ✓ Successfully extracted plan with ${planJson.steps.length} steps`);
-      console.log(`[Plan] Plan JSON before normalization:`, JSON.stringify(planJson, null, 2).slice(0, 2000));
+      console.log(`[Plan] ✓ Successfully parsed Claude's plan with ${planJson.steps.length} steps`);
+      console.log(`[Plan] 📋 CLAUDE'S ORIGINAL OUTPUT (before normalization):`);
+      console.log(JSON.stringify(claudeOriginalPlan, null, 2));
       
-      // Log prompts for debugging
+      // Log Claude's original steps for verification
+      console.log(`[Plan] 📝 CLAUDE'S ORIGINAL STEPS (${planJson.steps.length} total):`);
       planJson.steps.forEach((step: any, idx: number) => {
         const prompt = step?.inputs?.prompt || step?.inputs?.text || step?.prompt || '(missing)';
         const preview = typeof prompt === 'string' 
           ? prompt.slice(0, 120).replace(/\n/g, ' ') 
           : '(invalid type)';
-        console.log(`[Plan] Step ${idx + 1} "${step?.title || step?.id}" (${step?.tool}): ${preview}${prompt.length > 120 ? '...' : ''}`);
-        console.log(`[Plan] Step ${idx + 1} inputs:`, JSON.stringify(step?.inputs || {}, null, 2).slice(0, 300));
+        console.log(`[Plan]   ${idx + 1}. "${step?.title || step?.id}" (${step?.tool}) - ${step?.model || 'no model'}`);
+        console.log(`[Plan]      Inputs:`, JSON.stringify(step?.inputs || {}, null, 2));
+        console.log(`[Plan]      Dependencies:`, step?.dependencies || []);
       });
       
       try {
-        parsed = await normalizePlannerOutput(planJson, messages, media, null);
+        // Normalize Claude's output - this should preserve all steps, just fix missing fields
+        parsed = await normalizePlannerOutput(planJson, messages, media, null, claudeOriginalPlan);
         console.log(`[Plan] ✓ Normalization succeeded with ${parsed.steps.length} steps`);
+        
+        // VERIFICATION: Compare Claude's original with normalized output
+        if (parsed.steps.length !== claudeOriginalPlan.steps.length) {
+          console.error(`[Plan] ⚠️  WARNING: Step count mismatch! Claude: ${claudeOriginalPlan.steps.length}, Normalized: ${parsed.steps.length}`);
+          console.error(`[Plan] Claude's step IDs:`, claudeOriginalPlan.steps.map((s: any) => s.id));
+          console.error(`[Plan] Normalized step IDs:`, parsed.steps.map((s: any) => s.id));
+        } else {
+          console.log(`[Plan] ✓ Step count matches Claude's output: ${parsed.steps.length}`);
+        }
       } catch (normalizeErr: any) {
         console.error('[Plan] ❌ Normalization failed:', normalizeErr);
         console.error('[Plan] Normalization error stack:', normalizeErr?.stack);
-        console.error('[Plan] Original plan had', planJson.steps.length, 'steps');
-        // Don't throw - let the error be caught by outer try-catch
+        console.error('[Plan] Claude\'s original plan had', planJson.steps.length, 'steps');
+        console.error('[Plan] Claude\'s original plan:', JSON.stringify(claudeOriginalPlan, null, 2));
         throw normalizeErr;
       }
       
@@ -531,11 +467,38 @@ Generate the complete workflow plan with detailed, ready-to-use prompts. Return 
   const origin = new URL(req.url).origin;
   recordPlanTask(origin, userId, plan, messages).catch(() => {});
 
+  // Final verification: Log what we're sending to frontend
+  console.log(`[Plan] 📤 FINAL PLAN BEING SENT TO FRONTEND:`);
+  console.log(`[Plan]   Summary: ${plan.summary}`);
+  console.log(`[Plan]   Steps: ${plan.steps.length}`);
+  console.log(`[Plan]   Full plan JSON:`, JSON.stringify(plan, null, 2));
+  plan.steps.forEach((step, idx) => {
+    console.log(`[Plan]     ${idx + 1}. ${step.id} (${step.tool}) - ${step.model} - "${step.title}"`);
+    console.log(`[Plan]        Inputs:`, JSON.stringify(step.inputs || {}, null, 2));
+    console.log(`[Plan]        Dependencies:`, step.dependencies || []);
+  });
+
+  // CRITICAL VERIFICATION: Ensure step count matches Claude's output
+  if (claudeOriginalPlan && claudeOriginalPlan.steps) {
+    if (plan.steps.length !== claudeOriginalPlan.steps.length) {
+      console.error(`[Plan] ❌ CRITICAL MISMATCH: Claude had ${claudeOriginalPlan.steps.length} steps, but sending ${plan.steps.length} to frontend!`);
+      console.error(`[Plan] Claude's step IDs:`, claudeOriginalPlan.steps.map((s: any) => s.id));
+      console.error(`[Plan] Final step IDs:`, plan.steps.map((s) => s.id));
+      // Still send it, but log the error - this should never happen with our fixes
+    } else {
+      console.log(`[Plan] ✓ VERIFIED: Step count matches Claude's output (${plan.steps.length} steps)`);
+    }
+  }
+
   return Response.json({
     plan,
     usedModel,
     debug: process.env.NODE_ENV !== 'production'
-      ? { rawText: rawText.slice(0, 4000) }
+      ? { 
+          rawText: rawText.slice(0, 4000),
+          claudeStepsCount: claudeOriginalPlan?.steps?.length || plan.steps.length,
+          finalStepsCount: plan.steps.length,
+        }
       : undefined,
   });
 }
