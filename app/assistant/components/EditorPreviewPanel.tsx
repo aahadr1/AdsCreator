@@ -113,15 +113,53 @@ export default function EditorPreviewPanel({
         }
       }
 
-      // If playhead is before all clips, show first clip
+      // If playhead is before all clips, show first clip at its start
       const allClips = [...videoClips, ...audioClips].sort((a, b) => a.startTime - b.startTime);
-      if (allClips.length > 0 && playhead < allClips[0].startTime) {
+      if (allClips.length > 0) {
+        if (playhead < allClips[0].startTime) {
+          const firstClip = allClips[0];
+          const asset = assets.find((a) => a.id === firstClip.assetId);
+          if (asset) {
+            setCurrentMedia(asset);
+            setActiveClip(firstClip);
+            setCurrentTime(firstClip.trimStart);
+            return;
+          }
+        }
+        
+        // If playhead is after all clips, show last clip at its end
+        const lastClip = allClips[allClips.length - 1];
+        if (playhead >= lastClip.endTime) {
+          const asset = assets.find((a) => a.id === lastClip.assetId);
+          if (asset) {
+            setCurrentMedia(asset);
+            setActiveClip(lastClip);
+            const clipDuration = (lastClip.endTime - lastClip.startTime) + lastClip.trimStart - lastClip.trimEnd;
+            setCurrentTime(clipDuration);
+            return;
+          }
+        }
+        
+        // If playhead is between clips, show the next upcoming clip
+        const nextClip = allClips.find((clip) => playhead < clip.startTime);
+        if (nextClip) {
+          const asset = assets.find((a) => a.id === nextClip.assetId);
+          if (asset) {
+            setCurrentMedia(asset);
+            setActiveClip(nextClip);
+            setCurrentTime(nextClip.trimStart);
+            return;
+          }
+        }
+        
+        // Fallback: show first clip anyway
         const firstClip = allClips[0];
         const asset = assets.find((a) => a.id === firstClip.assetId);
         if (asset) {
           setCurrentMedia(asset);
           setActiveClip(firstClip);
-          setCurrentTime(firstClip.trimStart);
+          const clipRelativeTime = Math.max(0, playhead - firstClip.startTime + firstClip.trimStart);
+          setCurrentTime(clipRelativeTime);
           return;
         }
       }
@@ -232,13 +270,17 @@ export default function EditorPreviewPanel({
       currentMediaType: currentMedia?.type,
       currentMediaUrl: currentMedia?.url,
       activeClip: activeClip?.id,
+      activeClipStart: activeClip?.startTime,
+      activeClipEnd: activeClip?.endTime,
       currentTime,
       playing,
       playhead,
       clipsCount: clips.length,
       assetsCount: assets.length,
+      clips: clips.map(c => ({ id: c.id, assetId: c.assetId, start: c.startTime, end: c.endTime, track: c.track })),
+      assets: assets.map(a => ({ id: a.id, name: a.name, type: a.type, url: a.url?.substring(0, 50) })),
     });
-  }, [currentMedia, activeClip, currentTime, playing, playhead, clips.length, assets.length]);
+  }, [currentMedia, activeClip, currentTime, playing, playhead, clips, assets]);
 
   if (!currentMedia) {
     return (
