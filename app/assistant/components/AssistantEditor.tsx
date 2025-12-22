@@ -505,17 +505,17 @@ export default function AssistantEditor({
         />
 
         <div className="assistant-editor-content">
-          {editorState.panels.assets && (
-            <div className="assistant-editor-asset-panel">
-              <EditorAssetPanel
-                assets={editorState.assets}
-                selectedAssetId={null}
-                onAddAsset={handleAddAsset}
-                onRemoveAsset={handleRemoveAsset}
-                onSelectAsset={() => {}}
-              />
-            </div>
-          )}
+          <div 
+            className={`assistant-editor-asset-panel ${editorState.panels.assets ? 'assistant-editor-asset-panel-visible' : 'assistant-editor-asset-panel-hidden'}`}
+          >
+            <EditorAssetPanel
+              assets={editorState.assets}
+              selectedAssetId={null}
+              onAddAsset={handleAddAsset}
+              onRemoveAsset={handleRemoveAsset}
+              onSelectAsset={() => {}}
+            />
+          </div>
 
           <div className="assistant-editor-main">
             <div className="assistant-editor-preview-container">
