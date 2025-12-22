@@ -9483,7 +9483,7 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-control-btn.primary { background: var(--accent); color: var(--color-black); border-color: var(--accent); }
 .assistant-editor-control-btn.primary:hover { opacity: 0.9; }
 .assistant-editor-timecode { display: flex; align-items: center; gap: 8px; font-size: 14px; font-variant-numeric: tabular-nums; font-family: monospace; margin-left: auto; }
-.assistant-editor-timeline-container { height: 200px; border-top: 1px solid var(--separator); background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+.assistant-editor-timeline-container { flex: 0 0 250px; min-height: 250px; border-top: 1px solid var(--separator); background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
 .assistant-editor-timeline-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; border-bottom: 1px solid var(--separator); background: var(--panel-elevated); font-size: 13px; font-weight: 600; }
 .assistant-editor-timeline { flex: 1; position: relative; overflow-x: auto; overflow-y: hidden; background: repeating-linear-gradient(90deg, transparent, transparent 49px, var(--separator) 49px, var(--separator) 50px); cursor: crosshair; }
 .assistant-editor-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); z-index: 100; pointer-events: none; }
@@ -9497,4 +9497,5 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-clip-remove:hover { background: rgba(255,0,0,0.8); }
 
 .assistant-editor-content-wrapper { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; min-height: 0; }
-.assistant-editor-preview { flex: 0 0 auto; max-height: 50vh; min-height: 300px; display: flex; flex-direction: column; }
+.assistant-editor-preview { flex: 0 0 auto; max-height: 40vh; min-height: 250px; display: flex; flex-direction: column; }
+.assistant-editor-timeline-container { flex: 0 0 250px; min-height: 250px; }
