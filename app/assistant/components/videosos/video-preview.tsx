@@ -1,8 +1,5 @@
 "use client";
 
-// Mock translation function for VideoSOS
-const useTranslations = (ns: string) => (key: string) => key;
-
 import { db } from "../../../../data/videosos/db";
 import {
   EMPTY_VIDEO_COMPOSITION,
@@ -22,7 +19,6 @@ import { cn, resolveDuration, resolveMediaUrl } from "../../../../lib/videosos/u
 import { Player, type PlayerRef } from "@remotion/player";
 import { preloadAudio, preloadVideo } from "@remotion/preload";
 import { DownloadIcon } from "lucide-react";
-// import { useTranslations } from "next-intl"; // Using mock function above
 import { useCallback, useEffect } from "react";
 import {
   AbsoluteFill,
@@ -34,6 +30,18 @@ import {
 } from "remotion";
 import { throttle } from "throttle-debounce";
 import { Button } from "./ui/button";
+
+// Mock translation function for VideoSOS
+const useTranslations = (ns: string) => (key: string, options?: any) => {
+  if (options && typeof options === 'object') {
+    let result = key;
+    for (const [k, v] of Object.entries(options)) {
+      result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    }
+    return result;
+  }
+  return key;
+};
 
 interface VideoCompositionProps {
   project: VideoProject;

@@ -1,5 +1,3 @@
-// import { useTranslations } from "next-intl";
-const useTranslations = (ns: string) => (key: string) => key;
 "use client";
 
 import clsx from "clsx";

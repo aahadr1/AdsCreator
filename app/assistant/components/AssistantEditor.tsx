@@ -35,6 +35,7 @@ export default function AssistantEditor({
 }: AssistantEditorProps) {
   const [projectId, setProjectId] = useState<string>('');
   const queryClientRef = useRef<QueryClient | null>(null);
+  const projectStoreRef = useRef<ReturnType<typeof createVideoProjectStore> | null>(null);
 
   if (!queryClientRef.current) {
     queryClientRef.current = new QueryClient();
@@ -52,13 +53,16 @@ export default function AssistantEditor({
     }
   }, [isOpen, projectId, initialAssets]);
 
-  if (!isOpen || !projectId) return null;
-
-  const projectStore = useRef(
-    createVideoProjectStore({
+  // Create project store when projectId is available
+  if (projectId && !projectStoreRef.current) {
+    projectStoreRef.current = createVideoProjectStore({
       projectId,
-    })
-  ).current;
+    });
+  }
+
+  if (!isOpen || !projectId || !projectStoreRef.current) return null;
+
+  const projectStore = projectStoreRef.current;
 
   return (
     <div className="assistant-editor-popup-overlay" onClick={onClose}>

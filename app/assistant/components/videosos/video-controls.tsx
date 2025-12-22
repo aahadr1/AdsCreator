@@ -1,5 +1,5 @@
-// import { useTranslations } from "next-intl";
-const useTranslations = (ns: string) => (key: string) => key;
+"use client";
+
 import { useVideoProjectStore } from "../../../../data/videosos/store";
 import { useHotkeys } from "react-hotkeys-hook";
 

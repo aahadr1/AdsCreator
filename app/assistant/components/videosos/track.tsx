@@ -1,5 +1,5 @@
-// import { useTranslations } from "next-intl";
-const useTranslations = (ns: string) => (key: string) => key;
+"use client";
+
 import { db } from "../../../../data/videosos/db";
 import {
   queryKeys,

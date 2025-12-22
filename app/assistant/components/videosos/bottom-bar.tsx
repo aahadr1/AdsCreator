@@ -28,7 +28,17 @@ import {
   useState,
 } from "react";
 // Mock translation function for VideoSOS
-const useTranslations = (ns: string) => (key: string) => key;
+const useTranslations = (ns: string) => (key: string, options?: any) => {
+  if (options && typeof options === 'object') {
+    let result = key;
+    for (const [k, v] of Object.entries(options)) {
+      result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    }
+    return result;
+  }
+  return key;
+};
+// Mock translation function for VideoSOS
 import { VideoControls } from "./video-controls";
 import { TimelineRuler } from "./video/timeline";
 import { VideoTrackRow } from "./video/track";
@@ -70,7 +80,7 @@ export default function BottomBar() {
     queryKey: queryKeys.projectTracks(projectId),
     queryFn: async () => {
       const result = await db.tracks.tracksByProject(projectId);
-      return result.toSorted(
+      return [...result].sort(
         (a, b) => TRACK_TYPE_ORDER[a.type] - TRACK_TYPE_ORDER[b.type],
       );
     },
