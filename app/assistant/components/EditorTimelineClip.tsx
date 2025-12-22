@@ -107,17 +107,19 @@ export default function EditorTimelineClip({
 
         if (side === 'left') {
           const newStartTime = Math.max(0, startTime + deltaTime);
-          const newTrimStart = clip.trimStart - deltaTime;
+          const currentTrimStart = 'trimStart' in clip ? clip.trimStart : 0;
+          const newTrimStart = currentTrimStart - deltaTime;
           onUpdate({
             startTime: newStartTime,
-            trimStart: Math.max(0, newTrimStart),
+            ...('trimStart' in clip && { trimStart: Math.max(0, newTrimStart) }),
           });
         } else {
           const newEndTime = Math.min(clip.startTime + assetDuration, startTime + deltaTime);
-          const newTrimEnd = clip.trimEnd + (startTime + deltaTime - newEndTime);
+          const currentTrimEnd = 'trimEnd' in clip ? clip.trimEnd : 0;
+          const newTrimEnd = currentTrimEnd + (startTime + deltaTime - newEndTime);
           onUpdate({
             endTime: newEndTime,
-            trimEnd: Math.max(0, newTrimEnd),
+            ...('trimEnd' in clip && { trimEnd: Math.max(0, newTrimEnd) }),
           });
         }
       };

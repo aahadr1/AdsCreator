@@ -178,15 +178,24 @@ export default function EditorTimeline({
       const assetDuration = draggedAsset.duration || 5; // Default 5 seconds if unknown
       const clipId = `clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+      // Note: This needs refactoring to use trackId instead of track
+      // For now, create a basic media clip
+      const trackId = track === 'video' ? 'track-video-1' : 'track-audio-1';
       onAddClip({
         id: clipId,
+        type: draggedAsset.type as 'video' | 'audio' | 'image',
+        trackId,
         assetId: draggedAsset.id,
-        track,
         startTime: time,
         endTime: time + assetDuration,
+        locked: false,
         trimStart: 0,
         trimEnd: 0,
-      });
+        transform: { x: 0, y: 0, scale: 1, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1, anchorX: 0.5, anchorY: 0.5 },
+        keyframes: [],
+        filters: [],
+        blendMode: 'normal' as const,
+      } as any);
 
       setDragOverTrack(null);
       draggedAssetIdRef.current = null;
@@ -202,8 +211,17 @@ export default function EditorTimeline({
     onSetZoom(zoom / 1.5);
   }, [zoom, onSetZoom]);
 
-  const videoClips = clips.filter((c) => c.track === 'video');
-  const audioClips = clips.filter((c) => c.track === 'audio');
+  // Filter clips by checking their asset type
+  const videoClips = clips.filter((c) => {
+    if (!('assetId' in c)) return false;
+    const asset = assets.find((a) => a.id === c.assetId);
+    return asset && (asset.type === 'video' || asset.type === 'image');
+  });
+  const audioClips = clips.filter((c) => {
+    if (!('assetId' in c)) return false;
+    const asset = assets.find((a) => a.id === c.assetId);
+    return asset && asset.type === 'audio';
+  });
 
   const playheadPosition = playhead * pixelsPerSecond;
 
@@ -274,6 +292,7 @@ export default function EditorTimeline({
             >
               <div className="assistant-editor-timeline-track-content">
                 {videoClips.map((clip) => {
+                  if (!('assetId' in clip)) return null;
                   const asset = assets.find((a) => a.id === clip.assetId);
                   if (!asset) return null;
 
@@ -302,6 +321,7 @@ export default function EditorTimeline({
             >
               <div className="assistant-editor-timeline-track-content">
                 {audioClips.map((clip) => {
+                  if (!('assetId' in clip)) return null;
                   const asset = assets.find((a) => a.id === clip.assetId);
                   if (!asset) return null;
 

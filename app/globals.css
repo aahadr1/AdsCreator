@@ -8188,3 +8188,916 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-open-button:hover {
   background: var(--accent-hover);
 }
+
+/* ============================================================================
+   NEW EDITOR COMPONENTS - Production Video Editor
+   ============================================================================ */
+
+/* Toolbar */
+.assistant-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--panel-elevated);
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-toolbar-section {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.assistant-editor-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--separator);
+}
+
+.assistant-editor-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.assistant-editor-toolbar-button:hover:not(:disabled) {
+  background: var(--panel-hover);
+  border-color: var(--border-light);
+}
+
+.assistant-editor-toolbar-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.assistant-editor-toolbar-button.active {
+  background: var(--accent);
+  color: var(--color-black);
+  border-color: var(--accent);
+}
+
+/* Inspector Panel */
+.assistant-editor-inspector-panel {
+  width: 300px;
+  background: var(--panel-elevated);
+  border-left: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.assistant-editor-inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-inspector-header h3 {
+  margin: 0;
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.assistant-editor-inspector-clip-type {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  padding: 2px 6px;
+  background: var(--panel);
+  border: 1px solid var(--separator);
+}
+
+.assistant-editor-inspector-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-inspector-tab {
+  flex: 1;
+  padding: var(--space-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  transition: all 0.2s;
+}
+
+.assistant-editor-inspector-tab:hover {
+  color: var(--text);
+  background: var(--panel-hover);
+}
+
+.assistant-editor-inspector-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.assistant-editor-inspector-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.assistant-editor-inspector-section {
+  margin-bottom: var(--space-6);
+}
+
+.assistant-editor-inspector-section h4 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.assistant-editor-inspector-property {
+  margin-bottom: var(--space-3);
+}
+
+.assistant-editor-inspector-property label {
+  display: block;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.assistant-editor-inspector-input,
+.assistant-editor-inspector-select {
+  width: 100%;
+  padding: var(--space-2);
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+
+.assistant-editor-inspector-slider {
+  width: 100%;
+  height: 4px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.assistant-editor-inspector-color {
+  width: 100%;
+  height: 36px;
+  cursor: pointer;
+}
+
+.assistant-editor-inspector-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: var(--space-6);
+}
+
+.assistant-editor-inspector-hint {
+  font-size: var(--font-sm);
+  margin-top: var(--space-2);
+}
+
+/* Keyframe Panel */
+.assistant-editor-keyframe-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 250px;
+  background: var(--panel-elevated);
+  border-top: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.assistant-editor-keyframe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-keyframe-header h3 {
+  margin: 0;
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.assistant-editor-keyframe-preset-btn {
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  transition: all 0.2s;
+}
+
+.assistant-editor-keyframe-preset-btn:hover {
+  background: var(--panel-hover);
+}
+
+.assistant-editor-keyframe-property-selector {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--separator);
+  overflow-x: auto;
+}
+
+.assistant-editor-keyframe-property-btn {
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-xs);
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.assistant-editor-keyframe-property-btn:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.assistant-editor-keyframe-property-btn.active {
+  background: var(--accent);
+  color: var(--color-black);
+  border-color: var(--accent);
+}
+
+.assistant-editor-keyframe-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.assistant-editor-keyframe-list-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--separator);
+  margin-bottom: var(--space-2);
+}
+
+.assistant-editor-keyframe-item {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  margin-bottom: var(--space-2);
+}
+
+.assistant-editor-keyframe-input,
+.assistant-editor-keyframe-select {
+  padding: var(--space-1) var(--space-2);
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+
+.assistant-editor-keyframe-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.assistant-editor-keyframe-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.assistant-editor-keyframe-action-btn:hover {
+  background: var(--panel-hover);
+}
+
+.assistant-editor-keyframe-action-btn.delete:hover {
+  background: var(--error);
+  color: var(--color-white);
+}
+
+.assistant-editor-keyframe-add-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--accent);
+  color: var(--color-black);
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  transition: all 0.2s;
+  width: 100%;
+  justify-content: center;
+}
+
+.assistant-editor-keyframe-add-btn:hover {
+  background: var(--accent-hover);
+}
+
+.assistant-editor-keyframe-empty-list {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--text-tertiary);
+}
+
+.assistant-editor-keyframe-presets-overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  z-index: 20;
+}
+
+.assistant-editor-keyframe-presets-menu {
+  position: absolute;
+  top: 50px;
+  right: 20px;
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  box-shadow: var(--shadow-hard);
+  padding: var(--space-3);
+  min-width: 200px;
+  z-index: 21;
+}
+
+.assistant-editor-keyframe-presets-menu h4 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+
+.assistant-editor-keyframe-preset-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  transition: background 0.2s;
+}
+
+.assistant-editor-keyframe-preset-item:hover {
+  background: var(--panel-hover);
+}
+
+/* Text Panel */
+.assistant-editor-text-panel {
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  box-shadow: var(--shadow-hard);
+  width: min(500px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-editor-text-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-text-panel-header h3 {
+  margin: 0;
+  font-size: var(--font-md);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.assistant-editor-text-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.assistant-editor-text-panel-section {
+  margin-bottom: var(--space-4);
+}
+
+.assistant-editor-text-panel-section label {
+  display: block;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.assistant-editor-text-panel-textarea,
+.assistant-editor-text-panel-input,
+.assistant-editor-text-panel-select {
+  width: 100%;
+  padding: var(--space-2);
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+
+.assistant-editor-text-panel-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.assistant-editor-text-panel-input-group {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.assistant-editor-text-panel-slider {
+  flex: 1;
+}
+
+.assistant-editor-text-panel-number {
+  width: 80px;
+}
+
+.assistant-editor-text-panel-color-input {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.assistant-editor-text-panel-color-picker {
+  width: 50px;
+  height: 36px;
+  cursor: pointer;
+  border: 1px solid var(--separator);
+}
+
+.assistant-editor-text-panel-text {
+  flex: 1;
+}
+
+.assistant-editor-text-panel-align-buttons {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.assistant-editor-text-panel-align-btn {
+  flex: 1;
+  padding: var(--space-2);
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  transition: all 0.2s;
+}
+
+.assistant-editor-text-panel-align-btn:hover {
+  background: var(--panel-hover);
+}
+
+.assistant-editor-text-panel-align-btn.active {
+  background: var(--accent);
+  color: var(--color-black);
+  border-color: var(--accent);
+}
+
+.assistant-editor-text-panel-preview {
+  padding: var(--space-4);
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.assistant-editor-text-panel-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-top: 1px solid var(--separator);
+  justify-content: flex-end;
+}
+
+.assistant-editor-text-panel-button {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.assistant-editor-text-panel-button.primary {
+  background: var(--accent);
+  color: var(--color-black);
+}
+
+.assistant-editor-text-panel-button.secondary {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--separator);
+}
+
+.assistant-editor-text-panel-button:hover {
+  opacity: 0.9;
+}
+
+.assistant-editor-text-panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* Shortcuts Panel */
+.assistant-editor-shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+}
+
+.assistant-editor-shortcuts-panel {
+  width: min(700px, 90vw);
+  max-height: 80vh;
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  box-shadow: var(--shadow-hard);
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-editor-shortcuts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-shortcuts-header h2 {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: 600;
+}
+
+.assistant-editor-shortcuts-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: var(--space-2);
+  display: flex;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.assistant-editor-shortcuts-close:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.assistant-editor-shortcuts-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.assistant-editor-shortcuts-section {
+  margin-bottom: var(--space-6);
+}
+
+.assistant-editor-shortcuts-section h3 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.assistant-editor-shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.assistant-editor-shortcut-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+}
+
+.assistant-editor-shortcut-keys {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.assistant-editor-shortcut-key {
+  padding: 4px 8px;
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  font-size: var(--font-xs);
+  font-family: monospace;
+}
+
+.assistant-editor-shortcut-description {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+/* Sequence Manager */
+.assistant-editor-sequence-manager {
+  background: var(--panel-elevated);
+  border-right: 1px solid var(--separator);
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-editor-sequence-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--separator);
+}
+
+.assistant-editor-sequence-manager-header h3 {
+  margin: 0;
+  font-size: var(--font-md);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.assistant-editor-sequence-manager-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  color: var(--color-black);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.assistant-editor-sequence-manager-add-btn:hover {
+  background: var(--accent-hover);
+}
+
+.assistant-editor-sequence-manager-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.assistant-editor-sequence-manager-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  margin-bottom: var(--space-2);
+  transition: all 0.2s;
+}
+
+.assistant-editor-sequence-manager-item.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+}
+
+.assistant-editor-sequence-manager-name {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--font-sm);
+}
+
+.assistant-editor-sequence-manager-info {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.assistant-editor-sequence-manager-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.assistant-editor-sequence-manager-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.assistant-editor-sequence-manager-action-btn:hover {
+  background: var(--panel-hover);
+}
+
+.assistant-editor-sequence-manager-action-btn.delete:hover {
+  background: var(--error);
+  color: var(--color-white);
+}
+
+.assistant-editor-sequence-manager-input {
+  width: 100%;
+  padding: var(--space-2);
+  background: var(--panel-elevated);
+  border: 1px solid var(--separator);
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+
+/* Track Components */
+.assistant-editor-timeline-track-wrapper {
+  border-bottom: 1px solid var(--separator);
+  position: relative;
+}
+
+.assistant-editor-timeline-track-wrapper.locked {
+  opacity: 0.6;
+}
+
+.assistant-editor-timeline-track-wrapper.hidden {
+  opacity: 0.3;
+}
+
+.assistant-editor-timeline-track-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel-elevated);
+  border-left: 3px solid var(--accent);
+}
+
+.assistant-editor-timeline-track-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.assistant-editor-timeline-track-icon {
+  font-size: 14px;
+}
+
+.assistant-editor-timeline-track-name {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: var(--font-sm);
+  padding: 2px 4px;
+  flex: 1;
+}
+
+.assistant-editor-timeline-track-controls {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.assistant-editor-timeline-track-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--panel);
+  border: 1px solid var(--separator);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.assistant-editor-timeline-track-control-btn:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.assistant-editor-timeline-track-control-btn.delete:hover {
+  background: var(--error);
+  color: var(--color-white);
+}
+
+.assistant-editor-timeline-track-resize-handle {
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.assistant-editor-timeline-track-wrapper:hover .assistant-editor-timeline-track-resize-handle {
+  opacity: 1;
+}
+
+.assistant-editor-timeline-track-content {
+  position: relative;
+  height: 100%;
+  background: var(--bg);
+}
+
+.assistant-editor-timeline-track-content.locked {
+  cursor: not-allowed;
+}
+
+.assistant-editor-timeline-track-content.drag-over {
+  background: var(--accent-light);
+}
+
+.assistant-editor-timeline-track-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+  pointer-events: none;
+}
+
+/* Export Progress */
+.assistant-editor-export-progress {
+  padding: var(--space-2) var(--space-3);
+  background: var(--accent);
+  color: var(--color-black);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+
+/* Header Enhancements */
+.assistant-editor-header-left,
+.assistant-editor-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.assistant-editor-header-sequence {
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--separator);
+}

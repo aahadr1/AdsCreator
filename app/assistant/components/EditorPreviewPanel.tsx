@@ -32,6 +32,10 @@ export default function EditorPreviewPanel({
   const audioRef = useRef<HTMLAudioElement>(null);
   const seekingRef = useRef(false);
   const seekTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const videoSourceRef = useRef<string | null>(null);
+  const audioSourceRef = useRef<string | null>(null);
+  const videoClipsRef = useRef<TimelineClip[]>([]);
+  const audioClipsRef = useRef<TimelineClip[]>([]);
 
   type ClipDisplayContext = { type: 'clip'; asset: EditorAsset; clip: TimelineClip; relativeTime: number };
   type DisplayContext =
@@ -42,13 +46,17 @@ export default function EditorPreviewPanel({
   const buildClipContext = useCallback(
     (clip: TimelineClip | undefined): ClipDisplayContext | null => {
       if (!clip) return null;
+      // Only media clips have assets
+      if (!('assetId' in clip)) return null;
       const asset = assets.find((a) => a.id === clip.assetId);
       if (!asset) return null;
       const timelineLength = Math.max(clip.endTime - clip.startTime, 0);
-      const trimmedDuration = Math.max(timelineLength - (clip.trimStart + clip.trimEnd), 0);
+      const trimStart = 'trimStart' in clip ? clip.trimStart : 0;
+      const trimEnd = 'trimEnd' in clip ? clip.trimEnd : 0;
+      const trimmedDuration = Math.max(timelineLength - (trimStart + trimEnd), 0);
       const relTime = Math.max(
         0,
-        Math.min(playhead - clip.startTime + clip.trimStart, clip.trimStart + trimmedDuration),
+        Math.min(playhead - clip.startTime + trimStart, trimStart + trimmedDuration),
       );
       return {
         type: 'clip',
@@ -75,14 +83,23 @@ export default function EditorPreviewPanel({
     }
 
     if (clips.length > 0) {
+      // Find video clips (clips with video assets)
       const videoClip = clips
-        .filter((c) => c.track === 'video')
+        .filter((c) => {
+          if (!('assetId' in c)) return false;
+          const asset = assets.find((a) => a.id === c.assetId);
+          return asset && asset.type === 'video';
+        })
         .find((clip) => playhead >= clip.startTime && playhead < clip.endTime);
       const videoCtx = buildClipContext(videoClip);
       if (videoCtx) return videoCtx;
 
       const audioClip = clips
-        .filter((c) => c.track === 'audio')
+        .filter((c) => {
+          if (!('assetId' in c)) return false;
+          const asset = assets.find((a) => a.id === c.assetId);
+          return asset && asset.type === 'audio';
+        })
         .find((clip) => playhead >= clip.startTime && playhead < clip.endTime);
       const audioCtx = buildClipContext(audioClip);
       if (audioCtx) return audioCtx;
@@ -118,43 +135,129 @@ export default function EditorPreviewPanel({
   const mediaAsset = displayContext.type === 'none' ? null : displayContext.asset;
   const activeClip = displayContext.type === 'clip' ? displayContext.clip : null;
   const displayTime = displayContext.type === 'none' ? 0 : displayContext.relativeTime;
-  const shouldDriveTimeline = Boolean(selectedClipId || selectedAssetId);
+  const timelinePlaybackActive = !selectedClipId && !selectedAssetId && displayContext.type === 'clip';
 
-  // CRITICAL: Sync video element with timeline playhead
+  const getProxiedUrl = (url: string) => {
+    // Blob/data URLs should play directly without proxying
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+      return url;
+    }
+    if (url.startsWith('http')) {
+      return `/api/proxy?url=${encodeURIComponent(url)}`;
+    }
+    return url;
+  };
+
+  const mediaUrl = mediaAsset?.url ? getProxiedUrl(mediaAsset.url) : '';
+
+  const orderedVideoClips = useMemo(
+    () => clips.filter((c) => {
+      if (!('assetId' in c)) return false;
+      const asset = assets.find((a) => a.id === c.assetId);
+      return asset && asset.type === 'video';
+    }).sort((a, b) => a.startTime - b.startTime),
+    [clips, assets],
+  );
+  const orderedAudioClips = useMemo(
+    () => clips.filter((c) => {
+      if (!('assetId' in c)) return false;
+      const asset = assets.find((a) => a.id === c.assetId);
+      return asset && asset.type === 'audio';
+    }).sort((a, b) => a.startTime - b.startTime),
+    [clips, assets],
+  );
+
+  useEffect(() => {
+    videoClipsRef.current = orderedVideoClips;
+  }, [orderedVideoClips]);
+
+  useEffect(() => {
+    audioClipsRef.current = orderedAudioClips;
+  }, [orderedAudioClips]);
+
+  const syncElementSource = useCallback(
+    (element: HTMLMediaElement | null, sourceRef: React.MutableRefObject<string | null>, src: string) => {
+      if (!element) return;
+      if (sourceRef.current !== src) {
+        sourceRef.current = src;
+        element.src = src;
+        element.load();
+      }
+      element.volume = volume;
+      element.playbackRate = playbackSpeed;
+    },
+    [playbackSpeed, volume],
+  );
+
+  // Sync video element with timeline or selected asset
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !mediaAsset || mediaAsset.type !== 'video') return;
+    if (!video || !mediaAsset || mediaAsset.type !== 'video' || !mediaUrl) return;
+
+    const shouldAutoPlayTimeline = timelinePlaybackActive && mediaAsset && mediaAsset.type === 'video';
+    syncElementSource(video, videoSourceRef, mediaUrl);
+
+    if (shouldAutoPlayTimeline && playing && !selectedClipId && !selectedAssetId) {
+      video.play().catch(() => {});
+      return;
+    }
 
     const currentPlayerTime = video.currentTime || 0;
-    const threshold = playing && activeClip ? 0.05 : 0.1;
-
+    const threshold = shouldAutoPlayTimeline ? 0.02 : 0.05;
     if (!seekingRef.current && Math.abs(currentPlayerTime - displayTime) > threshold) {
       seekingRef.current = true;
       video.currentTime = displayTime;
       if (seekTimeout.current) clearTimeout(seekTimeout.current);
       seekTimeout.current = setTimeout(() => {
         seekingRef.current = false;
-      }, 60);
+      }, 40);
     }
-  }, [displayTime, mediaAsset, playing, activeClip]);
+  }, [
+    mediaAsset,
+    mediaUrl,
+    displayTime,
+    timelinePlaybackActive,
+    playing,
+    syncElementSource,
+    activeClip,
+    selectedClipId,
+    selectedAssetId,
+  ]);
 
-  // Sync audio element with timeline playhead
+  // Sync audio element
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !mediaAsset || mediaAsset.type !== 'audio') return;
+    if (!audio || !mediaAsset || mediaAsset.type !== 'audio' || !mediaUrl) return;
+
+    const shouldAutoPlayTimeline = timelinePlaybackActive && mediaAsset && mediaAsset.type === 'audio';
+    syncElementSource(audio, audioSourceRef, mediaUrl);
+
+    if (shouldAutoPlayTimeline && playing && !selectedClipId && !selectedAssetId) {
+      audio.play().catch(() => {});
+      return;
+    }
 
     const currentPlayerTime = audio.currentTime || 0;
-    const threshold = playing && activeClip ? 0.05 : 0.1;
-
+    const threshold = shouldAutoPlayTimeline ? 0.02 : 0.05;
     if (!seekingRef.current && Math.abs(currentPlayerTime - displayTime) > threshold) {
       seekingRef.current = true;
       audio.currentTime = displayTime;
       if (seekTimeout.current) clearTimeout(seekTimeout.current);
       seekTimeout.current = setTimeout(() => {
         seekingRef.current = false;
-      }, 60);
+      }, 40);
     }
-  }, [displayTime, mediaAsset, playing, activeClip]);
+  }, [
+    mediaAsset,
+    mediaUrl,
+    displayTime,
+    timelinePlaybackActive,
+    playing,
+    syncElementSource,
+    activeClip,
+    selectedClipId,
+    selectedAssetId,
+  ]);
 
   // Handle playback state (play/pause)
   useEffect(() => {
@@ -190,36 +293,75 @@ export default function EditorPreviewPanel({
     }
   }, [volume, playbackSpeed]);
 
-  // Handle video time update (for progress tracking when playing selected clips)
+  const advanceToNextVideoClip = useCallback(
+    (clip: TimelineClip) => {
+      const ordered = videoClipsRef.current;
+      const idx = ordered.findIndex((c) => c.id === clip.id);
+      if (idx >= 0 && idx < ordered.length - 1) {
+        const nextClip = ordered[idx + 1];
+        onSetPlayhead(Math.max(0, nextClip.startTime + 0.0001));
+      } else if (!selectedClipId && !selectedAssetId) {
+        onSetPlaying(false);
+      }
+    },
+    [onSetPlayhead, onSetPlaying, selectedAssetId, selectedClipId],
+  );
+
+  const advanceToNextAudioClip = useCallback(
+    (clip: TimelineClip) => {
+      const ordered = audioClipsRef.current;
+      const idx = ordered.findIndex((c) => c.id === clip.id);
+      if (idx >= 0 && idx < ordered.length - 1) {
+        const nextClip = ordered[idx + 1];
+        onSetPlayhead(Math.max(0, nextClip.startTime + 0.0001));
+      } else if (!selectedClipId && !selectedAssetId) {
+        onSetPlaying(false);
+      }
+    },
+    [onSetPlayhead, onSetPlaying, selectedAssetId, selectedClipId],
+  );
+
+  // Handle video time update (for progress tracking)
   const handleVideoTimeUpdate = () => {
     const video = videoRef.current;
-    if (!video || !activeClip || !playing || !shouldDriveTimeline || seekingRef.current) return;
-    const newPlayhead = activeClip.startTime + video.currentTime - activeClip.trimStart;
-    const clamped = Math.max(activeClip.startTime, Math.min(newPlayhead, activeClip.endTime));
+    if (!video || !activeClip || !playing || seekingRef.current) return;
+    const controllingClip = !selectedClipId || selectedClipId === activeClip.id || timelinePlaybackActive;
+    if (!controllingClip) return;
+
+    const trimStart = 'trimStart' in activeClip ? activeClip.trimStart : 0;
+    const trimEnd = 'trimEnd' in activeClip ? activeClip.trimEnd : 0;
+    const absoluteTime = activeClip.startTime + video.currentTime - trimStart;
+    const clamped = Math.max(activeClip.startTime, Math.min(absoluteTime, activeClip.endTime));
     onSetPlayhead(clamped);
+
+    const clipDuration = activeClip.endTime - activeClip.startTime + trimStart - trimEnd;
+    if (video.duration && video.currentTime >= video.duration - 0.05) {
+      advanceToNextVideoClip(activeClip);
+    } else if (video.currentTime >= clipDuration - 0.05) {
+      advanceToNextVideoClip(activeClip);
+    }
   };
 
   // Handle audio time update
   const handleAudioTimeUpdate = () => {
     const audio = audioRef.current;
-    if (!audio || !activeClip || !playing || !shouldDriveTimeline || seekingRef.current) return;
-    const newPlayhead = activeClip.startTime + audio.currentTime - activeClip.trimStart;
-    const clamped = Math.max(activeClip.startTime, Math.min(newPlayhead, activeClip.endTime));
+    if (!audio || !activeClip || !playing || seekingRef.current) return;
+    const controllingClip = !selectedClipId || selectedClipId === activeClip.id || timelinePlaybackActive;
+    if (!controllingClip) return;
+
+    const trimStart = 'trimStart' in activeClip ? activeClip.trimStart : 0;
+    const trimEnd = 'trimEnd' in activeClip ? activeClip.trimEnd : 0;
+    const absoluteTime = activeClip.startTime + audio.currentTime - trimStart;
+    const clamped = Math.max(activeClip.startTime, Math.min(absoluteTime, activeClip.endTime));
     onSetPlayhead(clamped);
-  };
 
-  const getProxiedUrl = (url: string) => {
-    // Don't proxy blob URLs or data URLs - they work directly
-    if (url.startsWith('blob:') || url.startsWith('data:')) {
-      return url;
+    const clipDuration = activeClip.endTime - activeClip.startTime + trimStart - trimEnd;
+    if (audio.duration && audio.currentTime >= audio.duration - 0.05) {
+      advanceToNextAudioClip(activeClip);
+    } else if (audio.currentTime >= clipDuration - 0.05) {
+      advanceToNextAudioClip(activeClip);
     }
-    if (url.startsWith('http')) {
-      return `/api/proxy?url=${encodeURIComponent(url)}`;
-    }
-    return url;
   };
-
-  const mediaUrl = mediaAsset?.url ? getProxiedUrl(mediaAsset.url) : '';
 
   if (!mediaAsset) {
     return (
