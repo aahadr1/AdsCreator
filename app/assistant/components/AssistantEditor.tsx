@@ -1,26 +1,11 @@
 'use client';
 
-/**
- * VideoSOS-based Assistant Editor
- * Integrates VideoSOS components into the assistant page
- */
-
-import { useState, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { X } from 'lucide-react';
+import EditorTimeline from './EditorTimeline';
+import EditorControls from './EditorControls';
+import EditorAssetPanel from './EditorAssetPanel';
 import type { EditorAsset } from '../../../types/editor';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { videoSOSStore } from '../../../lib/videosos/adapter';
-import { editorAssetToVideoSOSMedia } from '../../../types/editor';
-import {
-  VideoProjectStoreContext,
-  createVideoProjectStore,
-} from '../../../data/videosos/store';
-import { useStore } from 'zustand';
-import BottomBar from './videosos/bottom-bar';
-import VideoPreview from './videosos/video-preview';
-import LeftPanel from './videosos/left-panel';
-import { Toaster } from './videosos/ui/toaster';
-import { ToastProvider } from './videosos/ui/toast';
 
 type AssistantEditorProps = {
   isOpen: boolean;
@@ -28,84 +13,122 @@ type AssistantEditorProps = {
   initialAssets?: EditorAsset[];
 };
 
+type TimelineClip = {
+  id: string;
+  assetId: string;
+  startTime: number; // in seconds
+  duration: number; // in seconds
+  track: number;
+};
+
 export default function AssistantEditor({
   isOpen,
   onClose,
   initialAssets = [],
 }: AssistantEditorProps) {
-  const [projectId, setProjectId] = useState<string>('');
-  const queryClientRef = useRef<QueryClient | null>(null);
-  const projectStoreRef = useRef<ReturnType<typeof createVideoProjectStore> | null>(null);
+  const [assets, setAssets] = useState<EditorAsset[]>(initialAssets);
+  const [clips, setClips] = useState<TimelineClip[]>([]);
+  const [playhead, setPlayhead] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(30); // 30 seconds default
 
-  if (!queryClientRef.current) {
-    queryClientRef.current = new QueryClient();
-  }
+  const handleAddAsset = useCallback((asset: EditorAsset) => {
+    setAssets((prev) => [...prev, asset]);
+  }, []);
 
-  // Initialize project when editor opens
-  useEffect(() => {
-    if (isOpen && !projectId) {
-      const initProject = async () => {
-        const id = crypto.randomUUID();
-        await videoSOSStore.initializeProject(id, initialAssets);
-        setProjectId(id);
-      };
-      initProject();
+  const handleAddClip = useCallback((asset: EditorAsset, time: number) => {
+    const newClip: TimelineClip = {
+      id: `clip-${Date.now()}`,
+      assetId: asset.id,
+      startTime: time,
+      duration: asset.duration || 5,
+      track: 0,
+    };
+    setClips((prev) => [...prev, newClip]);
+    
+    // Update total duration if needed
+    const clipEnd = newClip.startTime + newClip.duration;
+    if (clipEnd > duration) {
+      setDuration(clipEnd);
     }
-  }, [isOpen, projectId, initialAssets]);
+  }, [duration]);
 
-  // Create project store when projectId is available
-  if (projectId && !projectStoreRef.current) {
-    projectStoreRef.current = createVideoProjectStore({
-      projectId,
-    });
-  }
+  const handleRemoveClip = useCallback((clipId: string) => {
+    setClips((prev) => prev.filter((c) => c.id !== clipId));
+  }, []);
 
-  if (!isOpen || !projectId || !projectStoreRef.current) return null;
+  const handleUpdateClip = useCallback((clipId: string, updates: Partial<TimelineClip>) => {
+    setClips((prev) =>
+      prev.map((clip) =>
+        clip.id === clipId ? { ...clip, ...updates } : clip
+      )
+    );
+  }, []);
 
-  const projectStore = projectStoreRef.current;
+  if (!isOpen) return null;
 
   return (
-    <div className="assistant-editor-popup-overlay" onClick={onClose}>
-      <div
-        className="assistant-editor-popup"
-        onClick={(e) => e.stopPropagation()}
-        style={{ height: '95vh', maxHeight: '95vh' }}
-      >
+    <div className="assistant-editor-overlay" onClick={onClose}>
+      <div className="assistant-editor-container" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
         <div className="assistant-editor-header">
-          <div className="assistant-editor-header-left">
-            <h2>Video Editor (VideoSOS)</h2>
-          </div>
-          <div className="assistant-editor-header-right">
-            <button
-              className="assistant-editor-close"
-              onClick={onClose}
-              type="button"
-            >
-              <X size={20} />
-            </button>
-          </div>
+          <h2>Video Editor</h2>
+          <button
+            className="assistant-editor-close-btn"
+            onClick={onClose}
+            type="button"
+            title="Close Editor"
+          >
+            <X size={20} />
+          </button>
         </div>
 
-        <ToastProvider>
-          <QueryClientProvider client={queryClientRef.current}>
-            <VideoProjectStoreContext.Provider value={projectStore}>
-              <div
-                className="flex flex-col relative overflow-hidden"
-                style={{ height: 'calc(95vh - 60px)' }}
-              >
-                <main className="flex overflow-hidden flex-1 min-h-0">
-                  <LeftPanel />
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <VideoPreview />
-                    <BottomBar />
-                  </div>
-                </main>
+        {/* Main Editor Area */}
+        <div className="assistant-editor-main">
+          {/* Asset Panel */}
+          <EditorAssetPanel assets={assets} onAddAsset={handleAddAsset} />
+
+          {/* Preview Panel */}
+          <div className="assistant-editor-preview">
+            {clips.length > 0 ? (
+              <div className="assistant-editor-preview-content">
+                <video
+                  className="assistant-editor-video-preview"
+                  controls
+                  src={assets.find((a) => a.id === clips[0]?.assetId)?.url}
+                />
               </div>
-              <Toaster />
-            </VideoProjectStoreContext.Provider>
-          </QueryClientProvider>
-        </ToastProvider>
+            ) : (
+              <div className="assistant-editor-preview-empty">
+                <p>No clips on timeline</p>
+                <p className="text-sm text-gray-500">Drag media to the timeline to start editing</p>
+              </div>
+            )}
+          </div>
+
+          {/* Controls */}
+          <EditorControls
+            playhead={playhead}
+            duration={duration}
+            playing={playing}
+            onSetPlayhead={setPlayhead}
+            onSetPlaying={setPlaying}
+          />
+
+          {/* Timeline */}
+          <EditorTimeline
+            assets={assets}
+            clips={clips}
+            playhead={playhead}
+            duration={duration}
+            onAddClip={handleAddClip}
+            onRemoveClip={handleRemoveClip}
+            onUpdateClip={handleUpdateClip}
+            onSetPlayhead={setPlayhead}
+          />
+        </div>
       </div>
     </div>
   );
 }
+
