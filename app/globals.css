@@ -7135,14 +7135,15 @@ body[data-page="billing"] .pricing-card.current-plan {
   width: 95vw;
   height: 90vh;
   max-width: 1600px;
-  max-height: 1200px;
+  max-height: 95vh;
   background: var(--bg);
   border: 1px solid var(--separator);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  position: relative;
 }
 
 .assistant-editor-header {
@@ -7181,7 +7182,9 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-content {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
 /* Asset Panel */
@@ -7679,16 +7682,28 @@ body[data-page="billing"] .pricing-card.current-plan {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* Preview Panel Container */
+.assistant-editor-preview-container {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 60vh;
 }
 
 /* Preview Panel */
 .assistant-editor-preview-panel {
   flex: 1;
+  min-height: 400px;
+  max-height: 60vh;
   background: var(--bg-secondary);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   position: relative;
   overflow: hidden;
 }
@@ -7852,7 +7867,9 @@ body[data-page="billing"] .pricing-card.current-plan {
 
 /* Timeline */
 .assistant-editor-timeline {
-  height: 220px;
+  flex: 0 0 auto;
+  min-height: 220px;
+  max-height: 40vh;
   background: var(--panel-elevated);
   border-top: 1px solid var(--separator);
   display: flex;

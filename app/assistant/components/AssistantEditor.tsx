@@ -508,7 +508,7 @@ export default function AssistantEditor({
           )}
 
           <div className="assistant-editor-main">
-            <div className="assistant-editor-preview-container" style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div className="assistant-editor-preview-container">
               <EditorPreviewPanel
                 assets={editorState.assets}
                 clips={currentSequence.clips}

@@ -160,20 +160,37 @@ export default function EditorPreviewPanel({
       const clipTime = time - clip.startTime;
       const sourceTime = clipTime + (clip.trimStart || 0);
 
-      // Seek video to correct time (only if playing or if time changed significantly)
+      // Seek video to correct time for timeline composition
+      // Videos are used as canvas sources only - they don't play individually
       if (mediaElement instanceof HTMLVideoElement) {
-        const timeDiff = Math.abs(mediaElement.currentTime - sourceTime);
-        if (timeDiff > 0.1 || (!playing && timeDiff > 0.01)) {
-          mediaElement.currentTime = Math.max(0, Math.min(sourceTime, mediaElement.duration || 0));
+        // Calculate the exact source time within the clip
+        const clipDuration = clip.endTime - clip.startTime;
+        const maxSourceTime = (clip.trimEnd || clipDuration) - (clip.trimStart || 0);
+        const clampedSourceTime = Math.max(0, Math.min(sourceTime, maxSourceTime));
+        
+        const timeDiff = Math.abs(mediaElement.currentTime - clampedSourceTime);
+        // Only seek if significantly different to avoid constant seeking
+        if (timeDiff > 0.05) {
+          mediaElement.currentTime = clampedSourceTime;
         }
         
-        // Play/pause video based on playing state
-        if (playing && mediaElement.paused) {
-          mediaElement.play().catch(() => {
-            // Ignore play errors (e.g., autoplay restrictions)
-          });
-        } else if (!playing && !mediaElement.paused) {
-          mediaElement.pause();
+        // Mute video element - audio is handled separately
+        if (!mediaElement.muted) {
+          mediaElement.muted = true;
+        }
+        
+        // Play video element silently for canvas rendering (timeline composition)
+        if (playing) {
+          if (mediaElement.paused) {
+            mediaElement.play().catch(() => {
+              // Ignore play errors
+            });
+          }
+        } else {
+          // When paused, just seek to the right frame
+          if (!mediaElement.paused) {
+            mediaElement.pause();
+          }
         }
       }
 
