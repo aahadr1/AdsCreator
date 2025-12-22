@@ -9495,3 +9495,6 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-clip-name { font-size: 12px; font-weight: 500; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .assistant-editor-clip-remove { width: 20px; height: 20px; border-radius: 4px; border: none; background: rgba(0,0,0,0.3); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; line-height: 1; transition: background 0.2s; }
 .assistant-editor-clip-remove:hover { background: rgba(255,0,0,0.8); }
+
+.assistant-editor-content-wrapper { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.assistant-editor-preview { flex: 0 0 auto; max-height: 50vh; min-height: 300px; display: flex; flex-direction: column; }

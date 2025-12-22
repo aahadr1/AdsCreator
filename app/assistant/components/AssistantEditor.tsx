@@ -88,44 +88,47 @@ export default function AssistantEditor({
           {/* Asset Panel */}
           <EditorAssetPanel assets={assets} onAddAsset={handleAddAsset} />
 
-          {/* Preview Panel */}
-          <div className="assistant-editor-preview">
-            {clips.length > 0 ? (
-              <div className="assistant-editor-preview-content">
-                <video
-                  className="assistant-editor-video-preview"
-                  controls
-                  src={assets.find((a) => a.id === clips[0]?.assetId)?.url}
-                />
-              </div>
-            ) : (
-              <div className="assistant-editor-preview-empty">
-                <p>No clips on timeline</p>
-                <p className="text-sm text-gray-500">Drag media to the timeline to start editing</p>
-              </div>
-            )}
+          {/* Editor Content - Scrollable */}
+          <div className="assistant-editor-content-wrapper">
+            {/* Preview Panel */}
+            <div className="assistant-editor-preview">
+              {clips.length > 0 ? (
+                <div className="assistant-editor-preview-content">
+                  <video
+                    className="assistant-editor-video-preview"
+                    controls
+                    src={assets.find((a) => a.id === clips[0]?.assetId)?.url}
+                  />
+                </div>
+              ) : (
+                <div className="assistant-editor-preview-empty">
+                  <p>No clips on timeline</p>
+                  <p className="text-sm text-gray-500">Drag media to the timeline to start editing</p>
+                </div>
+              )}
+            </div>
+
+            {/* Controls */}
+            <EditorControls
+              playhead={playhead}
+              duration={duration}
+              playing={playing}
+              onSetPlayhead={setPlayhead}
+              onSetPlaying={setPlaying}
+            />
+
+            {/* Timeline */}
+            <EditorTimeline
+              assets={assets}
+              clips={clips}
+              playhead={playhead}
+              duration={duration}
+              onAddClip={handleAddClip}
+              onRemoveClip={handleRemoveClip}
+              onUpdateClip={handleUpdateClip}
+              onSetPlayhead={setPlayhead}
+            />
           </div>
-
-          {/* Controls */}
-          <EditorControls
-            playhead={playhead}
-            duration={duration}
-            playing={playing}
-            onSetPlayhead={setPlayhead}
-            onSetPlaying={setPlaying}
-          />
-
-          {/* Timeline */}
-          <EditorTimeline
-            assets={assets}
-            clips={clips}
-            playhead={playhead}
-            duration={duration}
-            onAddClip={handleAddClip}
-            onRemoveClip={handleRemoveClip}
-            onUpdateClip={handleUpdateClip}
-            onSetPlayhead={setPlayhead}
-          />
         </div>
       </div>
     </div>
