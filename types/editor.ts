@@ -449,3 +449,221 @@ export const WEB_SAFE_FONTS = [
   'Impact',
   'Comic Sans MS',
 ] as const;
+
+// ============================================================================
+// VIDEOSOS TYPES (for integration)
+// ============================================================================
+
+export type VideoSOSAspectRatio = "16:9" | "9:16" | "1:1";
+
+export type VideoSOSProject = {
+  id: string;
+  title: string;
+  description: string;
+  aspectRatio: VideoSOSAspectRatio;
+  duration?: number; // in milliseconds
+};
+
+export type VideoSOSTrackType = "video" | "music" | "voiceover";
+
+export const VIDEO_SOS_TRACK_TYPE_ORDER: Record<VideoSOSTrackType, number> = {
+  video: 1,
+  music: 2,
+  voiceover: 3,
+};
+
+export type VideoSOSTrack = {
+  id: string;
+  locked: boolean;
+  label: string;
+  type: VideoSOSTrackType;
+  projectId: string;
+};
+
+export type VideoSOSKeyFrameData = {
+  type: "prompt" | "image" | "video" | "voiceover" | "music";
+  mediaId: string;
+} & (
+  | {
+      type: "prompt";
+      prompt: string;
+    }
+  | {
+      type: "image";
+      prompt: string;
+      url: string;
+    }
+  | {
+      type: "video";
+      prompt: string;
+      url: string;
+    }
+  | {
+      type: "voiceover";
+      prompt: string;
+      url: string;
+    }
+  | {
+      type: "music";
+      prompt: string;
+      url: string;
+    }
+);
+
+export type VideoSOSKeyFrame = {
+  id: string;
+  timestamp: number; // in seconds
+  duration: number; // in seconds
+  trackId: string;
+  data: VideoSOSKeyFrameData;
+};
+
+export type VideoSOSMediaItem = {
+  id: string;
+  kind: "generated" | "uploaded";
+  provider?: "fal" | "runware";
+  endpointId?: string;
+  requestId?: string;
+  taskUUID?: string;
+  projectId: string;
+  mediaType: "image" | "video" | "music" | "voiceover";
+  status: "pending" | "running" | "completed" | "failed";
+  createdAt: number;
+  input?: Record<string, any>;
+  output?: Record<string, any>;
+  url?: string;
+  blob?: Blob;
+  thumbnailBlob?: Blob;
+  metadata?: Record<string, any>;
+} & (
+  | {
+      kind: "generated";
+      provider?: "fal" | "runware";
+      endpointId: string;
+      requestId?: string;
+      taskUUID?: string;
+      input: Record<string, any>;
+      output?: Record<string, any>;
+    }
+  | {
+      kind: "uploaded";
+      url: string;
+      blob?: Blob;
+    }
+);
+
+// ============================================================================
+// ADAPTER FUNCTIONS (convert between systems)
+// ============================================================================
+
+/**
+ * Convert EditorAsset to VideoSOSMediaItem
+ */
+export function editorAssetToVideoSOSMedia(
+  asset: EditorAsset,
+  projectId: string
+): VideoSOSMediaItem {
+  // Map type: 'audio' -> 'music', 'text' -> not supported in VideoSOS
+  const mediaType: VideoSOSMediaItem['mediaType'] =
+    asset.type === 'audio' ? 'music' :
+    asset.type === 'text' ? 'image' : // fallback
+    asset.type === 'image' ? 'image' :
+    asset.type === 'video' ? 'video' : 'image';
+
+  return {
+    id: asset.id,
+    kind: asset.source === 'upload' ? 'uploaded' : 'uploaded', // treat workflow/task as uploaded
+    projectId,
+    mediaType,
+    status: 'completed',
+    createdAt: Date.now(),
+    url: asset.url,
+    metadata: {
+      name: asset.name,
+      duration: asset.duration,
+      width: asset.width,
+      height: asset.height,
+      fps: asset.fps,
+      source: asset.source,
+      sourceId: asset.sourceId,
+    },
+    ...(asset.thumbnail && {
+      thumbnailBlob: undefined, // would need to convert URL to blob
+    }),
+  };
+}
+
+/**
+ * Convert VideoSOSMediaItem to EditorAsset
+ */
+export function videoSOSMediaToEditorAsset(
+  media: VideoSOSMediaItem,
+  source: EditorAsset['source'] = 'upload'
+): EditorAsset {
+  const type: EditorAsset['type'] =
+    media.mediaType === 'music' ? 'audio' :
+    media.mediaType === 'voiceover' ? 'audio' :
+    media.mediaType === 'video' ? 'video' :
+    media.mediaType === 'image' ? 'image' : 'image';
+
+  const url = media.url || (media.blob ? URL.createObjectURL(media.blob) : '');
+
+  return {
+    id: media.id,
+    type,
+    url,
+    name: media.metadata?.name || `Media ${media.id.substring(0, 8)}`,
+    source,
+    duration: media.metadata?.duration,
+    width: media.metadata?.width,
+    height: media.metadata?.height,
+    fps: media.metadata?.fps,
+    thumbnail: media.thumbnailBlob ? URL.createObjectURL(media.thumbnailBlob) : undefined,
+  };
+}
+
+/**
+ * Convert Track to VideoSOSTrack
+ */
+export function trackToVideoSOSTrack(
+  track: Track,
+  projectId: string
+): VideoSOSTrack {
+  const type: VideoSOSTrackType =
+    track.type === 'audio' ? 'music' :
+    track.type === 'video' ? 'video' :
+    'music'; // fallback for text tracks
+
+  return {
+    id: track.id,
+    locked: track.locked,
+    label: track.name,
+    type,
+    projectId,
+  };
+}
+
+/**
+ * Convert VideoSOSTrack to Track
+ */
+export function videoSOSTrackToTrack(
+  track: VideoSOSTrack,
+  index: number
+): Track {
+  const type: TrackType =
+    track.type === 'music' ? 'audio' :
+    track.type === 'voiceover' ? 'audio' :
+    track.type === 'video' ? 'video' :
+    'audio';
+
+  return {
+    id: track.id,
+    type,
+    name: track.label,
+    index,
+    height: DEFAULT_TRACK_HEIGHT,
+    locked: track.locked,
+    muted: false,
+    visible: true,
+  };
+}

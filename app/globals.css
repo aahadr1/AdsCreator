@@ -9372,3 +9372,82 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-transform-reset-btn:hover {
   background: rgba(255, 255, 255, 0.15);
 }
+
+/* ============================================================================
+   VIDEOSOS STYLES
+   ============================================================================ */
+
+/* VideoSOS CSS Variables (for Tailwind compatibility) */
+:root {
+  /* VideoSOS background variables */
+  --background: hsl(0, 0%, 98%);
+  --background-light: hsl(0, 0%, 100%);
+  --background-dark: hsl(0, 0%, 95%);
+  --foreground: hsl(0, 0%, 3.9%);
+  
+  /* VideoSOS component variables */
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(0, 0%, 3.9%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(0, 0%, 3.9%);
+  --primary: hsl(0, 0%, 9%);
+  --primary-foreground: hsl(0, 0%, 98%);
+  --secondary: hsl(0, 0%, 96.1%);
+  --secondary-foreground: hsl(0, 0%, 9%);
+  --muted: hsl(0, 0%, 96.1%);
+  --muted-foreground: hsl(0, 0%, 35%);
+  --destructive: hsl(0, 84.2%, 60.2%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --border: hsl(0, 0%, 89.8%);
+  --input: hsl(0, 0%, 89.8%);
+  --ring: hsl(0, 0%, 3.9%);
+  --radius: 0.3rem;
+}
+
+/* VideoSOS Timeline Styles */
+@keyframes timeline-focus-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+}
+
+.timeline-focus-ring {
+  animation: timeline-focus-ring 0.75s ease-out;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-visible::-webkit-scrollbar {
+  height: 10px;
+  display: block;
+}
+
+.scrollbar-visible::-webkit-scrollbar-track {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.scrollbar-visible::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+
+.scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.5);
+}
