@@ -61,30 +61,6 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     ],
   },
   {
-    model: 'black-forest-labs/flux-kontext-max',
-    defaults: { aspect_ratio: '16:9', output_format: 'png' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: IMAGE_RATIOS_FLUX.map((r) => ({ value: r, label: r })) },
-      { key: 'input_image', label: 'Start image URL', type: 'url' },
-      { key: 'output_format', label: 'Format', type: 'select', options: ['png', 'jpg'].map((v) => ({ value: v, label: v.toUpperCase() })) },
-      { key: 'seed', label: 'Seed', type: 'number' },
-    ],
-  },
-  {
-    model: 'black-forest-labs/flux-krea-dev',
-    defaults: { aspect_ratio: '1:1', output_format: 'webp' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: IMAGE_RATIOS_FLUX.map((r) => ({ value: r, label: r })) },
-      { key: 'output_format', label: 'Format', type: 'select', options: ['webp', 'jpg', 'png'].map((v) => ({ value: v, label: v.toUpperCase() })) },
-      { key: 'guidance', label: 'Guidance', type: 'number' },
-      { key: 'num_outputs', label: 'Outputs', type: 'number', min: 1, max: 4 },
-      { key: 'output_quality', label: 'Quality (0-100)', type: 'number', min: 0, max: 100 },
-      { key: 'image_input', label: 'Start image URL', type: 'url' },
-    ],
-  },
-  {
     model: 'google/nano-banana',
     defaults: { output_format: 'jpg' },
     fields: [
@@ -143,28 +119,6 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     ],
   },
   {
-    model: 'google/veo-3-fast',
-    defaults: { resolution: '720p' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
-      { key: 'image', label: 'Start image URL', type: 'url' },
-      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
-      { key: 'seed', label: 'Seed', type: 'number' },
-    ],
-  },
-  {
-    model: 'google/veo-3',
-    defaults: { resolution: '720p' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
-      { key: 'image', label: 'Start image URL', type: 'url' },
-      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
-      { key: 'seed', label: 'Seed', type: 'number' },
-    ],
-  },
-  {
     model: 'google/veo-3.1',
     defaults: { resolution: '1080p' },
     fields: [
@@ -187,48 +141,6 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     ],
   },
   {
-    model: 'openai/sora-2',
-    defaults: { resolution: '720p' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
-      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
-      { key: 'seed', label: 'Seed', type: 'number' },
-    ],
-  },
-  {
-    model: 'openai/sora-2-pro',
-    defaults: { resolution: '1080p' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })) },
-      { key: 'negative_prompt', label: 'Negative prompt', type: 'text' },
-      { key: 'seed', label: 'Seed', type: 'number' },
-    ],
-  },
-  {
-    model: 'kwaivgi/kling-v2.5-turbo-pro',
-    defaults: { duration: 5, aspect_ratio: '16:9' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'start_image', label: 'Start image URL', type: 'url' },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
-      { key: 'duration', label: 'Duration (s)', type: 'select', options: VIDEO_DURATIONS_SHORT.map((d) => ({ value: String(d), label: `${d}s` })) },
-    ],
-  },
-  {
-    model: 'kwaivgi/kling-v2.1',
-    defaults: { duration: 4, aspect_ratio: '16:9', mode: 'default' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'start_image', label: 'Start image URL (required)', type: 'url', required: true },
-      { key: 'end_image', label: 'End image URL', type: 'url' },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
-      { key: 'duration', label: 'Duration (s)', type: 'select', options: VIDEO_DURATIONS_KLING.map((d) => ({ value: String(d), label: `${d}s` })) },
-      { key: 'mode', label: 'Mode', type: 'select', options: ['default', 'video2video', 'photo2video'].map((m) => ({ value: m, label: m })) },
-    ],
-  },
-  {
     model: 'wan-video/wan-2.2-i2v-fast',
     defaults: { aspect_ratio: '16:9', duration: 5 },
     fields: [
@@ -236,24 +148,6 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
       { key: 'start_image', label: 'Start image URL (required)', type: 'url', required: true },
       { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
       { key: 'duration', label: 'Duration (s)', type: 'number', min: 2, max: 8 },
-    ],
-  },
-  {
-    model: 'bytedance/seedance-1-lite',
-    defaults: { aspect_ratio: '16:9' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'start_image', label: 'Start image URL', type: 'url' },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
-    ],
-  },
-  {
-    model: 'bytedance/seedance-1-pro',
-    defaults: { aspect_ratio: '16:9' },
-    fields: [
-      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true },
-      { key: 'start_image', label: 'Start image URL', type: 'url' },
-      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
     ],
   },
   {
@@ -316,20 +210,6 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
   },
   {
     model: 'minimax-speech-02-hd',
-    fields: [
-      { key: 'text', label: 'Text', type: 'textarea', required: true },
-      { key: 'voice_id', label: 'Voice ID', type: 'text' },
-    ],
-  },
-  {
-    model: 'elevenlabs-tts',
-    fields: [
-      { key: 'text', label: 'Text', type: 'textarea', required: true },
-      { key: 'voice_id', label: 'Voice ID', type: 'text' },
-    ],
-  },
-  {
-    model: 'dia-tts',
     fields: [
       { key: 'text', label: 'Text', type: 'textarea', required: true },
       { key: 'voice_id', label: 'Voice ID', type: 'text' },
@@ -424,8 +304,6 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
     fields: [],
     models: [
       { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5', defaultInputs: { number_of_images: 1, aspect_ratio: '2:3' } },
-      { id: 'black-forest-labs/flux-kontext-max', label: 'Flux Kontext Max', defaultInputs: { aspect_ratio: '16:9' } },
-      { id: 'black-forest-labs/flux-krea-dev', label: 'Flux Krea Dev', defaultInputs: { aspect_ratio: '1:1' } },
       { id: 'google/nano-banana', label: 'Nano Banana', defaultInputs: { output_format: 'jpg' } },
       { id: 'google/nano-banana-pro', label: 'Nano Banana Pro', defaultInputs: { output_format: 'png' } },
       { id: 'bytedance/seedream-4', label: 'Seedream 4', defaultInputs: { size: '2K', aspect_ratio: '1:1' } },
@@ -438,25 +316,17 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
     label: 'Video Generation',
     description: 'Animate or render motion from text or start frames.',
     outputType: 'video',
-    validations: ['Kling v2.1 requires start_image.', 'Kling duration must be provided (short clips recommended).'],
+    validations: [],
     fields: [],
     models: [
       { id: 'google/veo-3.1-fast', label: 'VEO 3.1 Fast', defaultInputs: { resolution: '720p' } },
-      { id: 'google/veo-3-fast', label: 'VEO 3 Fast', defaultInputs: { resolution: '720p' } },
       { id: 'google/veo-3.1', label: 'VEO 3.1', defaultInputs: { resolution: '1080p' } },
-      { id: 'google/veo-3', label: 'VEO 3', defaultInputs: { resolution: '720p' } },
-      { id: 'openai/sora-2', label: 'Sora 2', defaultInputs: { resolution: '720p' } },
-      { id: 'openai/sora-2-pro', label: 'Sora 2 Pro', defaultInputs: { resolution: '1080p' } },
-      { id: 'kwaivgi/kling-v2.5-turbo-pro', label: 'Kling v2.5 Turbo Pro', defaultInputs: { duration: 5, aspect_ratio: '16:9' } },
-      { id: 'kwaivgi/kling-v2.1', label: 'Kling v2.1', defaultInputs: { duration: 4, aspect_ratio: '16:9', mode: 'default' } },
       { id: 'wan-video/wan-2.2-i2v-fast', label: 'WAN 2.2 i2v Fast', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'wan-video/wan-2.2-animate-replace', label: 'WAN 2.2 Animate Replace', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'wan-video/wan-2.5-i2v', label: 'WAN 2.5 i2v', defaultInputs: { resolution: '720p', duration: 10 } },
       { id: 'bytedance/omni-human-1.5', label: 'Omni Human 1.5', defaultInputs: { fast_mode: true } },
       { id: 'lightricks/ltx-2-fast', label: 'LTX 2 Fast', defaultInputs: { resolution: '1080p', duration: 6 } },
       { id: 'lightricks/ltx-2-pro', label: 'LTX 2 Pro', defaultInputs: { resolution: '1080p', duration: 6 } },
-      { id: 'bytedance/seedance-1-lite', label: 'Seedance 1 Lite', defaultInputs: { aspect_ratio: '16:9' } },
-      { id: 'bytedance/seedance-1-pro', label: 'Seedance 1 Pro', defaultInputs: { aspect_ratio: '16:9' } },
     ],
   },
   lipsync: {
@@ -468,8 +338,6 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { key: 'video', label: 'Video/Image URL', type: 'url', required: true, helper: 'Can be an image (first frame) or video' },
       { key: 'audio', label: 'Audio URL', type: 'url', required: true },
       { key: 'backend', label: 'Backend', type: 'select', options: [
-        { value: 'sievesync-1.1', label: 'Sieve Sync 1.1 (fast lipsync)' },
-        { value: 'latentsync', label: 'LatentSync (high quality)' },
         { value: 'wan-2.2-s2v', label: 'Wan 2.2 S2V (cinematic audio-driven video)' },
         { value: 'wavespeed-ai/infinitetalk', label: 'InfiniteTalk (Image + Audio)' },
         { value: 'wavespeed-ai/infinitetalk/multi', label: 'InfiniteTalk Multi (2 Characters)' },
@@ -493,8 +361,6 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { key: 'mask_image', label: 'Mask Image (InfiniteTalk)', type: 'url', required: false, helper: 'Optional mask image to specify regions to animate' },
     ],
     models: [
-      { id: 'sievesync-1.1', label: 'Sieve Sync 1.1' },
-      { id: 'bytedance/latentsync', label: 'LatentSync' },
       { id: 'wan-video/wan-2.2-s2v', label: 'Wan 2.2 S2V (Cinematic)' },
       { id: 'wavespeed-ai/infinitetalk', label: 'InfiniteTalk (Image + Audio)' },
       { id: 'wavespeed-ai/infinitetalk/multi', label: 'InfiniteTalk Multi (2 Characters)' },
@@ -563,8 +429,6 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
     ],
     models: [
       { id: 'minimax-speech-02-hd', label: 'Minimax Speech 02 HD', defaultInputs: { provider: 'replicate' } },
-      { id: 'elevenlabs-tts', label: 'ElevenLabs TTS', defaultInputs: { provider: 'elevenlabs' } },
-      { id: 'dia-tts', label: 'Dia TTS', defaultInputs: { provider: 'dia' } },
       { id: 'jaaari/kokoro-82m', label: 'Kokoro 82M', defaultInputs: { voice: 'af_nicole', speed: 1 } },
     ],
   },
@@ -723,8 +587,6 @@ MODEL SELECTION GUIDELINES:
 
 Image Generation:
 - openai/gpt-image-1.5: Best overall quality, typography fidelity, reference image support (up to 10). CRITICAL: Only accepts aspect ratios: "1:1", "3:2", "2:3" (default: "2:3"). Use for: Product cards, marketing visuals, text-heavy images.
-- black-forest-labs/flux-kontext-max: Wide format specialist, contextual understanding. Use for: Banners, landscape visuals, wide compositions (16:9, 21:9, etc.).
-- black-forest-labs/flux-krea-dev: Square format optimized, multiple outputs (1-4). Use for: Instagram posts, square social media, balanced compositions.
 - google/nano-banana: Fast generation, lightweight. Use for: Quick iterations, simple images, speed priority.
 - google/nano-banana-pro: Enhanced Nano Banana with aspect ratio control. Use for: Fast generation with format control.
 - bytedance/seedream-4: Unified text-to-image and image editing, multi-reference support (1-10 images), up to 4K. Use for: Complex compositions, image editing, batch generation, style transfer.
@@ -734,30 +596,18 @@ Image Generation:
 Video Generation:
 - google/veo-3.1-fast: Balanced quality/speed, strong prompt following. Use for: Social media videos, quick iterations, 720p/1080p.
 - google/veo-3.1: Premium quality, cinematic depth. Use for: High-fidelity videos, professional content, 1080p.
-- google/veo-3-fast: Fast VEO 3 variant. Use for: Speed priority, 720p.
-- google/veo-3: Standard VEO 3 quality. Use for: General video generation, 720p/1080p.
-- openai/sora-2: Audio-synced, lighting control. Use for: Cinematic shots, audio sync, 720p/1080p.
-- openai/sora-2-pro: Extended duration, fine control. Use for: Professional content, complex scenes, 1080p.
-- kwaivgi/kling-v2.5-turbo-pro: Short clips, image-to-video. Use for: 4-6 second clips, social media, requires start_image.
-- kwaivgi/kling-v2.1: Image-to-video with modes. Use for: Photo-to-video, video2video, requires start_image, 4-8 seconds.
 - wan-video/wan-2.2-i2v-fast: Fast image-to-video. Use for: Quick animation from stills, 2-8 seconds, requires start_image.
 - wan-video/wan-2.2-animate-replace: Character replacement. Use for: Swapping characters in videos, requires video + character_image.
 - wan-video/wan-2.5-i2v: Alibaba Wan 2.5 image-to-video with background audio, up to 10s, 480p/720p/1080p. Use for: Audio-synchronized video from images, voice/music sync, requires image + prompt, optional audio input.
 - bytedance/omni-human-1.5: Film-grade digital human from image + audio (<35s). Use for: Realistic talking head videos, character-driven content, portrait animation with audio lip-sync.
 - lightricks/ltx-2-fast: Lightning-fast video generation (6-10s) with auto-synced audio, 720p/1080p. Use for: Instant ideation, rapid prototyping, mobile workflows, storyboarding, text-to-video with audio.
 - lightricks/ltx-2-pro: High visual fidelity with fast turnaround (6-10s), 720p/1080p. Use for: Daily content creation, marketing teams, iterative creative workflows, professional quality.
-- bytedance/seedance-1-pro: Character motion specialist. Use for: High-energy ads, character animation.
-- bytedance/seedance-1-lite: Fast character motion. Use for: Quick character animation, budget-friendly.
 
 Text-to-Speech (TTS):
 - minimax-speech-02-hd: Fast, cost-effective. Use for: Quick voiceovers, general purpose, provider: "replicate".
-- elevenlabs-tts: Premium quality voices. Use for: High-quality narrations, professional content, provider: "elevenlabs".
-- dia-tts: Customizable, emotion control. Use for: Custom voices, emotion/speed/pitch control, provider: "dia".
 - jaaari/kokoro-82m: Lightweight 82M param model, 46 voices (US/UK English, French, Hindi, Italian, Japanese, Chinese), Apache-licensed. Use for: Fast TTS, cost-effective voiceovers, multilingual content, mobile workflows. Speed control: 0.5-2.0x.
 
 Lip Sync:
-- sievesync-1.1: Fast lipsync. Use for: Quick lipsync on existing videos, backend: "sievesync-1.1".
-- bytedance/latentsync: High-quality lipsync. Use for: Professional lipsync, backend: "latentsync".
 - wan-video/wan-2.2-s2v: Cinematic audio-driven video. Use for: Creating talking videos from images + audio, backend: "wan-2.2-s2v", requires prompt field.
 - wavespeed-ai/infinitetalk: Image-to-video talking avatars. Use for: Single character talking videos from static photos, up to 10 minutes, 480p/720p, backend: "wavespeed-ai/infinitetalk", requires: image, audio. Optional: prompt, mask_image (do NOT use full image), resolution, seed.
 - wavespeed-ai/infinitetalk/multi: Multi-character talking videos. Use for: Two people in one image with separate audio tracks, conversations, duets, up to 10 minutes, 480p/720p, backend: "wavespeed-ai/infinitetalk/multi", requires: image (with two people), left_audio, right_audio. Optional: order (meanwhile/left_right/right_left), prompt, resolution, seed.
@@ -901,13 +751,11 @@ User: "Create 2 cards with texts, animate each into video, and create 2 audio fi
       "id": "vid1",
       "title": "Animate Card 1",
       "tool": "video",
-      "model": "kwaivgi/kling-v2.1",
+      "model": "wan-video/wan-2.2-i2v-fast",
       "inputs": {
         "prompt": "Static camera, hands hold card still facing viewer, subtle natural hand tremor, card remains centered, 4 seconds",
-        "start_image": "{{steps.img1.url}}",
-        "aspect_ratio": "2:3",
-        "duration": 4,
-        "mode": "photo2video"
+        "image": "{{steps.img1.url}}",
+        "resolution": "720p"
       },
       "outputType": "video",
       "dependencies": ["img1"]
@@ -916,13 +764,11 @@ User: "Create 2 cards with texts, animate each into video, and create 2 audio fi
       "id": "vid2",
       "title": "Animate Card 2",
       "tool": "video",
-      "model": "kwaivgi/kling-v2.1",
+      "model": "wan-video/wan-2.2-i2v-fast",
       "inputs": {
         "prompt": "Static camera, hands hold card still facing viewer, subtle natural hand tremor, card remains centered, 4 seconds",
-        "start_image": "{{steps.img2.url}}",
-        "aspect_ratio": "2:3",
-        "duration": 4,
-        "mode": "photo2video"
+        "image": "{{steps.img2.url}}",
+        "resolution": "720p"
       },
       "outputType": "video",
       "dependencies": ["img2"]
@@ -1055,34 +901,13 @@ IMAGE GENERATION MODELS:
    Output compression: integer 0–100 (default: 90).
    Optional: openai_api_key (string) for higher rate limits.
 
-2. black-forest-labs/flux-kontext-max – Flux Kontext Max
-   Required: prompt (string).
-   Optional: input_image (URI). If provided, aspect_ratio MUST be "match_input_image".
-   Aspect ratio: enum "match_input_image" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "4:5" | "5:4" | "21:9" | "9:21" | "2:1" | "1:2" (default: "match_input_image").
-   Output format: enum "jpg" | "png" (default: "png").
-   Safety tolerance: integer 0–6 (default: 2, strict). If input_image provided, MUST NOT exceed 2.
-   Prompt upsampling: boolean (default: false) – enriches prompts but increases time.
-   Optional: seed (integer).
-
-3. black-forest-labs/flux-krea-dev – Flux Krea Dev
-   Required: prompt (string).
-   Optional: image (URI) for image-to-image; output aspect ratio matches this image.
-   Guidance: float 0–10 (default: 4.5) – lower = more realistic.
-   Go fast: boolean (default: true) – faster but lower fidelity.
-   Outputs: num_outputs integer 1–4 (default: 1), num_inference_steps integer 1–50 (default: 28).
-   Aspect ratio: enum "1:1" | "16:9" | "21:9" | "3:2" | "2:3" | "4:3" | "3:4" | "4:5" | "5:4" | "9:16" | "9:21" (default: "1:1").
-   Output format: enum "webp" | "jpg" | "png" (default: "webp").
-   Output quality: integer 0–100 (default: 80).
-   Prompt strength: float 0–1 (default: 0.8) – controls blending with input image.
-   Safety checker: disable_safety_checker boolean (default: false).
-
-4. google/nano-banana – Nano Banana
+2. google/nano-banana – Nano Banana
    Required: prompt (string).
    Image inputs: image_input (array of URIs) – multiple images to blend (default: empty array).
    Aspect ratio: enum "match_input_image" | "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "5:4" | "9:16" | "16:9" | "21:9" (if images provided, use "match_input_image").
    Output format: enum "jpg" | "png" (default: "jpg").
 
-5. google/nano-banana-pro – Nano Banana Pro
+3. google/nano-banana-pro – Nano Banana Pro
    Required: prompt (string).
    Resolution: enum "1K" | "2K" | "4K" (default: "2K").
    Image inputs: image_input (array of up to 14 URIs) – multi-image blending.
@@ -1090,7 +915,7 @@ IMAGE GENERATION MODELS:
    Output format: enum "jpg" | "png" (default: "jpg").
    Safety filter: enum "block_low_and_above" | "block_medium_and_above" | "block_only_high" (default: "block_only_high").
 
-6. bytedance/seedream-4 – Seedream 4
+4. bytedance/seedream-4 – Seedream 4
    Required: prompt (string).
    Optional: image_input (array of 1-10 URIs) – for single or multi-reference generation.
    Size: enum "1K" | "2K" | "4K" | "custom" (default: "2K"). If custom: width (integer 1024-4096), height (integer 1024-4096).
@@ -1100,7 +925,7 @@ IMAGE GENERATION MODELS:
    Enhance prompt: boolean (default: false) – enables prompt enhancement for higher quality (takes longer).
    Use for: Unified text-to-image generation and image editing, multi-reference support, batch workflows, style transfer.
 
-7. bytedance/seedream-4.5 – Seedream 4.5
+5. bytedance/seedream-4.5 – Seedream 4.5
    Required: prompt (string).
    Optional: image_input (array of 1-14 URIs) – for single or multi-reference generation.
    Size: enum "2K" | "4K" | "custom" (default: "2K"). Note: 1K resolution NOT supported in Seedream 4.5. If custom: width (integer 1024-4096), height (integer 1024-4096).
@@ -1109,7 +934,7 @@ IMAGE GENERATION MODELS:
    Max images: integer 1-15 (default: 1) – used when sequential_image_generation is "auto". Total images (input + generated) cannot exceed 15.
    Use for: Upgraded version with stronger spatial understanding, world knowledge, cinematic aesthetics, professional workflows, e-commerce, film/advertising.
 
-8. bytedance/seededit-3.0 – Seededit 3.0
+6. bytedance/seededit-3.0 – Seededit 3.0
    Required: image (URI), prompt (string) – text-guided editing instructions (e.g., "Change text to X", "Remove object Y", "Replace background").
    Guidance scale: number (default: 5.5) – prompt adherence, higher = more literal interpretation.
    Optional: seed (integer) – for reproducible generation.
@@ -1117,40 +942,17 @@ IMAGE GENERATION MODELS:
 
 VIDEO GENERATION MODELS:
 
-6-9. google/veo-3.1-fast, google/veo-3-fast, google/veo-3.1, google/veo-3
+7. google/veo-3.1-fast – VEO 3.1 Fast
    Required: prompt (string).
    Optional: negative_prompt (string), seed (integer), image (URI) – first frame (overrides aspect ratio).
-   Duration: enum 4 | 6 | 8 seconds (default: 8).
+   Resolution: enum "720p" | "1080p" (default: "720p").
+
+8. google/veo-3.1 – VEO 3.1
+   Required: prompt (string).
+   Optional: negative_prompt (string), seed (integer), image (URI) – first frame (overrides aspect ratio).
    Resolution: enum "720p" | "1080p" (default: "1080p").
-   Aspect ratio: enum "16:9" | "9:16" (default: "16:9").
-   Audio: generate_audio boolean (default: true) – context-aware soundtrack.
 
-10. openai/sora-2 – Sora 2
-   Required: prompt (string).
-   Duration: enum 4 | 8 | 12 seconds (default: 4).
-   Aspect ratio: enum "portrait" (720×1280) | "landscape" (1280×720) (default: "portrait").
-   Optional: input_reference (URI) – starting image, openai_api_key (string).
-
-11. openai/sora-2-pro – Sora 2 Pro
-   Required: prompt (string).
-   Duration: enum 4 | 8 | 12 seconds (default: 4).
-   Resolution: enum "standard" (720p) | "high" (1024p) (default: "standard").
-   Aspect ratio: enum "portrait" | "landscape" (default: "portrait").
-   Optional: input_reference (URI), openai_api_key (string).
-
-12. kwaivgi/kling-v2.5-turbo-pro – Kling v2.5 Turbo Pro
-   Required: prompt (string).
-   Duration: enum 5 | 10 seconds (default: 5).
-   Aspect ratio: enum "16:9" | "9:16" | "1:1" (default: "16:9").
-   Optional: start_image (URI) – if provided, aspect ratio inherited, negative_prompt (string).
-
-13. kwaivgi/kling-v2.1 – Kling v2.1
-   Required: start_image (URI) – seeds the video.
-   Mode: enum "default" (720p) | "photo2video" | "video2video" (default: "default"). Use "photo2video" for image-to-video.
-   Duration: enum 4 | 6 | 8 seconds (default: 4).
-   Optional: end_image (URI) – final frame (only valid when mode is "video2video"), negative_prompt (string).
-
-14. wan-video/wan-2.2-i2v-fast – WAN 2.2 i2v Fast
+9. wan-video/wan-2.2-i2v-fast – WAN 2.2 i2v Fast
    Required: image (URI), prompt (string).
    Resolution: enum "480p" | "720p" (default: "480p").
    Frames: num_frames integer 81–121 (default: 81).
@@ -1158,26 +960,14 @@ VIDEO GENERATION MODELS:
    Frame rate: frames_per_second integer 5–30 (default: 16).
    Optional: last_image (URI), seed (integer), interpolate_output (boolean), lora parameters, disable_safety_checker (boolean, default: false).
 
-15. wan-video/wan-2.2-animate-replace – WAN 2.2 Animate Replace
+10. wan-video/wan-2.2-animate-replace – WAN 2.2 Animate Replace
    Required: video (URI), character_image (URI) – replaces character in video.
    Resolution: enum "720" | "480" (default: "720").
    Referent frames: referent_num enum 1 | 5 (default: 1).
    Frame rate: frames_per_second integer 5–60 (default: 24).
    Optional: seed (integer), go_fast (boolean, default: true), merge_audio (boolean, default: true).
 
-16. bytedance/seedance-1-lite – Seedance 1 Lite
-   Required: prompt (string).
-   Optional: image (URI) – switches to image-to-video mode.
-   Duration: integer 2–12 seconds (default: 5).
-   FPS: enum [24] (only 24 fps).
-   Resolution: enum "480p" | "720p" | "1080p" (default: "720p").
-   Aspect ratio: enum "16:9" | "4:3" | "1:1" | "3:4" | "9:16" | "21:9" | "9:21" (default: "16:9").
-   Optional: camera_fixed (boolean, default: false), last_frame_image (URI), reference_images (array of 1–4 URIs).
-
-17. bytedance/seedance-1-pro – Seedance 1 Pro
-   Same as Lite, but default resolution is "1080p" and reference_images field is not present.
-
-18. wan-video/wan-2.5-i2v – WAN 2.5 i2v
+11. wan-video/wan-2.5-i2v – WAN 2.5 i2v
    Required: image (URI) – input image for video generation, prompt (string) – text prompt for video generation.
    Optional: negative_prompt (string) – negative prompt to avoid certain elements.
    Audio: audio (URI) – optional audio file (wav/mp3, 3-30s, ≤15MB) for voice/music synchronization.
@@ -1187,14 +977,14 @@ VIDEO GENERATION MODELS:
    Seed: integer (optional) – random seed for reproducible generation.
    Use for: Alibaba Wan 2.5 image-to-video with background audio support, audio-synchronized video generation, one-pass A/V sync.
 
-19. bytedance/omni-human-1.5 – Omni Human 1.5
+12. bytedance/omni-human-1.5 – Omni Human 1.5
    Required: image (URI) – input image containing human subject/face/character, audio (URI) – input audio file (MP3, WAV, etc.). Audio duration MUST be less than 35 seconds or generation will fail.
    Optional: prompt (string) – optional prompt for precise control of scene, movements, camera movements. Supports Chinese, English, Japanese, Korean, Spanish, and Indonesian.
    Fast mode: boolean (default: true) – enable fast mode to speed up generation by sacrificing some effects.
    Seed: integer (optional) – random seed for reproducible generation.
    Use for: Film-grade digital human videos from single image + audio, realistic talking head videos, character-driven content, portrait animation with audio lip-sync.
 
-20. lightricks/ltx-2-fast – LTX 2 Fast
+13. lightricks/ltx-2-fast – LTX 2 Fast
    Required: prompt (string) – text prompt describing the video to generate. Write as one vivid paragraph in present tense with camera moves, lighting, and actions.
    Optional: image (URI) – first frame image for optional image-to-video generation.
    Resolution: enum "720p" | "1080p" (default: "1080p") – resolution quality of the generated video.
@@ -1202,7 +992,7 @@ VIDEO GENERATION MODELS:
    Generate audio: boolean (default: false) – generate audio for the video with perfectly synced SFX/dialogue/music.
    Use for: Lightning-fast video generation (renders faster than playback), instant ideation, storyboarding, mobile workflows, high-throughput production. Ideal for rapid prototyping and iterative workflows.
 
-21. lightricks/ltx-2-pro – LTX 2 Pro
+14. lightricks/ltx-2-pro – LTX 2 Pro
    Required: prompt (string) – text prompt describing the video to generate. Write as one flowing paragraph with camera behavior, lighting, physical details.
    Optional: image (URI) – first frame image for optional image-to-video generation.
    Resolution: enum "720p" | "1080p" (default: "1080p") – resolution quality of the generated video.
@@ -1210,7 +1000,7 @@ VIDEO GENERATION MODELS:
    Generate audio: boolean (default: false) – generate audio for the video.
    Use for: High visual fidelity with fast turnaround, daily content creation, marketing teams, iterative creative workflows. Delivers superior quality vs Fast mode.
 
-22. wan-video/wan-2.2-s2v – WAN 2.2 S2V (Cinematic)
+15. wan-video/wan-2.2-s2v – WAN 2.2 S2V (Cinematic)
    Required: audio (URI), image (URI) – audio drives lip-sync, image is first frame.
    Optional: prompt (string) – describe additional visual elements.
    Frames per chunk: num_frames_per_chunk integer 1–121 (default: 81).
@@ -1219,7 +1009,7 @@ VIDEO GENERATION MODELS:
 
 TEXT-TO-SPEECH MODELS:
 
-23. minimax-speech-02-hd – Minimax Speech 02 HD
+16. minimax-speech-02-hd – Minimax Speech 02 HD
    Required: text (string) – up to 10,000 characters. Use markers like <#0.5#> for pauses.
    Pitch: integer -12 to +12 semitones (default: 0).
    Speed: float 0.5–2.0 (default: 1).
@@ -1234,23 +1024,7 @@ TEXT-TO-SPEECH MODELS:
    Subtitle enable: boolean (default: false).
    English normalization: boolean (default: false).
 
-24. elevenlabs-tts – ElevenLabs TTS
-   Required: text (string), voice_id (string).
-   Optional: model_id (string, e.g., "eleven_turbo_v2", "eleven_multilingual_v2"), voice_settings (object with stability, similarity_boost, style, use_speaker_boost).
-
-25. dia-tts (zsxkib/dia) – Dia 1.6B
-   Required: text (string) – use markers like [S1], [S2] for speaker changes, parentheses for non-verbal actions (e.g., "(laughs)").
-   Top P: float 0.1–1 (default: 0.95).
-   CFG scale: float 1–5 (default: 3).
-   Temperature: float 1–2.5 (default: 1.8).
-   Optional: audio_prompt (URI to .wav/.mp3/.flac) – voice cloning, audio_prompt_text (string), max_audio_prompt_seconds (int 1–120, default: 10).
-   Speed factor: float 0.5–1.5 (default: 1).
-   Pause factor: float 0.5–2 (default: 1).
-   Max new tokens: integer 500–6144 (default: 3072) – approx. 86 tokens per second.
-   CFG filter top K: integer 10–100 (default: 45).
-   Optional: seed (integer).
-
-26. jaaari/kokoro-82m – Kokoro 82M
+17. jaaari/kokoro-82m – Kokoro 82M
    Required: text (string) – text input (long text is automatically split).
    Voice: string (default: "af_nicole") – voice to use for synthesis. Supports 46 voices across multiple languages:
      American English (US): af_alloy, af_aoede, af_bella (high quality), af_jessica, af_kore, af_nicole, af_nova, af_river, af_sarah, af_sky, am_adam, am_echo, am_eric, am_fenrir, am_liam, am_michael, am_onyx, am_puck
@@ -1265,19 +1039,9 @@ TEXT-TO-SPEECH MODELS:
 
 LIP SYNC MODELS:
 
-27. sievesync-1.1 – Sieve Sync 1.1
-   Required: video (URI), audio (URI).
-   Backend: string "sievesync-1.1" (default).
-   Optional: enable_multispeaker (boolean), enhance (boolean), check_quality (boolean), downsample (boolean), cut_by (string).
+18. wan-video/wan-2.2-s2v – Wan 2.2 S2V (see section 15 above)
 
-28. bytedance/latentsync – LatentSync
-   Required: audio (URI), video (URI).
-   Guidance scale: number (default: 1, max: 10).
-   Optional: seed (integer, 0 for random).
-
-29. wan-video/wan-2.2-s2v – Wan 2.2 S2V (see section 22 above)
-
-30. wavespeed-ai/infinitetalk – InfiniteTalk (Image-to-Video)
+19. wavespeed-ai/infinitetalk – InfiniteTalk (Image-to-Video)
    Required: image (URI), audio (URI).
    Optional: prompt (string) – describe expression, style, or pose.
    Optional: mask_image (URI) – specify which regions can move (CRITICAL: do NOT upload full image, only the regions to animate).
@@ -1286,7 +1050,7 @@ LIP SYNC MODELS:
    Max length: 10 minutes (600 seconds). Processing: ~10-30 seconds wall time per 1 second of video.
    Use for: Single character talking videos from static photos, image-to-video lipsync.
 
-31. wavespeed-ai/infinitetalk/multi – InfiniteTalk Multi (Two Characters)
+20. wavespeed-ai/infinitetalk/multi – InfiniteTalk Multi (Two Characters)
    Required: image (URI) – must clearly show two people, left_audio (URI), right_audio (URI).
    Optional: prompt (string) – describe additional visual elements.
    Order: enum "meanwhile" | "left_right" | "right_left" (default: "meanwhile").
@@ -1298,7 +1062,7 @@ LIP SYNC MODELS:
    Max length: 10 minutes (600 seconds). Processing: ~10-30 seconds wall time per 1 second of video.
    Use for: Multi-character talking videos, conversations, duets, interviews with two people.
 
-32. wavespeed-ai/infinitetalk/video-to-video – InfiniteTalk Video-to-Video
+21. wavespeed-ai/infinitetalk/video-to-video – InfiniteTalk Video-to-Video
    Required: video (URI), audio (URI).
    Optional: prompt (string) – describe style, pose, or expressions.
    Optional: mask_image (URI) – specify which regions can move (CRITICAL: do NOT upload full image, only the regions to animate).
@@ -1309,19 +1073,19 @@ LIP SYNC MODELS:
 
 OTHER TOOLS:
 
-33. background-remover (851-labs/background-remover)
+22. background-remover (851-labs/background-remover)
    Required: image (URI) or video_url (URI for videos).
    Output format: enum "png" | "jpg" (default: "png").
    Optional: reverse (boolean), threshold (float 0.0–1.0), background_type (string: "rgba" | "map" | "green" | "white" | [R,G,B] | "blur" | "overlay" | image path, default: "rgba").
 
-34. topazlabs/image-upscale – Topaz Upscale (Enhance)
+23. topazlabs/image-upscale – Topaz Upscale (Enhance)
    Required: image (URI).
    Enhance model: enum "Standard V2" | "Low Resolution V2" | "CGI" | "High Fidelity V2" | "Text Refine" (default: "Standard V2").
    Output format: enum "jpg" | "png" (default: "jpg").
    Upscale factor: enum "None" | "2x" | "4x" | "6x" (default: "None").
    Face enhancement: boolean (default: false). If true: subject_detection enum "None" | "ALL" | "Foreground" | "Background" (default: "None"), face_enhancement_strength float 0–1 (default: 0.8), face_enhancement_creativity float 0–1 (default: 0).
 
-35. openai/gpt-4o-transcribe – GPT-4o Transcribe
+24. openai/gpt-4o-transcribe – GPT-4o Transcribe
    Required: audio_file (URI) – formats: mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm.
    Optional: prompt (string) – guide transcription, language (ISO-639-1 code), temperature (float 0–1, default: 0).
 
@@ -1339,7 +1103,7 @@ VALIDATION RULES FOR THE ASSISTANT:
 6. Plan sequential workflows: For complex tasks (image → video, image + audio → lipsync), ensure intermediate outputs are generated before feeding to next model. Match file formats to next model's requirements.
 7. Safety: Leave moderation/safety controls at defaults unless user explicitly requests otherwise.
 
-By following these validation rules and referencing the detailed schema above, construct accurate workflow plans with valid inputs for all 35 models.`;
+By following these validation rules and referencing the detailed schema above, construct accurate workflow plans with valid inputs for all 24 models.`;
 }
 
 
@@ -2009,13 +1773,11 @@ function createVideoStep(
     id,
     title,
         tool: 'video',
-    model: 'kwaivgi/kling-v2.1',
+    model: 'wan-video/wan-2.2-i2v-fast',
         inputs: {
       prompt: motionDescription,
-      start_image: `{{steps.${sourceImageStepId}.url}}`,
-      aspect_ratio: '2:3', // Default to mobile (will be auto-detected)
-      duration: 4,
-      mode: 'default',
+      image: `{{steps.${sourceImageStepId}.url}}`,
+      resolution: '720p',
     },
     outputType: 'video',
     dependencies: [sourceImageStepId],

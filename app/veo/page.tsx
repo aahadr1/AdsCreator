@@ -5,22 +5,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 type VideoModelValue =
-  | 'google/veo-3-fast'
-  | 'google/veo-3'
   | 'google/veo-3.1-fast'
   | 'google/veo-3.1'
-  | 'openai/sora-2'
-  | 'openai/sora-2-pro'
-  | 'bytedance/seedance-1-pro'
-  | 'bytedance/seedance-1-lite'
   | 'wan-video/wan-2.2-i2v-fast'
   | 'wan-video/wan-2.2-animate-replace'
   | 'wan-video/wan-2.5-i2v'
   | 'bytedance/omni-human-1.5'
   | 'lightricks/ltx-2-fast'
-  | 'lightricks/ltx-2-pro'
-  | 'kwaivgi/kling-v2.5-turbo-pro'
-  | 'kwaivgi/kling-v2.1';
+  | 'lightricks/ltx-2-pro';
 
 type VideoModelMeta = {
   value: VideoModelValue;
@@ -31,21 +23,9 @@ type VideoModelMeta = {
 
 const VIDEO_MODELS: readonly VideoModelMeta[] = [
   {
-    value: 'google/veo-3-fast',
-    label: 'Google VEO 3 Fast',
-    badge: 'Recommended',
-    description: 'Balanced quality and speed with strong prompt following for social edits.',
-  },
-  {
-    value: 'google/veo-3',
-    label: 'Google VEO 3',
-    badge: 'Premium',
-    description: 'Highest fidelity version of VEO with longer queue times but incredible detail.',
-  },
-  {
     value: 'google/veo-3.1-fast',
     label: 'Google VEO 3.1 Fast',
-    badge: 'New',
+    badge: 'Recommended',
     description: 'Latest 3.1 release with upgraded motion intelligence at production-ready speeds.',
   },
   {
@@ -53,28 +33,6 @@ const VIDEO_MODELS: readonly VideoModelMeta[] = [
     label: 'Google VEO 3.1',
     badge: 'Ultra',
     description: 'Top-tier VEO quality with cinematic depth, better camera reasoning, and longer durations.',
-  },
-  {
-    value: 'openai/sora-2',
-    label: 'OpenAI Sora 2',
-    badge: 'Audio-synced',
-    description: 'Ideal for cinematic shots with synced audio and precise lighting controls.',
-  },
-  {
-    value: 'openai/sora-2-pro',
-    label: 'OpenAI Sora 2 Pro',
-    badge: 'Pro',
-    description: 'Extended duration, fine-grain controls, and better consistency for complex scenes.',
-  },
-  {
-    value: 'bytedance/seedance-1-pro',
-    label: 'ByteDance Seedance 1 Pro',
-    description: 'High-energy motion tuned for short-form ads, especially character work.',
-  },
-  {
-    value: 'bytedance/seedance-1-lite',
-    label: 'ByteDance Seedance 1 Lite',
-    description: 'Budget-friendly Seedance with faster responses for concept exploration.',
   },
   {
     value: 'wan-video/wan-2.2-i2v-fast',
@@ -109,18 +67,6 @@ const VIDEO_MODELS: readonly VideoModelMeta[] = [
     label: 'LTX 2 Pro',
     badge: 'Pro',
     description: 'High visual fidelity 6-10s videos with fast turnaround. Superior quality for daily content creation.',
-  },
-  {
-    value: 'kwaivgi/kling-v2.5-turbo-pro',
-    label: 'Kling 2.5 Turbo Pro',
-    badge: 'Cinematic',
-    description: 'Pro-level text-to-video and image-to-video with silky motion and cinematic depth.',
-  },
-  {
-    value: 'kwaivgi/kling-v2.1',
-    label: 'Kling 2.1 (Image-to-Video)',
-    description: 'Use a start image to animate 5s or 10s clips in 720p or 1080p.',
-    badge: 'Image-to-Video',
   },
 ];
 
@@ -228,11 +174,10 @@ const VIDEO_MODEL_DOCS: Record<string, ModelDoc> = {
 };
 
 type VideoModel = VideoModelValue;
-const DEFAULT_MODEL: VideoModel = 'google/veo-3-fast';
+const DEFAULT_MODEL: VideoModel = 'google/veo-3.1-fast';
 const GOOGLE_MODELS = new Set<VideoModel>(
   VIDEO_MODELS.filter((m) => m.value.startsWith('google/veo')).map((m) => m.value as VideoModel)
 );
-const KLING_MODELS = new Set<VideoModel>(['kwaivgi/kling-v2.5-turbo-pro', 'kwaivgi/kling-v2.1']);
 
 type VeoResponse = { url?: string | null; raw?: any };
 type VideoJobRecord = {
@@ -310,8 +255,6 @@ export default function VeoPage() {
   const selectedModelMeta = useMemo(() => VIDEO_MODELS.find((m) => m.value === model), [model]);
   const selectedModelDoc = useMemo(() => VIDEO_MODEL_DOCS[model] || null, [model]);
   const isGoogleModel = useMemo(() => GOOGLE_MODELS.has(model), [model]);
-  const isKlingModel = useMemo(() => KLING_MODELS.has(model), [model]);
-  const klingRequiresStartImage = model === 'kwaivgi/kling-v2.1';
   const supportsNegativePrompt = isGoogleModel || Boolean(inputSchema?.properties?.negative_prompt);
   const activeJob = useMemo(() => jobs.find((job) => job.id === activeJobId) ?? jobs[0], [jobs, activeJobId]);
 
@@ -588,16 +531,15 @@ export default function VeoPage() {
   const activeInputs = activeJob?.inputValues ?? {};
   const isAnimateReplace = model === 'wan-video/wan-2.2-animate-replace';
   const animateMissingRequired = isAnimateReplace && (!activeInputs.video || !activeInputs.character_image);
-  const klingStartMissing = klingRequiresStartImage && !activeInputs.start_image;
 
   return (
     <div className="page-template generator fade-in">
       <header className="page-hero">
         <div>
           <p className="page-eyebrow">Video Generation</p>
-          <h1>VEO · Kling · Sora Studio</h1>
+          <h1>VEO Studio</h1>
           <p className="page-description">
-            Storyboard cinematic spots from text, animate reference images, and experiment with the latest models. Kling 2.5 Turbo Pro docs now live in the sidebar.
+            Storyboard cinematic spots from text, animate reference images, and experiment with the latest video generation models.
           </p>
         </div>
         <div className="page-hero-actions">
@@ -658,14 +600,14 @@ export default function VeoPage() {
             <button
               className="btn inline"
               onClick={runActiveJob}
-              disabled={isBatchRunning || !promptRequirementActive || klingStartMissing}
+              disabled={isBatchRunning || !promptRequirementActive}
             >
               Run active
             </button>
             <button
               className="btn"
               onClick={()=>runBatch()}
-              disabled={isBatchRunning || !promptRequirementMet || klingStartMissing}
+              disabled={isBatchRunning || !promptRequirementMet}
             >
               {isBatchRunning ? 'Generating…' : 'Run all jobs'}
             </button>
@@ -772,15 +714,6 @@ export default function VeoPage() {
                     )}
                   </div>
                 </section>
-
-                {isKlingModel && (
-                  <section className="veo-info-banner">
-                    <strong>Kling tip:</strong>{' '}
-                    {klingRequiresStartImage
-                      ? 'Upload a sharp start image (required) and use mode="pro" for 1080p or when supplying an end frame.'
-                      : 'Provide a crisp start image for the best likeness and keep prompts focused on motion.'}
-                  </section>
-                )}
 
                 <section className="veo-control-card">
                   <div className="small">Video Prompt{model === 'wan-video/wan-2.2-animate-replace' ? ' (optional)' : ''}</div>
@@ -1216,15 +1149,10 @@ export default function VeoPage() {
                 )}
 
                 <section className="veo-control-card">
-                  {klingStartMissing && (
-                    <p className="small" style={{ marginBottom: 'var(--space-3)', color: '#fbbf24' }}>
-                      Kling v2.1 requires a start image. Upload one under “Reference media & required files”.
-                    </p>
-                  )}
                   <button
                     className="btn"
                     style={{ width: '100%' }}
-                    disabled={isBatchRunning || !promptRequirementMet || animateMissingRequired || klingStartMissing}
+                    disabled={isBatchRunning || !promptRequirementMet || animateMissingRequired}
                     onClick={()=>runBatch()}
                   >
                     {isBatchRunning ? 'Generating…' : 'Generate videos'}
@@ -1292,7 +1220,7 @@ export default function VeoPage() {
           ) : (
             <div className="side-panel-card">
               <h3>Model Guide</h3>
-              <p className="small">Select Kling 2.5 Turbo Pro to view detailed inputs, schema, example prompts, and creative tips.</p>
+              <p className="small">Select a model to view detailed inputs, schema, example prompts, and creative tips.</p>
             </div>
           )}
         </div>

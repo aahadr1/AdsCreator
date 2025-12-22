@@ -21,19 +21,8 @@ export default function LipsyncPage() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
 
-  // Engine selection: 'sieve' (current), 'sync' (lipsync-2-pro), 'wan' (Wan 2.2 S2V), or InfiniteTalk variants
-  const [engine, setEngine] = useState<'sieve' | 'sync' | 'wan' | 'infinitetalk' | 'infinitetalk-multi' | 'infinitetalk-v2v'>('sieve');
-  const [backend, setBackend] = useState('sievesync-1.1');
-  const [enhance, setEnhance] = useState<'default' | 'none'>('default');
-  const [cutBy, setCutBy] = useState<'audio' | 'video' | 'shortest'>('audio');
-  const [enableMultispeaker, setEnableMultispeaker] = useState(false);
-  const [checkQuality, setCheckQuality] = useState(false);
-  const [downsample, setDownsample] = useState(false);
-
-  // Sync (lipsync-2-pro) specific options
-  const [syncMode, setSyncMode] = useState<'loop' | 'bounce' | 'cut_off' | 'silence' | 'remap'>('loop');
-  const [temperature, setTemperature] = useState<number>(0.5);
-  const [activeSpeaker, setActiveSpeaker] = useState<boolean>(false);
+  // Engine selection: 'wan' (Wan 2.2 S2V), or InfiniteTalk variants
+  const [engine, setEngine] = useState<'wan' | 'infinitetalk' | 'infinitetalk-multi' | 'infinitetalk-v2v'>('infinitetalk');
 
   // Wan 2.2 S2V specific options
   const [wanPrompt, setWanPrompt] = useState<string>('person speaking');
@@ -163,31 +152,12 @@ export default function LipsyncPage() {
       const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
       updateTaskStateFromJobStatus('queued');
 
-      const options = engine === 'sieve' ? {
-        backend,
-        enable_multispeaker: enableMultispeaker,
-        enhance,
-        check_quality: checkQuality,
-        downsample,
-        cut_by: cutBy,
-      } : engine === 'sync' ? {
-        sync_mode: syncMode,
-        temperature,
-        active_speaker: activeSpeaker,
-      } : {
-        // Wan options
-        prompt: wanPrompt,
-        num_frames_per_chunk: wanNumFramesPerChunk,
-        seed: wanSeed ? Number(wanSeed) : undefined,
-        interpolate: wanInterpolate,
-      };
+      // Options are now handled per-engine in their respective sections below
 
       // Database operations removed - proceeding directly to job creation
       const taskId = Date.now().toString(); // Generate local task ID
       setTaskId(taskId);
       const engineNames: Record<string, string> = {
-        'sieve': 'Sieve',
-        'sync': 'Sync',
         'wan': 'Wan 2.2 S2V',
         'infinitetalk': 'InfiniteTalk',
         'infinitetalk-multi': 'InfiniteTalk Multi',
@@ -195,128 +165,7 @@ export default function LipsyncPage() {
       };
       pushLog(`Task created. Pushing lipsync job to ${engineNames[engine] || engine}...`);
 
-      if (engine === 'sieve') {
-      const res = await fetch('/api/lipsync/push', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          videoUrl: urls.videoUrl,
-          audioUrl: urls.audioUrl,
-          options,
-        })
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        pushLog('Push failed: ' + text);
-        setStatus('error');
-        // Database operations removed
-        return;
-      }
-      const data = await res.json();
-      setJobId(data.id);
-      setStatus(data.status as JobStatus);
-      pushLog(`Job created: ${data.id}, status=${data.status}`);
-      // Database operations removed
-
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(async () => {
-        if (!data.id) return;
-        const s = await fetch(`/api/lipsync/status?id=${data.id}`);
-        if (!s.ok) return;
-        const j = await s.json();
-        if (lastStatusRef.current !== j.status) {
-          pushLog(`Status: ${j.status}`);
-          lastStatusRef.current = j.status;
-        }
-        if (j.error) {
-          pushLog(`Error detail: ${typeof j.error === 'string' ? j.error : JSON.stringify(j.error)}`);
-        }
-        if (Array.isArray(j.logs) && j.logs.length) {
-          pushLog(`Logs: ${JSON.stringify(j.logs.slice(-3))}`);
-        }
-        setStatus(j.status as JobStatus);
-        if (j.status === 'finished' || j.status === 'error' || j.status === 'cancelled') {
-          clearInterval(pollRef.current!);
-          pollRef.current = null;
-        }
-        if (j.outputs) {
-          (window as any).__SIEVE_OUTPUTS__ = j.outputs;
-          const outUrl = (() => {
-            for (const o of j.outputs) {
-              if (o?.data?.url && typeof o.data.url === 'string') return o.data.url;
-              if (o?.url && typeof o.url === 'string') return o.url;
-            }
-            return null;
-          })();
-          // Database operations removed
-        } else {
-          // Database operations removed
-        }
-      }, 1800);
-      } else if (engine === 'sync') {
-        // Run via Sync API (avoids Replicate's .proxy-api-key requirement inside the container)
-        const res = await fetch('/api/lipsync-beta/push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            videoUrl: urls.videoUrl,
-            audioUrl: urls.audioUrl,
-            model: 'lipsync-2-pro',
-            options: {
-              sync_mode: syncMode,
-              temperature,
-              active_speaker: activeSpeaker
-            }
-          })
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          pushLog('Push failed: ' + text);
-          setStatus('error');
-          // Database operations removed
-          return;
-        }
-        const data = await res.json();
-        setJobId(data.id);
-        const initialStatus: JobStatus = 'queued';
-        setStatus(initialStatus);
-        pushLog(`Job created: ${data.id}, status=${data.status || initialStatus}`);
-        // Database operations removed
-
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = setInterval(async () => {
-          if (!data.id) return;
-          const s = await fetch(`/api/lipsync-beta/status?id=${data.id}`);
-          if (!s.ok) return;
-          const j = await s.json();
-          const mapped: JobStatus = j.status === 'COMPLETED' || j.status === 'succeeded' ? 'finished'
-            : j.status === 'FAILED' ? 'error'
-            : j.status === 'PROCESSING' ? 'running'
-            : j.status === 'QUEUED' ? 'queued'
-            : (j.status as JobStatus);
-          if (lastStatusRef.current !== mapped) {
-            pushLog(`Status: ${mapped}`);
-            lastStatusRef.current = mapped;
-          }
-          setStatus(mapped as JobStatus);
-          if (mapped === 'finished' || mapped === 'error') {
-            clearInterval(pollRef.current!);
-            pollRef.current = null;
-          }
-          if ((j.outputUrl || j.upscaledUrl)) {
-            (window as any).__SYNC_OUTPUT_URL__ = j.upscaledUrl || j.outputUrl;
-            const outUrl = j.upscaledUrl || j.outputUrl || null;
-            // Database operations removed
-          } else {
-            // Database operations removed
-          }
-          if (j.error) {
-            pushLog(`Error detail: ${typeof j.error === 'string' ? j.error : JSON.stringify(j.error)}`);
-          }
-        }, 2000);
-      } else if (engine === 'wan') {
+      if (engine === 'wan') {
         // Wan 2.2 S2V via Replicate
         const res = await fetch('/api/replicate/run', {
           method: 'POST',
@@ -706,82 +555,14 @@ export default function LipsyncPage() {
         <div className="options">
           <div style={{gridColumn: 'span 2'}}>
             <div className="small">Engine</div>
-            <select className="select" value={engine} onChange={(e)=>setEngine(e.target.value as 'sieve' | 'sync' | 'wan' | 'infinitetalk' | 'infinitetalk-multi' | 'infinitetalk-v2v')}>
-              <option value="sieve">Sieve (current)</option>
-              <option value="sync">Sync lipsync-2-pro (new)</option>
+            <select className="select" value={engine} onChange={(e)=>setEngine(e.target.value as 'wan' | 'infinitetalk' | 'infinitetalk-multi' | 'infinitetalk-v2v')}>
               <option value="wan">Wan 2.2 S2V (audio-driven cinematic video) 🌟</option>
               <option value="infinitetalk">InfiniteTalk (image + audio) 🆕</option>
               <option value="infinitetalk-multi">InfiniteTalk Multi (2 characters) 🆕</option>
               <option value="infinitetalk-v2v">InfiniteTalk Video-to-Video 🆕</option>
             </select>
           </div>
-          {engine === 'sieve' ? (
-            <>
-          <div>
-            <div className="small">Backend</div>
-            <select className="select" value={backend} onChange={(e)=>setBackend(e.target.value)}>
-              <option value="sievesync-1.1">sievesync-1.1 (recommended)</option>
-              <option value="sync-2.0">sync-2.0</option>
-              <option value="sync-1.9.0-beta">sync-1.9.0-beta</option>
-              <option value="hummingbird">hummingbird</option>
-              <option value="latentsync">latentsync</option>
-              <option value="sievesync">sievesync</option>
-              <option value="musetalk">musetalk</option>
-              <option value="video_retalking">video_retalking</option>
-            </select>
-          </div>
-          <div>
-            <div className="small">Enhance</div>
-            <select className="select" value={enhance} onChange={(e)=>setEnhance(e.target.value as 'default' | 'none')}>
-              <option value="default">default</option>
-              <option value="none">none</option>
-            </select>
-          </div>
-          <div className="row">
-            <label className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
-              <input type="checkbox" checked={enableMultispeaker} onChange={(e)=>setEnableMultispeaker(e.target.checked)} /> multispeaker
-            </label>
-            <label className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
-              <input type="checkbox" checked={checkQuality} onChange={(e)=>setCheckQuality(e.target.checked)} /> check quality
-            </label>
-          </div>
-          <div className="row">
-            <label className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
-              <input type="checkbox" checked={downsample} onChange={(e)=>setDownsample(e.target.checked)} /> downsample (720p)
-            </label>
-          </div>
-          <div>
-            <div className="small">Cut by</div>
-            <select className="select" value={cutBy} onChange={(e)=>setCutBy(e.target.value as any)}>
-              <option value="audio">audio</option>
-              <option value="video">video</option>
-              <option value="shortest">shortest</option>
-            </select>
-          </div>
-            </>
-          ) : engine === 'sync' ? (
-            <>
-              <div>
-                <div className="small">sync_mode</div>
-                <select className="select" value={syncMode} onChange={(e)=>setSyncMode(e.target.value as any)}>
-                  <option value="loop">loop</option>
-                  <option value="bounce">bounce</option>
-                  <option value="cut_off">cut_off</option>
-                  <option value="silence">silence</option>
-                  <option value="remap">remap</option>
-                </select>
-              </div>
-              <div>
-                <div className="small">temperature (0-1)</div>
-                <input className="select" type="number" step="0.1" min={0} max={1} value={temperature} onChange={(e)=>setTemperature(Math.max(0, Math.min(1, Number(e.target.value))))} />
-              </div>
-              <div className="row">
-                <label className="small" style={{display:'flex', gap:8, alignItems:'center'}}>
-                  <input type="checkbox" checked={activeSpeaker} onChange={(e)=>setActiveSpeaker(e.target.checked)} /> active_speaker
-                </label>
-              </div>
-            </>
-          ) : engine === 'wan' ? (
+          {engine === 'wan' ? (
             <>
               {/* Wan 2.2 S2V options */}
               <div style={{gridColumn: 'span 2'}}>

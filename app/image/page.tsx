@@ -201,17 +201,13 @@ const makeImageJob = (index: number): ImageJobRecord => ({
 
 export default function ImagePage() {
   const [model, setModel] = useState<
-    | 'black-forest-labs/flux-kontext-max'
     | 'google/nano-banana'
     | 'google/nano-banana-pro'
-    | 'black-forest-labs/flux-krea-dev'
-    | 'stability-ai/stable-diffusion-3'
-    | 'bytedance/hyper-sd'
     | 'openai/gpt-image-1.5'
     | 'bytedance/seedream-4'
     | 'bytedance/seedream-4.5'
     | 'bytedance/seededit-3.0'
-  >('black-forest-labs/flux-kontext-max');
+  >('openai/gpt-image-1.5');
   const [jobs, setJobs] = useState<ImageJobRecord[]>(() => [makeImageJob(1)]);
   const [activeJobId, setActiveJobId] = useState<string>(jobs[0]?.id || '');
   const [applyPromptToAll, setApplyPromptToAll] = useState(true);
@@ -342,28 +338,13 @@ const sharedPromptValue = useMemo(
     const clampOutputs = (max: number) => Math.min(max, Math.max(1, Number(numOutputs) || 1));
     const base: Record<string, any> = { model, prompt: promptValue, output_format: normalizedFormat };
 
-    if (model === 'black-forest-labs/flux-kontext-max') {
-      Object.assign(base, {
-        input_image: job.inputImages[0] || undefined,
-        aspect_ratio: sanitizedFluxAspect,
-        seed: seedNumber,
-        safety_tolerance: typeof safetyTolerance === 'number' ? safetyTolerance : undefined,
-        prompt_upsampling: promptUpsampling,
-      });
-    } else if (model === 'google/nano-banana') {
+    if (model === 'google/nano-banana') {
       base.image_input = job.inputImages.length ? job.inputImages : undefined;
     } else if (model === 'google/nano-banana-pro') {
       base.image_input = job.inputImages.length ? job.inputImages : undefined;
       base.aspect_ratio = sanitizedGenericAspect;
       base.resolution = resolution;
       base.safety_filter_level = safetyFilterLevel;
-    } else if (model === 'black-forest-labs/flux-krea-dev') {
-      base.input_image = job.inputImages[0] || undefined;
-      base.aspect_ratio = sanitizedGenericAspect;
-      base.seed = seedNumber;
-      (base as any).guidance = guidance;
-      (base as any).num_outputs = clampOutputs(4);
-      (base as any).output_quality = Math.min(100, Math.max(0, Number(outputQuality) || 80));
     } else if (model === 'openai/gpt-image-1.5') {
       base.aspect_ratio = sanitizedGenericAspect;
       if (job.inputImages.length) base.input_images = job.inputImages;
@@ -546,7 +527,7 @@ const sharedPromptValue = useMemo(
           <p className="page-eyebrow">Image Generation</p>
           <h1>Image Lab</h1>
           <p className="page-description">
-            Flux, Nano Banana, GPT Image 1.5, Hyper-SD, and more in one workspace. Layer references, edit identities, and export production-ready visuals.
+GPT Image 1.5, Nano Banana, Seedream, and more in one workspace. Layer references, edit identities, and export production-ready visuals.
           </p>
         </div>
         <div className="page-hero-actions">
@@ -686,13 +667,12 @@ const sharedPromptValue = useMemo(
                 <div style={{gridColumn: 'span 2'}}>
                   <div className="small">Model</div>
                   <select className="select" value={model} onChange={(e)=>setModel(e.target.value as any)}>
-                    <option value="black-forest-labs/flux-kontext-max">FLUX Kontext Max (Best Quality)</option>
-                    <option value="black-forest-labs/flux-krea-dev">FLUX Krea Dev (Fast)</option>
+                    <option value="openai/gpt-image-1.5">OpenAI GPT Image 1.5</option>
                     <option value="google/nano-banana">Google Nano Banana</option>
                     <option value="google/nano-banana-pro">Google Nano Banana Pro 🍌🍌</option>
-                    <option value="openai/gpt-image-1.5">OpenAI GPT Image 1.5</option>
-                    <option value="stability-ai/stable-diffusion-3">Stable Diffusion 3</option>
-                    <option value="bytedance/hyper-sd">ByteDance Hyper-SD</option>
+                    <option value="bytedance/seedream-4">ByteDance Seedream 4</option>
+                    <option value="bytedance/seedream-4.5">ByteDance Seedream 4.5</option>
+                    <option value="bytedance/seededit-3.0">ByteDance Seededit 3.0</option>
                   </select>
                 </div>
               </div>
@@ -836,14 +816,9 @@ const sharedPromptValue = useMemo(
                 <div>
                   <div className="small">Aspect Ratio</div>
                   <select className="select" value={aspectRatio} onChange={(e)=>setAspectRatio(e.target.value)}>
-                    {model === 'black-forest-labs/flux-kontext-max'
-                      ? FLUX_KONTEXT_ASPECT_RATIOS.map((a) => (
-                          <option key={a} value={a}>{a}</option>
-                        ))
-                      : GENERIC_ASPECT_RATIOS.map((a) => (
-                          <option key={a} value={a}>{a}</option>
-                        ))
-                    }
+                    {GENERIC_ASPECT_RATIOS.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -852,7 +827,7 @@ const sharedPromptValue = useMemo(
                   <select className="select" value={outputFormat} onChange={(e)=>setOutputFormat(e.target.value as any)}>
                     <option value="png">PNG</option>
                     <option value="jpg">JPG</option>
-                    {(model === 'black-forest-labs/flux-krea-dev' || model === 'openai/gpt-image-1.5') && (
+                    {model === 'openai/gpt-image-1.5' && (
                       <option value="webp">WebP</option>
                     )}
                   </select>
@@ -892,20 +867,6 @@ const sharedPromptValue = useMemo(
                   <input className="input" type="number" min={0} max={100} value={outputQuality} onChange={(e)=>setOutputQuality(parseInt(e.target.value || '80'))} />
                 </div>
               </div>
-
-              {model === 'black-forest-labs/flux-kontext-max' && (
-                <div className="options">
-                  <div>
-                    <div className="small">Safety Tolerance</div>
-                    <input className="input" type="number" min={0} max={6} value={safetyTolerance} onChange={(e)=>setSafetyTolerance(parseInt(e.target.value||'2'))} />
-                  </div>
-                  <div>
-                    <label className="small" style={{display:'flex', gap:'var(--space-2)', alignItems:'center'}}>
-                      <input type="checkbox" checked={promptUpsampling} onChange={(e)=>setPromptUpsampling(e.target.checked)} /> Prompt Upsampling
-                    </label>
-                  </div>
-                </div>
-              )}
 
               {model === 'google/nano-banana-pro' && (
                 <div className="options">

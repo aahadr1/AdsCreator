@@ -10,7 +10,7 @@ type TtsResponse = { url?: string | null; raw?: any };
 
 export default function TtsPage() {
   const [text, setText] = useState('Hello from Text to Speech!');
-  const [provider, setProvider] = useState<'replicate' | 'elevenlabs' | 'dia' | 'kokoro'>('replicate');
+  const [provider, setProvider] = useState<'replicate' | 'kokoro'>('replicate');
   const [voiceId, setVoiceId] = useState('Friendly_Person');
   const [kokoroVoice, setKokoroVoice] = useState('af_nicole');
   const [kokoroSpeed, setKokoroSpeed] = useState(1);
@@ -29,42 +29,22 @@ export default function TtsPage() {
   const [bitrate, setBitrate] = useState<32000 | 64000 | 128000 | 256000>(128000);
   const [channel, setChannel] = useState<'mono' | 'stereo'>('stereo');
 
-  // ElevenLabs voices
-  const [elVoices, setElVoices] = useState<Array<{ voice_id: string; name: string }>>([]);
-  const [elVoicesLoading, setElVoicesLoading] = useState(false);
-  const [elVoicesError, setElVoicesError] = useState<string | null>(null);
-
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [kvTaskId, setKvTaskId] = useState<string | null>(null);
-  // Dia model parameters
-  const [diaAudioPromptUrl, setDiaAudioPromptUrl] = useState<string | null>(null);
-  const [diaAudioPromptText, setDiaAudioPromptText] = useState<string>('');
-  const [diaMaxNewTokens, setDiaMaxNewTokens] = useState<number>(3072);
-  const [diaMaxAudioPromptSeconds, setDiaMaxAudioPromptSeconds] = useState<number>(10);
-  const [diaCfgScale, setDiaCfgScale] = useState<number>(3);
-  const [diaTemperature, setDiaTemperature] = useState<number>(1.8);
-  const [diaTopP, setDiaTopP] = useState<number>(0.95);
-  const [diaCfgFilterTopK, setDiaCfgFilterTopK] = useState<number>(45);
-  const [diaSpeedFactor, setDiaSpeedFactor] = useState<number>(1.0);
-  const [diaSeed, setDiaSeed] = useState<number | ''>('');
   
   // Credit system
   const { credits, hasEnoughCredits, formatProgress } = useCredits();
   
   const providerLabel = useMemo(() => {
-    if (provider === 'dia') return 'Replicate (zsxkib/dia · Dialogue)';
-    if (provider === 'elevenlabs') return 'ElevenLabs (Premium Quality)';
     if (provider === 'kokoro') return 'Kokoro 82M (Multilingual · 46 Voices)';
     return 'Replicate (minimax/speech-02-hd)';
   }, [provider]);
 
   // Get model name for credit tracking
   const modelName = useMemo(() => {
-    if (provider === 'elevenlabs') return 'elevenlabs-tts';
-    if (provider === 'dia') return 'dia-tts';
     if (provider === 'kokoro') return 'jaaari/kokoro-82m';
     return 'minimax-speech-02-hd';
   }, [provider]);
@@ -73,37 +53,6 @@ export default function TtsPage() {
     return text.trim() && !isLoading && hasEnoughCredits(modelName);
   }, [text, isLoading, hasEnoughCredits, modelName]);
 
-  useEffect(() => {
-    async function fetchVoices() {
-      try {
-        setElVoicesError(null);
-        setElVoicesLoading(true);
-        const res = await fetch('/api/tts/voices', { cache: 'no-store' });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const voices = Array.isArray(data?.voices)
-          ? data.voices
-          : Array.isArray(data)
-            ? data
-            : [];
-        const normalized = voices
-          .map((v: any) => ({ voice_id: v.voice_id || v.id, name: v.name }))
-          .filter((v: any) => v.voice_id && v.name);
-        setElVoices(normalized);
-        if (normalized.length > 0) {
-          const exists = normalized.some((v: any) => v.voice_id === elVoiceId);
-          if (!exists) setElVoiceId(normalized[0].voice_id);
-        }
-      } catch (e: any) {
-        setElVoicesError(e?.message || 'Failed to load ElevenLabs voices');
-      } finally {
-        setElVoicesLoading(false);
-      }
-    }
-    if (provider === 'elevenlabs') {
-      fetchVoices();
-    }
-  }, [provider]);
 
   async function runTts() {
     let kvIdLocal: string | null = null;
@@ -120,26 +69,13 @@ export default function TtsPage() {
       // Create task row first
       const options = {
         emotion,
-        speed,
+        speed: provider === 'kokoro' ? kokoroSpeed : speed,
         pitch,
         volume,
         language_boost: languageBoost,
         english_normalization: englishNormalization,
         provider,
-        model_id: provider === 'elevenlabs' ? elModelId : undefined,
-        output_format: provider === 'elevenlabs' ? elOutputFormat : undefined,
-        voice_id: provider === 'replicate' ? voiceId : elVoiceId,
-        // Dia specific
-        audio_prompt: provider === 'dia' ? diaAudioPromptUrl : undefined,
-        audio_prompt_text: provider === 'dia' ? (diaAudioPromptText || undefined) : undefined,
-        max_new_tokens: provider === 'dia' ? diaMaxNewTokens : undefined,
-        max_audio_prompt_seconds: provider === 'dia' ? diaMaxAudioPromptSeconds : undefined,
-        cfg_scale: provider === 'dia' ? diaCfgScale : undefined,
-        temperature: provider === 'dia' ? diaTemperature : undefined,
-        top_p: provider === 'dia' ? diaTopP : undefined,
-        cfg_filter_top_k: provider === 'dia' ? diaCfgFilterTopK : undefined,
-        speed_factor: provider === 'dia' ? diaSpeedFactor : undefined,
-        seed: provider === 'dia' ? (diaSeed === '' ? undefined : Number(diaSeed)) : undefined,
+        voice_id: provider === 'replicate' ? voiceId : provider === 'kokoro' ? kokoroVoice : undefined,
       };
       // Also create KV task so it appears in /tasks
       let kvIdLocal: string | null = null;
@@ -152,7 +88,7 @@ export default function TtsPage() {
             type: 'tts',
             status: 'queued',
             provider,
-            model_id: provider === 'elevenlabs' ? elModelId : null,
+            model_id: null,
             options_json: options,
             text_input: text,
           })
@@ -171,7 +107,7 @@ export default function TtsPage() {
           type: 'tts',
           status: 'queued',
           provider,
-          model_id: provider === 'elevenlabs' ? elModelId : null,
+          model_id: null,
           options_json: options,
           text_input: text,
         })
@@ -187,26 +123,13 @@ export default function TtsPage() {
           text,
           user_id: user.id, // Add user_id for credit tracking
           provider,
-          voice_id: provider === 'replicate' ? voiceId : provider === 'kokoro' ? kokoroVoice : elVoiceId,
-          model_id: provider === 'elevenlabs' ? elModelId : undefined,
-          output_format: provider === 'elevenlabs' ? elOutputFormat : undefined,
+          voice_id: provider === 'replicate' ? voiceId : provider === 'kokoro' ? kokoroVoice : undefined,
           emotion,
           speed: provider === 'kokoro' ? kokoroSpeed : speed,
           pitch,
           volume,
           language_boost: languageBoost,
           english_normalization: englishNormalization,
-          // Dia specific
-          audio_prompt: provider === 'dia' ? diaAudioPromptUrl : undefined,
-          audio_prompt_text: provider === 'dia' ? (diaAudioPromptText || undefined) : undefined,
-          max_new_tokens: provider === 'dia' ? diaMaxNewTokens : undefined,
-          max_audio_prompt_seconds: provider === 'dia' ? diaMaxAudioPromptSeconds : undefined,
-          cfg_scale: provider === 'dia' ? diaCfgScale : undefined,
-          temperature: provider === 'dia' ? diaTemperature : undefined,
-          top_p: provider === 'dia' ? diaTopP : undefined,
-          cfg_filter_top_k: provider === 'dia' ? diaCfgFilterTopK : undefined,
-          speed_factor: provider === 'dia' ? diaSpeedFactor : undefined,
-          seed: provider === 'dia' ? (diaSeed === '' ? undefined : Number(diaSeed)) : undefined,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -285,13 +208,10 @@ export default function TtsPage() {
             <div className="small">Provider</div>
             <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-2)' }}>
               <CreditCostDisplay modelName="minimax-speech-02-hd" variant="detailed" showProvider />
-              <CreditCostDisplay modelName="elevenlabs-tts" variant="detailed" showProvider />
-              <CreditCostDisplay modelName="dia-tts" variant="detailed" showProvider />
+              <CreditCostDisplay modelName="jaaari/kokoro-82m" variant="detailed" showProvider />
             </div>
             <select className="select" value={provider} onChange={(e)=>setProvider(e.target.value as any)}>
               <option value="replicate">Replicate (minimax/speech-02-hd) - 5 credits</option>
-              <option value="elevenlabs">ElevenLabs (Premium Quality) - 8 credits</option>
-              <option value="dia">Replicate (zsxkib/dia · Dialogue) - 6 credits</option>
               <option value="kokoro">Kokoro 82M (Multilingual · 46 Voices) - 3 credits</option>
             </select>
           </div>
@@ -338,43 +258,6 @@ export default function TtsPage() {
                 <option value="Exuberant_Girl">Exuberant Girl</option>
               </select>
             </div>
-          ) : provider === 'elevenlabs' ? (
-            <>
-              <div>
-                <div className="small">ElevenLabs Voice</div>
-                {elVoicesLoading ? (
-                  <div className="small" style={{ color: 'var(--text-muted)' }}>Loading voices…</div>
-                ) : elVoicesError ? (
-                  <>
-                    <div className="small" style={{ color: 'var(--red)' }}>{elVoicesError}</div>
-                    <input className="input" value={elVoiceId} onChange={(e)=>setElVoiceId(e.target.value)} placeholder="Voice ID (e.g. JBFqnC...)" />
-                  </>
-                ) : (
-                  <select className="select" value={elVoiceId} onChange={(e)=>setElVoiceId(e.target.value)}>
-                    {elVoices.map(v => (
-                      <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-              <div>
-                <div className="small">Model</div>
-                <select className="select" value={elModelId} onChange={(e)=>setElModelId(e.target.value)}>
-                  <option value="eleven_multilingual_v2">Multilingual V2</option>
-                  <option value="eleven_monolingual_v1">Monolingual V1</option>
-                  <option value="eleven_turbo_v2">Turbo V2 (Fast)</option>
-                </select>
-              </div>
-              <div>
-                <div className="small">Output Format</div>
-                <select className="select" value={elOutputFormat} onChange={(e)=>setElOutputFormat(e.target.value)}>
-                  <option value="mp3_44100_128">MP3 44.1kHz 128kbps</option>
-                  <option value="mp3_44100_64">MP3 44.1kHz 64kbps</option>
-                  <option value="mp3_22050_32">MP3 22kHz 32kbps</option>
-                  <option value="wav_44100">WAV 44.1kHz</option>
-                </select>
-              </div>
-            </>
           ) : provider === 'kokoro' ? (
             <>
               <div>
@@ -463,17 +346,7 @@ export default function TtsPage() {
                 </div>
               </div>
             </>
-          ) : (
-            <>
-              <div style={{gridColumn: 'span 2'}}>
-                <div className="small">Dia Model</div>
-                <div className="small" style={{ color: 'var(--text-muted)' }}>Dia 1.6B by Nari Labs — realistic dialogue from text, supports voice cloning and non-verbal cues. Use [S1], [S2] for speakers and (whispers) etc. for non-verbal cues.</div>
-                <select className="select" value="zsxkib/dia" onChange={()=>{}}>
-                  <option value="zsxkib/dia">zsxkib/dia (Text-to-Dialogue)</option>
-                </select>
-              </div>
-            </>
-          )}
+          ) : null}
         </div>
 
         {/* Voice Parameters */}
@@ -509,129 +382,59 @@ export default function TtsPage() {
         </div>
 
         {/* Advanced Audio Settings */}
-        <div className="options">
-          {provider === 'dia' ? (
-            <>
-              <div style={{gridColumn: 'span 2'}}>
-                <div className="small">Voice Cloning (optional)</div>
-                <div className="small" style={{ color: 'var(--text-muted)' }}>Upload a short voice sample (.wav/.mp3/.flac). It will be truncated to max seconds below.</div>
-                <input
-                  className="input"
-                  type="file"
-                  accept="audio/*"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    try {
-                      const form = new FormData();
-                      form.append('file', file);
-                      form.append('filename', file.name);
-                      const res = await fetch('/api/assets/upload', { method: 'POST', body: form });
-                      if (!res.ok) throw new Error(await res.text());
-                      const data = await res.json();
-                      setDiaAudioPromptUrl(data?.url || null);
-                    } catch (err: any) {
-                      setError(err?.message || 'Failed to upload audio prompt');
-                    }
-                  }}
-                />
-                {diaAudioPromptUrl && (
-                  <div className="small" style={{ marginTop: 6 }}>
-                    Uploaded: <a href={diaAudioPromptUrl} target="_blank" rel="noreferrer">audio prompt</a>
-                  </div>
-                )}
-              </div>
-              <div style={{gridColumn: 'span 2'}}>
-                <div className="small">Audio Prompt Transcript (optional)</div>
-                <input className="input" value={diaAudioPromptText} onChange={(e)=>setDiaAudioPromptText(e.target.value)} placeholder="Transcript of the uploaded voice (prepended to text)" />
-              </div>
-              <div>
-                <div className="small">Max New Tokens</div>
-                <input className="input" type="number" min={500} max={4096} value={diaMaxNewTokens} onChange={(e)=>setDiaMaxNewTokens(parseInt(e.target.value || '0') || 0)} />
-              </div>
-              <div>
-                <div className="small">Max Audio Prompt Seconds</div>
-                <input className="input" type="number" min={1} max={120} value={diaMaxAudioPromptSeconds} onChange={(e)=>setDiaMaxAudioPromptSeconds(parseInt(e.target.value || '0') || 0)} />
-              </div>
-              <div>
-                <div className="small">CFG Scale</div>
-                <input className="input" type="number" step={0.1} min={1} max={5} value={diaCfgScale} onChange={(e)=>setDiaCfgScale(parseFloat(e.target.value))} />
-              </div>
-              <div>
-                <div className="small">Temperature</div>
-                <input className="input" type="number" step={0.1} min={1} max={2.5} value={diaTemperature} onChange={(e)=>setDiaTemperature(parseFloat(e.target.value))} />
-              </div>
-              <div>
-                <div className="small">Top P</div>
-                <input className="input" type="number" step={0.01} min={0.1} max={1} value={diaTopP} onChange={(e)=>setDiaTopP(parseFloat(e.target.value))} />
-              </div>
-              <div>
-                <div className="small">CFG Filter Top K</div>
-                <input className="input" type="number" min={10} max={100} value={diaCfgFilterTopK} onChange={(e)=>setDiaCfgFilterTopK(parseInt(e.target.value || '0') || 0)} />
-              </div>
-              <div>
-                <div className="small">Speed Factor</div>
-                <input className="input" type="number" step={0.01} min={0.5} max={1.5} value={diaSpeedFactor} onChange={(e)=>setDiaSpeedFactor(parseFloat(e.target.value))} />
-              </div>
-              <div>
-                <div className="small">Seed</div>
-                <input className="input" type="number" placeholder="Leave blank for random" value={diaSeed} onChange={(e)=>setDiaSeed(e.target.value === '' ? '' : parseInt(e.target.value))} />
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <div className="small">Sample Rate</div>
-                <select className="select" value={sampleRate} onChange={(e)=>setSampleRate(parseInt(e.target.value) as any)}>
-                  <option value={44100}>44.1 kHz (CD Quality)</option>
-                  <option value={32000}>32 kHz</option>
-                  <option value={24000}>24 kHz</option>
-                  <option value={22050}>22.05 kHz</option>
-                  <option value={16000}>16 kHz</option>
-                  <option value={8000}>8 kHz (Phone Quality)</option>
-                </select>
-              </div>
+        {provider === 'replicate' && (
+          <div className="options">
+            <div>
+              <div className="small">Sample Rate</div>
+              <select className="select" value={sampleRate} onChange={(e)=>setSampleRate(parseInt(e.target.value) as any)}>
+                <option value={44100}>44.1 kHz (CD Quality)</option>
+                <option value={32000}>32 kHz</option>
+                <option value={24000}>24 kHz</option>
+                <option value={22050}>22.05 kHz</option>
+                <option value={16000}>16 kHz</option>
+                <option value={8000}>8 kHz (Phone Quality)</option>
+              </select>
+            </div>
 
-              <div>
-                <div className="small">Bitrate</div>
-                <select className="select" value={bitrate} onChange={(e)=>setBitrate(parseInt(e.target.value) as any)}>
-                  <option value={256000}>256 kbps (High)</option>
-                  <option value={128000}>128 kbps (Standard)</option>
-                  <option value={64000}>64 kbps (Medium)</option>
-                  <option value={32000}>32 kbps (Low)</option>
-                </select>
-              </div>
+            <div>
+              <div className="small">Bitrate</div>
+              <select className="select" value={bitrate} onChange={(e)=>setBitrate(parseInt(e.target.value) as any)}>
+                <option value={256000}>256 kbps (High)</option>
+                <option value={128000}>128 kbps (Standard)</option>
+                <option value={64000}>64 kbps (Medium)</option>
+                <option value={32000}>32 kbps (Low)</option>
+              </select>
+            </div>
 
-              <div>
-                <div className="small">Channel</div>
-                <select className="select" value={channel} onChange={(e)=>setChannel(e.target.value as any)}>
-                  <option value="stereo">Stereo</option>
-                  <option value="mono">Mono</option>
-                </select>
-              </div>
+            <div>
+              <div className="small">Channel</div>
+              <select className="select" value={channel} onChange={(e)=>setChannel(e.target.value as any)}>
+                <option value="stereo">Stereo</option>
+                <option value="mono">Mono</option>
+              </select>
+            </div>
 
-              <div>
-                <div className="small">Language Boost</div>
-                <select className="select" value={languageBoost} onChange={(e)=>setLanguageBoost(e.target.value)}>
-                  <option value="English">English</option>
-                  <option value="Automatic">Automatic</option>
-                  <option value="None">None</option>
-                  <option value="Chinese">Chinese</option>
-                  <option value="Spanish">Spanish</option>
-                  <option value="French">French</option>
-                  <option value="German">German</option>
-                  <option value="Italian">Italian</option>
-                  <option value="Portuguese">Portuguese</option>
-                  <option value="Russian">Russian</option>
-                  <option value="Japanese">Japanese</option>
-                  <option value="Korean">Korean</option>
-                  <option value="Arabic">Arabic</option>
-                  <option value="Hindi">Hindi</option>
-                </select>
-              </div>
-            </>
-          )}
-        </div>
+            <div>
+              <div className="small">Language Boost</div>
+              <select className="select" value={languageBoost} onChange={(e)=>setLanguageBoost(e.target.value)}>
+                <option value="English">English</option>
+                <option value="Automatic">Automatic</option>
+                <option value="None">None</option>
+                <option value="Chinese">Chinese</option>
+                <option value="Spanish">Spanish</option>
+                <option value="French">French</option>
+                <option value="German">German</option>
+                <option value="Italian">Italian</option>
+                <option value="Portuguese">Portuguese</option>
+                <option value="Russian">Russian</option>
+                <option value="Japanese">Japanese</option>
+                <option value="Korean">Korean</option>
+                <option value="Arabic">Arabic</option>
+                <option value="Hindi">Hindi</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {provider === 'replicate' && (
           <label className="small" style={{display:'flex', gap:8, alignItems:'center', marginTop:8}}>
