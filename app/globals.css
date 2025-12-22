@@ -7903,15 +7903,16 @@ body[data-page="billing"] .pricing-card.current-plan {
 }
 
 .assistant-editor-timeline-container {
-  flex: 0 0 250px;
-  min-height: 250px;
-  max-height: 250px;
+  flex: 0 0 280px;
+  min-height: 280px;
+  max-height: 280px;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--separator);
+  border-top: 2px solid var(--separator);
   background: var(--panel);
   overflow: hidden;
   flex-shrink: 0;
+  z-index: 10;
 }
 
 .assistant-editor-timeline-controls {
@@ -9502,4 +9503,5 @@ body[data-page="billing"] .pricing-card.current-plan {
 .assistant-editor-clip-remove:hover { background: rgba(255,0,0,0.8); }
 
 .assistant-editor-content-wrapper { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.assistant-editor-preview { flex: 0 0 auto; max-height: 40vh; min-height: 250px; display: flex; flex-direction: column; overflow-y: auto; }
+.assistant-editor-scrollable-area { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.assistant-editor-preview { flex: 0 0 auto; min-height: 300px; max-height: 50vh; display: flex; flex-direction: column; }
