@@ -492,6 +492,16 @@ export default function AssistantEditor({
           canRedo={editorHistory.canRedo(editorState)}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          showAssetsPanel={editorState.panels.assets}
+          onToggleAssetsPanel={() => {
+            setEditorState((prev) => ({
+              ...prev,
+              panels: {
+                ...prev.panels,
+                assets: !prev.panels.assets,
+              },
+            }));
+          }}
         />
 
         <div className="assistant-editor-content">

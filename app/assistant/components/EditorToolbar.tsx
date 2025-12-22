@@ -1,6 +1,6 @@
 'use client';
 
-import { MousePointer2, Scissors, Move, Type, Undo2, Redo2 } from 'lucide-react';
+import { MousePointer2, Scissors, Move, Type, Undo2, Redo2, FolderOpen, Eye, EyeOff } from 'lucide-react';
 import type { EditorTool } from '../../../types/editor';
 
 type EditorToolbarProps = {
@@ -10,6 +10,8 @@ type EditorToolbarProps = {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  showAssetsPanel?: boolean;
+  onToggleAssetsPanel?: () => void;
 };
 
 export default function EditorToolbar({
@@ -19,6 +21,8 @@ export default function EditorToolbar({
   canRedo,
   onUndo,
   onRedo,
+  showAssetsPanel = true,
+  onToggleAssetsPanel,
 }: EditorToolbarProps) {
   const tools: Array<{ id: EditorTool; icon: React.ReactNode; label: string; shortcut?: string }> = [
     { id: 'select', icon: <MousePointer2 size={18} />, label: 'Select', shortcut: 'V' },
@@ -68,6 +72,23 @@ export default function EditorToolbar({
           </button>
         ))}
       </div>
+
+      <div className="assistant-editor-toolbar-divider" />
+
+      {onToggleAssetsPanel && (
+        <div className="assistant-editor-toolbar-section">
+          <button
+            className={`assistant-editor-toolbar-button ${
+              showAssetsPanel ? 'active' : ''
+            }`}
+            onClick={onToggleAssetsPanel}
+            title={showAssetsPanel ? 'Hide Assets Panel' : 'Show Assets Panel'}
+            type="button"
+          >
+            {showAssetsPanel ? <FolderOpen size={18} /> : <EyeOff size={18} />}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
