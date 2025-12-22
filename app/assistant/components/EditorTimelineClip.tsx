@@ -198,6 +198,7 @@ export default function EditorTimelineClip({
       <div
         ref={clipRef}
         className={`assistant-editor-timeline-clip ${isSelected ? 'selected' : ''}`}
+        data-timeline-interactive="true"
         style={{
           left: clipStart,
           width: clipWidth,
@@ -276,4 +277,3 @@ export default function EditorTimelineClip({
     </>
   );
 }
-

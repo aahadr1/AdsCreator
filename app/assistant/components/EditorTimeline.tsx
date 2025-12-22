@@ -41,6 +41,7 @@ export default function EditorTimeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [dragOverTrack, setDragOverTrack] = useState<'video' | 'audio' | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const draggedAssetIdRef = useRef<string | null>(null);
 
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom;
@@ -66,18 +67,50 @@ export default function EditorTimeline({
 
   const timelineWidth = Math.max(virtualDuration * pixelsPerSecond, 1000);
 
-  const handleTimelineClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!contentRef.current || !scrollRef.current) return;
+  const getEventTime = useCallback(
+    (clientX: number) => {
+      if (!contentRef.current || !scrollRef.current) return 0;
       const rect = contentRef.current.getBoundingClientRect();
       const scrollLeft = scrollRef.current.scrollLeft;
-      const x = e.clientX - rect.left + scrollLeft;
-      const time = x / pixelsPerSecond;
-      ensureVirtualDuration(time);
-      onSetPlayhead(Math.max(0, time));
+      const x = clientX - rect.left + scrollLeft;
+      return Math.max(0, x / pixelsPerSecond);
     },
-    [pixelsPerSecond, onSetPlayhead, ensureVirtualDuration],
+    [pixelsPerSecond],
   );
+
+  const isInteractiveTarget = useCallback((eventTarget: EventTarget | null): boolean => {
+    if (!(eventTarget instanceof HTMLElement)) return false;
+    return Boolean(eventTarget.closest('[data-timeline-interactive="true"]'));
+  }, []);
+
+  const handlePointerDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      if (isInteractiveTarget(e.target)) return;
+      const time = getEventTime(e.clientX);
+      ensureVirtualDuration(time);
+      onSetPlayhead(time);
+      setIsScrubbing(true);
+      e.preventDefault();
+    },
+    [ensureVirtualDuration, getEventTime, isInteractiveTarget, onSetPlayhead],
+  );
+
+  useEffect(() => {
+    if (!isScrubbing) return;
+    const handleMove = (e: MouseEvent) => {
+      const time = getEventTime(e.clientX);
+      ensureVirtualDuration(time);
+      onSetPlayhead(time);
+    };
+    const handleUp = () => setIsScrubbing(false);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [isScrubbing, ensureVirtualDuration, getEventTime, onSetPlayhead]);
 
   const handleTimelineDragOver = useCallback(
     (e: React.DragEvent, track: 'video' | 'audio') => {
@@ -180,15 +213,9 @@ export default function EditorTimeline({
     const scrollLeft = scrollRef.current.scrollLeft;
     const padding = viewportWidth * 0.15;
     if (playheadPosition < scrollLeft + padding) {
-      scrollRef.current.scrollTo({
-        left: Math.max(playheadPosition - padding, 0),
-        behavior: 'smooth',
-      });
+      scrollRef.current.scrollLeft = Math.max(playheadPosition - padding, 0);
     } else if (playheadPosition > scrollLeft + viewportWidth - padding) {
-      scrollRef.current.scrollTo({
-        left: playheadPosition - viewportWidth + padding,
-        behavior: 'smooth',
-      });
+      scrollRef.current.scrollLeft = playheadPosition - viewportWidth + padding;
     }
   }, [playheadPosition, playing]);
 
@@ -213,11 +240,12 @@ export default function EditorTimeline({
           <div className="assistant-editor-timeline-track-label">Audio</div>
         </div>
 
-        <div className="assistant-editor-timeline-scroll" ref={scrollRef} onClick={handleTimelineClick}>
+        <div className="assistant-editor-timeline-scroll" ref={scrollRef}>
           <div
             className="assistant-editor-timeline-content"
             ref={contentRef}
             style={{ width: timelineWidth }}
+            onMouseDown={handlePointerDown}
           >
             <div className="assistant-editor-timeline-ruler">
               {Array.from({ length: Math.ceil(virtualDuration) + 1 }).map((_, i) => (
