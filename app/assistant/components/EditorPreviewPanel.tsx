@@ -1,375 +1,488 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { EditorAsset, TimelineClip } from '../../../types/editor';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Maximize2, Minimize2, Grid3x3 } from 'lucide-react';
+import type { EditorAsset, TimelineClip, Track } from '../../../types/editor';
+import { isMediaClip } from '../../../types/editor';
 
 type EditorPreviewPanelProps = {
   assets: EditorAsset[];
   clips: TimelineClip[];
+  tracks: Track[];
   playhead: number;
   playing: boolean;
-  selectedAssetId?: string | null;
-  selectedClipId?: string | null;
   volume: number;
   playbackSpeed: number;
+  canvasWidth: number;
+  canvasHeight: number;
   onSetPlayhead: (time: number) => void;
   onSetPlaying: (playing: boolean) => void;
+  onUpdateClip?: (clipId: string, updates: Partial<TimelineClip>) => void;
 };
+
+type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | 'free';
 
 export default function EditorPreviewPanel({
   assets,
   clips,
+  tracks,
   playhead,
   playing,
-  selectedAssetId,
-  selectedClipId,
   volume,
   playbackSpeed,
+  canvasWidth,
+  canvasHeight,
   onSetPlayhead,
   onSetPlaying,
+  onUpdateClip,
 }: EditorPreviewPanelProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const seekingRef = useRef(false);
-  const seekTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const videoSourceRef = useRef<string | null>(null);
-  const audioSourceRef = useRef<string | null>(null);
-  const videoClipsRef = useRef<TimelineClip[]>([]);
-  const audioClipsRef = useRef<TimelineClip[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mediaElementsRef = useRef<Map<string, HTMLVideoElement | HTMLImageElement | HTMLAudioElement>>(new Map());
+  const animationFrameRef = useRef<number | null>(null);
+  const lastFrameTimeRef = useRef<number>(0);
+  
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [resizing, setResizing] = useState(false);
 
-  type ClipDisplayContext = { type: 'clip'; asset: EditorAsset; clip: TimelineClip; relativeTime: number };
-  type DisplayContext =
-    | { type: 'none' }
-    | { type: 'asset'; asset: EditorAsset; relativeTime: number }
-    | ClipDisplayContext;
+  // Get active clips at current playhead
+  const activeClips = useMemo(() => {
+    return clips
+      .filter(clip => playhead >= clip.startTime && playhead < clip.endTime)
+      .filter(clip => {
+        const track = tracks.find(t => t.id === clip.trackId);
+        return track && track.visible && !track.muted;
+      })
+      .sort((a, b) => {
+        const trackA = tracks.find(t => t.id === a.trackId);
+        const trackB = tracks.find(t => t.id === b.trackId);
+        return (trackA?.index || 0) - (trackB?.index || 0);
+      });
+  }, [clips, tracks, playhead]);
 
-  const buildClipContext = useCallback(
-    (clip: TimelineClip | undefined): ClipDisplayContext | null => {
-      if (!clip) return null;
-      // Only media clips have assets
-      if (!('assetId' in clip)) return null;
-      const asset = assets.find((a) => a.id === clip.assetId);
-      if (!asset) return null;
-      const timelineLength = Math.max(clip.endTime - clip.startTime, 0);
-      const trimStart = 'trimStart' in clip ? clip.trimStart : 0;
-      const trimEnd = 'trimEnd' in clip ? clip.trimEnd : 0;
-      const trimmedDuration = Math.max(timelineLength - (trimStart + trimEnd), 0);
-      const relTime = Math.max(
-        0,
-        Math.min(playhead - clip.startTime + trimStart, trimStart + trimmedDuration),
-      );
-      return {
-        type: 'clip',
-        asset,
-        clip,
-        relativeTime: relTime,
-      };
-    },
-    [assets, playhead],
-  );
+  // Load media elements
+  useEffect(() => {
+    const loadMedia = async () => {
+      for (const clip of clips) {
+        if (!isMediaClip(clip)) continue;
+        
+        const asset = assets.find(a => a.id === clip.assetId);
+        if (!asset || mediaElementsRef.current.has(clip.assetId)) continue;
 
-  const displayContext: DisplayContext = useMemo(() => {
-    // Selected clip has priority
-    if (selectedClipId) {
-      const clip = clips.find((c) => c.id === selectedClipId);
-      const ctx = buildClipContext(clip);
-      if (ctx) return ctx;
-    }
-
-    // Selected asset (preview outside of timeline)
-    if (selectedAssetId) {
-      const asset = assets.find((a) => a.id === selectedAssetId);
-      if (asset) return { type: 'asset', asset, relativeTime: 0 };
-    }
-
-    if (clips.length > 0) {
-      // Find video clips (clips with video assets)
-      const videoClip = clips
-        .filter((c) => {
-          if (!('assetId' in c)) return false;
-          const asset = assets.find((a) => a.id === c.assetId);
-          return asset && asset.type === 'video';
-        })
-        .find((clip) => playhead >= clip.startTime && playhead < clip.endTime);
-      const videoCtx = buildClipContext(videoClip);
-      if (videoCtx) return videoCtx;
-
-      const audioClip = clips
-        .filter((c) => {
-          if (!('assetId' in c)) return false;
-          const asset = assets.find((a) => a.id === c.assetId);
-          return asset && asset.type === 'audio';
-        })
-        .find((clip) => playhead >= clip.startTime && playhead < clip.endTime);
-      const audioCtx = buildClipContext(audioClip);
-      if (audioCtx) return audioCtx;
-
-      const sorted = [...clips].sort((a, b) => a.startTime - b.startTime);
-      if (playhead < sorted[0].startTime) {
-        const ctx = buildClipContext(sorted[0]);
-        if (ctx) return ctx;
+        try {
+          if (asset.type === 'video') {
+            const video = document.createElement('video');
+            video.crossOrigin = 'anonymous';
+            video.preload = 'auto';
+            video.muted = false;
+            const url = asset.url.startsWith('http') 
+              ? `/api/proxy?url=${encodeURIComponent(asset.url)}` 
+              : asset.url;
+            video.src = url;
+            await new Promise((resolve, reject) => {
+              video.addEventListener('loadeddata', resolve, { once: true });
+              video.addEventListener('error', reject, { once: true });
+            });
+            mediaElementsRef.current.set(clip.assetId, video);
+          } else if (asset.type === 'image') {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            const url = asset.url.startsWith('http') 
+              ? `/api/proxy?url=${encodeURIComponent(asset.url)}` 
+              : asset.url;
+            img.src = url;
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = reject;
+            });
+            mediaElementsRef.current.set(clip.assetId, img);
+          } else if (asset.type === 'audio') {
+            const audio = new Audio();
+            audio.crossOrigin = 'anonymous';
+            audio.preload = 'auto';
+            const url = asset.url.startsWith('http') 
+              ? `/api/proxy?url=${encodeURIComponent(asset.url)}` 
+              : asset.url;
+            audio.src = url;
+            await new Promise((resolve, reject) => {
+              audio.addEventListener('loadeddata', resolve, { once: true });
+              audio.addEventListener('error', reject, { once: true });
+            });
+            mediaElementsRef.current.set(clip.assetId, audio);
+          }
+        } catch (error) {
+          console.error('Failed to load media:', asset.url, error);
+        }
       }
-      const last = sorted[sorted.length - 1];
-      if (playhead >= last.endTime) {
-        const ctx = buildClipContext(last);
-        if (ctx) {
-          return {
-            type: 'clip',
-            asset: ctx.asset,
-            clip: ctx.clip,
-            relativeTime: Math.max(0, ctx.relativeTime),
-          };
+    };
+
+    loadMedia();
+  }, [clips, assets]);
+
+  // Render frame to canvas
+  const renderFrame = useCallback((time: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
+    // Clear canvas with black background
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Get active clips at this time
+    const activeClipsAtTime = clips
+      .filter(clip => time >= clip.startTime && time < clip.endTime)
+      .filter(clip => {
+        const track = tracks.find(t => t.id === clip.trackId);
+        return track && track.visible;
+      })
+      .sort((a, b) => {
+        const trackA = tracks.find(t => t.id === a.trackId);
+        const trackB = tracks.find(t => t.id === b.trackId);
+        return (trackA?.index || 0) - (trackB?.index || 0);
+      });
+
+    // Render each clip
+    for (const clip of activeClipsAtTime) {
+      if (!isMediaClip(clip)) continue;
+
+      const asset = assets.find(a => a.id === clip.assetId);
+      if (!asset || asset.type === 'audio') continue; // Skip audio clips for canvas rendering
+
+      const mediaElement = mediaElementsRef.current.get(clip.assetId);
+      if (!mediaElement || mediaElement instanceof HTMLAudioElement) continue;
+
+      // Calculate clip time within the timeline
+      const clipTime = time - clip.startTime;
+      const sourceTime = clipTime + (clip.trimStart || 0);
+
+      // Seek video to correct time (only if playing or if time changed significantly)
+      if (mediaElement instanceof HTMLVideoElement) {
+        const timeDiff = Math.abs(mediaElement.currentTime - sourceTime);
+        if (timeDiff > 0.1 || (!playing && timeDiff > 0.01)) {
+          mediaElement.currentTime = Math.max(0, Math.min(sourceTime, mediaElement.duration || 0));
+        }
+        
+        // Play/pause video based on playing state
+        if (playing && mediaElement.paused) {
+          mediaElement.play().catch(() => {
+            // Ignore play errors (e.g., autoplay restrictions)
+          });
+        } else if (!playing && !mediaElement.paused) {
+          mediaElement.pause();
         }
       }
 
-      const fallbackClip = buildClipContext(sorted[0]);
-      if (fallbackClip) return fallbackClip;
-    }
+      // Apply transform
+      ctx.save();
+      
+      const transform = clip.transform;
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
 
-    if (assets.length > 0) {
-      return { type: 'asset', asset: assets[0], relativeTime: 0 };
-    }
-    return { type: 'none' };
-  }, [assets, clips, selectedAssetId, selectedClipId, playhead, buildClipContext]);
-
-  const mediaAsset = displayContext.type === 'none' ? null : displayContext.asset;
-  const activeClip = displayContext.type === 'clip' ? displayContext.clip : null;
-  const displayTime = displayContext.type === 'none' ? 0 : displayContext.relativeTime;
-  const timelinePlaybackActive = !selectedClipId && !selectedAssetId && displayContext.type === 'clip';
-
-  const getProxiedUrl = (url: string) => {
-    // Blob/data URLs should play directly without proxying
-    if (url.startsWith('blob:') || url.startsWith('data:')) {
-      return url;
-    }
-    if (url.startsWith('http')) {
-      return `/api/proxy?url=${encodeURIComponent(url)}`;
-    }
-    return url;
-  };
-
-  const mediaUrl = mediaAsset?.url ? getProxiedUrl(mediaAsset.url) : '';
-
-  const orderedVideoClips = useMemo(
-    () => clips.filter((c) => {
-      if (!('assetId' in c)) return false;
-      const asset = assets.find((a) => a.id === c.assetId);
-      return asset && asset.type === 'video';
-    }).sort((a, b) => a.startTime - b.startTime),
-    [clips, assets],
-  );
-  const orderedAudioClips = useMemo(
-    () => clips.filter((c) => {
-      if (!('assetId' in c)) return false;
-      const asset = assets.find((a) => a.id === c.assetId);
-      return asset && asset.type === 'audio';
-    }).sort((a, b) => a.startTime - b.startTime),
-    [clips, assets],
-  );
-
-  useEffect(() => {
-    videoClipsRef.current = orderedVideoClips;
-  }, [orderedVideoClips]);
-
-  useEffect(() => {
-    audioClipsRef.current = orderedAudioClips;
-  }, [orderedAudioClips]);
-
-  const syncElementSource = useCallback(
-    (element: HTMLMediaElement | null, sourceRef: React.MutableRefObject<string | null>, src: string) => {
-      if (!element) return;
-      if (sourceRef.current !== src) {
-        sourceRef.current = src;
-        element.src = src;
-        element.load();
+      // Move to center + offset
+      ctx.translate(centerX + transform.x, centerY + transform.y);
+      
+      // Apply rotation
+      if (transform.rotation !== 0) {
+        ctx.rotate((transform.rotation * Math.PI) / 180);
       }
-      element.volume = volume;
-      element.playbackRate = playbackSpeed;
-    },
-    [playbackSpeed, volume],
-  );
+      
+      // Apply scale
+      ctx.scale(
+        transform.scale * transform.scaleX, 
+        transform.scale * transform.scaleY
+      );
 
-  // Sync video element with timeline or selected asset
+      // Apply opacity
+      ctx.globalAlpha = transform.opacity;
+
+      // Get media dimensions
+      let mediaWidth = canvas.width;
+      let mediaHeight = canvas.height;
+      
+      if (mediaElement instanceof HTMLVideoElement) {
+        mediaWidth = mediaElement.videoWidth || canvas.width;
+        mediaHeight = mediaElement.videoHeight || canvas.height;
+      } else if (mediaElement instanceof HTMLImageElement) {
+        mediaWidth = mediaElement.width || canvas.width;
+        mediaHeight = mediaElement.height || canvas.height;
+      }
+
+      // Draw media centered
+      ctx.drawImage(
+        mediaElement,
+        -mediaWidth / 2,
+        -mediaHeight / 2,
+        mediaWidth,
+        mediaHeight
+      );
+
+      // Draw resize handles if selected
+      if (selectedClipId === clip.id) {
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(
+          -mediaWidth / 2,
+          -mediaHeight / 2,
+          mediaWidth,
+          mediaHeight
+        );
+      }
+
+      ctx.restore();
+    }
+  }, [clips, tracks, selectedClipId, playing]);
+
+  // Handle audio playback separately
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !mediaAsset || mediaAsset.type !== 'video' || !mediaUrl) return;
-
-    const shouldAutoPlayTimeline = timelinePlaybackActive && mediaAsset && mediaAsset.type === 'video';
-    syncElementSource(video, videoSourceRef, mediaUrl);
-
-    if (shouldAutoPlayTimeline && playing && !selectedClipId && !selectedAssetId) {
-      video.play().catch(() => {});
-      return;
-    }
-
-    const currentPlayerTime = video.currentTime || 0;
-    const threshold = shouldAutoPlayTimeline ? 0.02 : 0.05;
-    if (!seekingRef.current && Math.abs(currentPlayerTime - displayTime) > threshold) {
-      seekingRef.current = true;
-      video.currentTime = displayTime;
-      if (seekTimeout.current) clearTimeout(seekTimeout.current);
-      seekTimeout.current = setTimeout(() => {
-        seekingRef.current = false;
-      }, 40);
-    }
-  }, [
-    mediaAsset,
-    mediaUrl,
-    displayTime,
-    timelinePlaybackActive,
-    playing,
-    syncElementSource,
-    activeClip,
-    selectedClipId,
-    selectedAssetId,
-  ]);
-
-  // Sync audio element
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !mediaAsset || mediaAsset.type !== 'audio' || !mediaUrl) return;
-
-    const shouldAutoPlayTimeline = timelinePlaybackActive && mediaAsset && mediaAsset.type === 'audio';
-    syncElementSource(audio, audioSourceRef, mediaUrl);
-
-    if (shouldAutoPlayTimeline && playing && !selectedClipId && !selectedAssetId) {
-      audio.play().catch(() => {});
-      return;
-    }
-
-    const currentPlayerTime = audio.currentTime || 0;
-    const threshold = shouldAutoPlayTimeline ? 0.02 : 0.05;
-    if (!seekingRef.current && Math.abs(currentPlayerTime - displayTime) > threshold) {
-      seekingRef.current = true;
-      audio.currentTime = displayTime;
-      if (seekTimeout.current) clearTimeout(seekTimeout.current);
-      seekTimeout.current = setTimeout(() => {
-        seekingRef.current = false;
-      }, 40);
-    }
-  }, [
-    mediaAsset,
-    mediaUrl,
-    displayTime,
-    timelinePlaybackActive,
-    playing,
-    syncElementSource,
-    activeClip,
-    selectedClipId,
-    selectedAssetId,
-  ]);
-
-  // Handle playback state (play/pause)
-  useEffect(() => {
-    const video = videoRef.current;
-    const audio = audioRef.current;
-    const player = mediaAsset?.type === 'video' ? video : audio;
-    
-    if (!player || !mediaAsset) return;
-
-    const shouldPlay = playing && (activeClip || selectedClipId || selectedAssetId);
-    
-    if (shouldPlay) {
-      player.play().catch((e) => {
-        console.error('Play error:', e);
+    if (!playing) {
+      // Pause all audio
+      mediaElementsRef.current.forEach((element) => {
+        if (element instanceof HTMLAudioElement || element instanceof HTMLVideoElement) {
+          element.pause();
+        }
       });
-    } else {
-      player.pause();
+      return;
     }
-  }, [playing, mediaAsset, activeClip, selectedClipId, selectedAssetId]);
 
-  // Update volume and playback speed
+    // Play audio for active clips
+    const activeAudioClips = clips
+      .filter(clip => playhead >= clip.startTime && playhead < clip.endTime)
+      .filter(clip => {
+        const track = tracks.find(t => t.id === clip.trackId);
+        return track && track.visible && !track.muted;
+      })
+      .filter(isMediaClip);
+
+    activeAudioClips.forEach((clip) => {
+      const asset = assets.find(a => a.id === clip.assetId);
+      if (!asset || (asset.type !== 'audio' && asset.type !== 'video')) return;
+
+      const mediaElement = mediaElementsRef.current.get(clip.assetId);
+      if (!mediaElement || !(mediaElement instanceof HTMLAudioElement || mediaElement instanceof HTMLVideoElement)) return;
+
+      const clipTime = playhead - clip.startTime;
+      const sourceTime = clipTime + (clip.trimStart || 0);
+
+      if (Math.abs(mediaElement.currentTime - sourceTime) > 0.1) {
+        mediaElement.currentTime = Math.max(0, Math.min(sourceTime, mediaElement.duration || 0));
+      }
+
+      if (mediaElement.paused) {
+        mediaElement.play().catch(() => {
+          // Ignore play errors
+        });
+      }
+    });
+  }, [playing, playhead, clips, tracks, assets]);
+
+  // Animation loop for continuous playback
   useEffect(() => {
-    const video = videoRef.current;
-    const audio = audioRef.current;
-    
-    if (video) {
-      video.volume = volume;
-      video.playbackRate = playbackSpeed;
-    }
-    if (audio) {
-      audio.volume = volume;
-      audio.playbackRate = playbackSpeed;
-    }
-  }, [volume, playbackSpeed]);
-
-  const advanceToNextVideoClip = useCallback(
-    (clip: TimelineClip) => {
-      const ordered = videoClipsRef.current;
-      const idx = ordered.findIndex((c) => c.id === clip.id);
-      if (idx >= 0 && idx < ordered.length - 1) {
-        const nextClip = ordered[idx + 1];
-        onSetPlayhead(Math.max(0, nextClip.startTime + 0.0001));
-      } else if (!selectedClipId && !selectedAssetId) {
-        onSetPlaying(false);
+    if (!playing) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
-    },
-    [onSetPlayhead, onSetPlaying, selectedAssetId, selectedClipId],
-  );
+      // Render current frame when paused
+      renderFrame(playhead);
+      return;
+    }
 
-  const advanceToNextAudioClip = useCallback(
-    (clip: TimelineClip) => {
-      const ordered = audioClipsRef.current;
-      const idx = ordered.findIndex((c) => c.id === clip.id);
-      if (idx >= 0 && idx < ordered.length - 1) {
-        const nextClip = ordered[idx + 1];
-        onSetPlayhead(Math.max(0, nextClip.startTime + 0.0001));
-      } else if (!selectedClipId && !selectedAssetId) {
+    let startTime = performance.now();
+    let accumulatedTime = playhead;
+    let lastFrameTime = performance.now();
+
+    const animate = (currentTime: number) => {
+      const deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
+      lastFrameTime = currentTime;
+      
+      accumulatedTime += deltaTime * playbackSpeed;
+      
+      // Update playhead
+      onSetPlayhead(accumulatedTime);
+      
+      // Render frame
+      renderFrame(accumulatedTime);
+      
+      // Find the maximum end time of all clips
+      const maxEndTime = clips.length > 0 
+        ? Math.max(...clips.map(c => c.endTime))
+        : 0;
+      
+      // Stop if we've reached the end
+      if (accumulatedTime >= maxEndTime) {
         onSetPlaying(false);
+        onSetPlayhead(maxEndTime);
+        return;
       }
-    },
-    [onSetPlayhead, onSetPlaying, selectedAssetId, selectedClipId],
-  );
+      
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
 
-  // Handle video time update (for progress tracking)
-  const handleVideoTimeUpdate = () => {
-    const video = videoRef.current;
-    if (!video || !activeClip || !playing || seekingRef.current) return;
-    const controllingClip = !selectedClipId || selectedClipId === activeClip.id || timelinePlaybackActive;
-    if (!controllingClip) return;
+    lastFrameTime = performance.now();
+    animationFrameRef.current = requestAnimationFrame(animate);
 
-    const trimStart = 'trimStart' in activeClip ? activeClip.trimStart : 0;
-    const trimEnd = 'trimEnd' in activeClip ? activeClip.trimEnd : 0;
-    const absoluteTime = activeClip.startTime + video.currentTime - trimStart;
-    const clamped = Math.max(activeClip.startTime, Math.min(absoluteTime, activeClip.endTime));
-    onSetPlayhead(clamped);
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [playing, playbackSpeed, clips, onSetPlayhead, onSetPlaying, renderFrame, playhead]);
 
-    const clipDuration = activeClip.endTime - activeClip.startTime + trimStart - trimEnd;
-    if (video.duration && video.currentTime >= video.duration - 0.05) {
-      advanceToNextVideoClip(activeClip);
-    } else if (video.currentTime >= clipDuration - 0.05) {
-      advanceToNextVideoClip(activeClip);
+  // Render frame when playhead changes (when paused)
+  useEffect(() => {
+    if (!playing) {
+      renderFrame(playhead);
     }
-  };
+  }, [playhead, playing, renderFrame]);
 
-  // Handle audio time update
-  const handleAudioTimeUpdate = () => {
-    const audio = audioRef.current;
-    if (!audio || !activeClip || !playing || seekingRef.current) return;
-    const controllingClip = !selectedClipId || selectedClipId === activeClip.id || timelinePlaybackActive;
-    if (!controllingClip) return;
+  // Update audio volumes
+  useEffect(() => {
+    mediaElementsRef.current.forEach((element) => {
+      if (element instanceof HTMLVideoElement || element instanceof HTMLAudioElement) {
+        element.volume = volume;
+      }
+    });
+  }, [volume]);
 
-    const trimStart = 'trimStart' in activeClip ? activeClip.trimStart : 0;
-    const trimEnd = 'trimEnd' in activeClip ? activeClip.trimEnd : 0;
-    const absoluteTime = activeClip.startTime + audio.currentTime - trimStart;
-    const clamped = Math.max(activeClip.startTime, Math.min(absoluteTime, activeClip.endTime));
-    onSetPlayhead(clamped);
+  // Handle canvas click for clip selection
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const clipDuration = activeClip.endTime - activeClip.startTime + trimStart - trimEnd;
-    if (audio.duration && audio.currentTime >= audio.duration - 0.05) {
-      advanceToNextAudioClip(activeClip);
-    } else if (audio.currentTime >= clipDuration - 0.05) {
-      advanceToNextAudioClip(activeClip);
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left - canvas.width / 2;
+    const y = e.clientY - rect.top - canvas.height / 2;
+
+    // Check if clicked on any clip (reverse order to check top clips first)
+    for (let i = activeClips.length - 1; i >= 0; i--) {
+      const clip = activeClips[i];
+      if (!isMediaClip(clip)) continue;
+
+      const asset = assets.find(a => a.id === clip.assetId);
+      if (!asset || asset.type === 'audio') continue; // Skip audio clips
+
+      const transform = clip.transform;
+      const mediaElement = mediaElementsRef.current.get(clip.assetId);
+      if (!mediaElement || mediaElement instanceof HTMLAudioElement) continue;
+
+      let width = canvas.width;
+      let height = canvas.height;
+      
+      if (mediaElement instanceof HTMLVideoElement) {
+        width = mediaElement.videoWidth || canvas.width;
+        height = mediaElement.videoHeight || canvas.height;
+      } else if (mediaElement instanceof HTMLImageElement) {
+        width = mediaElement.width || canvas.width;
+        height = mediaElement.height || canvas.height;
+      }
+
+      width *= transform.scale * transform.scaleX;
+      height *= transform.scale * transform.scaleY;
+
+      const clipX = transform.x;
+      const clipY = transform.y;
+
+      if (
+        x >= clipX - width / 2 &&
+        x <= clipX + width / 2 &&
+        y >= clipY - height / 2 &&
+        y <= clipY + height / 2
+      ) {
+        setSelectedClipId(clip.id);
+        renderFrame(playhead);
+        return;
+      }
     }
-  };
 
-  if (!mediaAsset) {
+    setSelectedClipId(null);
+    renderFrame(playhead);
+  }, [activeClips, playhead, renderFrame, assets]);
+
+  // Toggle fullscreen
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  }, []);
+
+  // Get canvas dimensions based on aspect ratio
+  const getCanvasDimensions = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return { width: canvasWidth, height: canvasHeight };
+
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    let width = canvasWidth;
+    let height = canvasHeight;
+
+    switch (aspectRatio) {
+      case '16:9':
+        width = 1920;
+        height = 1080;
+        break;
+      case '9:16':
+        width = 1080;
+        height = 1920;
+        break;
+      case '1:1':
+        width = 1080;
+        height = 1080;
+        break;
+      case '4:3':
+        width = 1440;
+        height = 1080;
+        break;
+      case 'free':
+        width = canvasWidth;
+        height = canvasHeight;
+        break;
+    }
+
+    // Scale to fit container
+    const scaleX = containerWidth / width;
+    const scaleY = containerHeight / height;
+    const scale = Math.min(scaleX, scaleY, 1);
+
+    return {
+      width,
+      height,
+      displayWidth: width * scale,
+      displayHeight: height * scale,
+    };
+  }, [aspectRatio, canvasWidth, canvasHeight]);
+
+  const dimensions = getCanvasDimensions();
+
+  // Update canvas size when dimensions change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+    renderFrame(playhead);
+  }, [dimensions, playhead, renderFrame]);
+
+  if (clips.length === 0) {
     return (
-      <div className="assistant-editor-preview-panel">
+      <div className="assistant-editor-preview-panel" ref={containerRef}>
         <div className="assistant-editor-preview-empty">
-          <p>No media selected</p>
+          <p>No clips on timeline</p>
           <p className="assistant-editor-preview-hint">
-            Click on an asset from the left panel to preview, or drag assets onto the timeline
+            Drag media from the assets panel to the timeline to start editing
           </p>
         </div>
       </div>
@@ -377,123 +490,61 @@ export default function EditorPreviewPanel({
   }
 
   return (
-    <div className="assistant-editor-preview-panel">
-      <div className="assistant-editor-preview-content">
-        {mediaAsset.type === 'video' && mediaAsset.url && mediaUrl && (
-          <div style={{ width: '100%', height: '100%', position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <video
-              ref={videoRef}
-              key={mediaUrl}
-              src={mediaUrl}
-              preload="auto"
-              playsInline
-              muted={false}
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              onLoadedData={() => {
-                if (videoRef.current) {
-                  try {
-                    videoRef.current.currentTime = displayTime;
-                    videoRef.current.volume = volume;
-                    videoRef.current.playbackRate = playbackSpeed;
-                    if (!playing) {
-                      videoRef.current.pause();
-                    }
-                  } catch (e) {
-                    console.error('Error setting video properties on load:', e);
-                  }
-                }
-              }}
-              onLoadedMetadata={() => {
-                if (videoRef.current) {
-                  try {
-                    videoRef.current.currentTime = displayTime;
-                    videoRef.current.volume = volume;
-                    videoRef.current.playbackRate = playbackSpeed;
-                  } catch (e) {
-                    console.error('Error setting video properties on metadata:', e);
-                  }
-                }
-              }}
-              onTimeUpdate={handleVideoTimeUpdate}
-              onSeeked={() => {
-                seekingRef.current = false;
-                if (seekTimeout.current) {
-                  clearTimeout(seekTimeout.current);
-                  seekTimeout.current = null;
-                }
-              }}
-              onError={(e) => {
-                console.error('Video error:', e, 'URL:', mediaUrl.substring(0, 80));
-              }}
-            />
-          </div>
-        )}
-
-        {mediaAsset.type === 'audio' && mediaUrl && (
-          <div className="assistant-editor-preview-audio">
-            <audio
-              ref={audioRef}
-              key={mediaUrl}
-              src={mediaUrl}
-              preload="auto"
-              onLoadedData={() => {
-                if (audioRef.current) {
-                  try {
-                    audioRef.current.currentTime = displayTime;
-                    audioRef.current.volume = volume;
-                    audioRef.current.playbackRate = playbackSpeed;
-                  } catch (e) {
-                    console.error('Error setting audio properties:', e);
-                  }
-                }
-              }}
-              onTimeUpdate={handleAudioTimeUpdate}
-              onSeeked={() => {
-                seekingRef.current = false;
-                if (seekTimeout.current) {
-                  clearTimeout(seekTimeout.current);
-                  seekTimeout.current = null;
-                }
-              }}
-              onError={(e) => {
-                console.error('Audio error:', e);
-              }}
-            />
-            <div className="assistant-editor-preview-audio-info">
-              <p>{mediaAsset.name}</p>
-              <p>{displayTime.toFixed(1)}s</p>
-            </div>
-          </div>
-        )}
-
-        {mediaAsset.type === 'image' && mediaAsset.url && (
-          <div className="assistant-editor-preview-image">
-            <img
-              src={mediaUrl}
-              alt={mediaAsset.name}
-              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-              onError={(e) => {
-                const target = e.currentTarget;
-                if (target.src.includes('/api/proxy') && target.src !== mediaAsset.url) {
-                  target.src = mediaAsset.url || '';
-                } else if (target.src !== mediaAsset.url) {
-                  target.src = mediaAsset.url || '';
-                }
-              }}
-            />
-          </div>
-        )}
-
-        {mediaAsset.type === 'text' && mediaAsset.url && (
-          <div className="assistant-editor-preview-text">
-            {mediaAsset.url.startsWith('data:text') ? (
-              <pre>{atob(mediaAsset.url.split(',')[1] || '')}</pre>
-            ) : (
-              <p>Text content</p>
-            )}
-          </div>
-        )}
+    <div className="assistant-editor-preview-panel" ref={containerRef}>
+      {/* Aspect Ratio Controls */}
+      <div className="assistant-editor-preview-controls">
+        <div className="assistant-editor-preview-aspect-buttons">
+          {(['16:9', '9:16', '1:1', '4:3', 'free'] as AspectRatio[]).map((ratio) => (
+            <button
+              key={ratio}
+              className={`assistant-editor-preview-aspect-btn ${
+                aspectRatio === ratio ? 'active' : ''
+              }`}
+              onClick={() => setAspectRatio(ratio)}
+              type="button"
+              title={`Aspect Ratio ${ratio}`}
+            >
+              {ratio === 'free' ? <Grid3x3 size={14} /> : ratio}
+            </button>
+          ))}
+        </div>
+        
+        <button
+          className="assistant-editor-preview-fullscreen-btn"
+          onClick={toggleFullscreen}
+          type="button"
+          title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+        </button>
       </div>
+
+      {/* Canvas */}
+      <div className="assistant-editor-preview-canvas-container">
+        <canvas
+          ref={canvasRef}
+          className="assistant-editor-preview-canvas"
+          style={{
+            width: dimensions.displayWidth,
+            height: dimensions.displayHeight,
+          }}
+          onClick={handleCanvasClick}
+        />
+      </div>
+
+      {/* Selected Clip Info */}
+      {selectedClipId && (
+        <div className="assistant-editor-preview-selected-info">
+          <span>Selected Clip: {selectedClipId.substring(0, 8)}...</span>
+          <button
+            onClick={() => setSelectedClipId(null)}
+            type="button"
+            className="assistant-editor-preview-deselect-btn"
+          >
+            Deselect
+          </button>
+        </div>
+      )}
     </div>
   );
 }

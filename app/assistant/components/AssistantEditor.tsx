@@ -28,6 +28,7 @@ import EditorKeyframePanel from './EditorKeyframePanel';
 import EditorTextPanel from './EditorTextPanel';
 import EditorSequenceManager from './EditorSequenceManager';
 import EditorShortcutsPanel from './EditorShortcutsPanel';
+import EditorTransformControls from './EditorTransformControls';
 import { editorHistory } from '../../../lib/editorHistory';
 import { exportVideo, downloadBlob } from '../../../lib/clientRenderer';
 
@@ -507,19 +508,32 @@ export default function AssistantEditor({
           )}
 
           <div className="assistant-editor-main">
-            <div className="assistant-editor-preview-panel">
+            <div className="assistant-editor-preview-container" style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
               <EditorPreviewPanel
                 assets={editorState.assets}
                 clips={currentSequence.clips}
+                tracks={currentSequence.tracks}
                 playhead={editorState.playhead}
                 playing={editorState.playing}
-                selectedAssetId={null}
-                selectedClipId={editorState.selectedClipIds[0] || null}
                 volume={editorState.volume}
                 playbackSpeed={editorState.playbackSpeed}
+                canvasWidth={currentSequence.width}
+                canvasHeight={currentSequence.height}
                 onSetPlayhead={handleSetPlayhead}
                 onSetPlaying={handleSetPlaying}
+                onUpdateClip={handleUpdateClip}
               />
+              
+              {/* Transform Controls */}
+              {editorState.selectedClipIds.length === 1 && (() => {
+                const selectedClip = currentSequence.clips.find(c => c.id === editorState.selectedClipIds[0]);
+                return selectedClip ? (
+                  <EditorTransformControls
+                    clip={selectedClip}
+                    onUpdate={(updates) => handleUpdateClip(selectedClip.id, updates)}
+                  />
+                ) : null;
+              })()}
             </div>
 
             <div className="assistant-editor-controls">
