@@ -6,7 +6,7 @@ import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 const FLUX_KONTEXT_ASPECT_RATIOS = ['match_input_image','1:1','16:9','9:16','4:3','3:4','3:2','2:3','4:5','5:4','21:9','9:21','2:1','1:2'] as const;
 const GENERIC_ASPECT_RATIOS = ['1:1','16:9','21:9','3:2','2:3','4:5','5:4','3:4','4:3','9:16','9:21'] as const;
-const MULTI_IMAGE_MODELS = new Set(['google/nano-banana','google/nano-banana-pro','openai/gpt-image-1.5']);
+const MULTI_IMAGE_MODELS = new Set(['google/nano-banana','google/nano-banana-pro','openai/gpt-image-1.5','bytedance/seedream-4','bytedance/seedream-4.5']);
 
 type ReplicateStatus = 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'queued' | 'unknown';
 type ImageJobStatus = 'idle' | 'running' | 'success' | 'error';
@@ -92,6 +92,79 @@ const IMAGE_MODEL_DOCS: Record<string, ModelDoc> = {
       'Iterate in small steps — reusing prior outputs as references when refining details.',
     ],
   },
+  'bytedance/seedream-4': {
+    title: 'Seedream 4',
+    description: `ByteDance's unified text-to-image generation and image editing model with multi-reference support up to 4K resolution.`,
+    inputs: [
+      'prompt (required) — Describe the scene or edit you want to create',
+      'image_input (optional) — Up to 10 reference images for multi-reference generation',
+      'size — Resolution: 1K, 2K, 4K, or custom dimensions (1024-4096px)',
+      'aspect_ratio — Wide range of ratios including match_input_image',
+      'sequential_image_generation — Auto mode for batch/related image generation',
+      'max_images — Maximum images to generate (1-15) when sequential mode is on',
+      'enhance_prompt — Enable prompt enhancement for higher quality (takes longer)',
+      'width/height — Custom dimensions when size is set to custom',
+    ],
+    outputSchema: `{
+  "type": "array",
+  "items": { "type": "string", "format": "uri" },
+  "title": "Output"
+}`,
+    examples: [],
+    tips: [
+      'Use multi-reference mode with 2-10 images to blend styles or maintain consistency.',
+      'Enable sequential_image_generation for batch workflows like story scenes or variations.',
+      'Set enhance_prompt to true for complex prompts but expect longer generation times.',
+      'Supports both text-to-image and image editing in a single unified model.',
+    ],
+  },
+  'bytedance/seedream-4.5': {
+    title: 'Seedream 4.5',
+    description: `Upgraded Seedream with stronger spatial understanding, world knowledge, and cinematic aesthetics. Note: 1K resolution not supported.`,
+    inputs: [
+      'prompt (required) — Detailed description of the image you want',
+      'image_input (optional) — Up to 14 reference images for multi-reference generation',
+      'size — Resolution: 2K or 4K only (1K not supported in 4.5)',
+      'aspect_ratio — Comprehensive aspect ratio support including match_input_image',
+      'sequential_image_generation — Auto mode for generating multiple related images',
+      'max_images — Maximum images to generate (1-15) in sequential mode',
+      'width/height — Custom dimensions (1024-4096px) when size is custom',
+    ],
+    outputSchema: `{
+  "type": "array",
+  "items": { "type": "string", "format": "uri" },
+  "title": "Output"
+}`,
+    examples: [],
+    tips: [
+      'Superior aesthetics with cinematic lighting and refined rendering compared to Seedream 4.',
+      'Better spatial understanding for realistic proportions and believable environments.',
+      'Ideal for professional workflows: e-commerce, film/advertising, architectural design.',
+      'Use up to 14 reference images for complex multi-image blending.',
+    ],
+  },
+  'bytedance/seededit-3.0': {
+    title: 'Seededit 3.0',
+    description: `Text-guided image editing that preserves original details while making targeted modifications like lighting changes, object removal, and style conversion.`,
+    inputs: [
+      'image (required) — Input image URL to edit',
+      'prompt (required) — Editing instructions (e.g., "Change text to X", "Remove background")',
+      'guidance_scale (optional) — Prompt adherence (default: 5.5), higher = more literal',
+      'seed (optional) — Random seed for reproducible edits',
+    ],
+    outputSchema: `{
+  "type": "string",
+  "format": "uri",
+  "title": "Output"
+}`,
+    examples: [],
+    tips: [
+      'Be specific with edit instructions: "Replace headline text with \'SALE\' keeping same font"',
+      'Works great for: lighting changes, object removal, style conversion, text replacement.',
+      'Preserves unedited areas with high fidelity - perfect for targeted modifications.',
+      'Use higher guidance_scale (6-8) for more literal interpretation of edits.',
+    ],
+  },
 };
 
 type ImageResponse = { id?: string | null; status?: string | null };
@@ -135,6 +208,9 @@ export default function ImagePage() {
     | 'stability-ai/stable-diffusion-3'
     | 'bytedance/hyper-sd'
     | 'openai/gpt-image-1.5'
+    | 'bytedance/seedream-4'
+    | 'bytedance/seedream-4.5'
+    | 'bytedance/seededit-3.0'
   >('black-forest-labs/flux-kontext-max');
   const [jobs, setJobs] = useState<ImageJobRecord[]>(() => [makeImageJob(1)]);
   const [activeJobId, setActiveJobId] = useState<string>(jobs[0]?.id || '');

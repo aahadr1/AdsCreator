@@ -10,8 +10,10 @@ type TtsResponse = { url?: string | null; raw?: any };
 
 export default function TtsPage() {
   const [text, setText] = useState('Hello from Text to Speech!');
-  const [provider, setProvider] = useState<'replicate' | 'elevenlabs' | 'dia'>('replicate');
+  const [provider, setProvider] = useState<'replicate' | 'elevenlabs' | 'dia' | 'kokoro'>('replicate');
   const [voiceId, setVoiceId] = useState('Friendly_Person');
+  const [kokoroVoice, setKokoroVoice] = useState('af_nicole');
+  const [kokoroSpeed, setKokoroSpeed] = useState(1);
   const [elVoiceId, setElVoiceId] = useState('JBFqnCBsd6RMkjVDRZzb');
   const [elModelId, setElModelId] = useState('eleven_multilingual_v2');
   const [elOutputFormat, setElOutputFormat] = useState('mp3_44100_128');
@@ -55,6 +57,7 @@ export default function TtsPage() {
   const providerLabel = useMemo(() => {
     if (provider === 'dia') return 'Replicate (zsxkib/dia · Dialogue)';
     if (provider === 'elevenlabs') return 'ElevenLabs (Premium Quality)';
+    if (provider === 'kokoro') return 'Kokoro 82M (Multilingual · 46 Voices)';
     return 'Replicate (minimax/speech-02-hd)';
   }, [provider]);
 
@@ -62,6 +65,7 @@ export default function TtsPage() {
   const modelName = useMemo(() => {
     if (provider === 'elevenlabs') return 'elevenlabs-tts';
     if (provider === 'dia') return 'dia-tts';
+    if (provider === 'kokoro') return 'jaaari/kokoro-82m';
     return 'minimax-speech-02-hd';
   }, [provider]);
 
@@ -183,11 +187,11 @@ export default function TtsPage() {
           text,
           user_id: user.id, // Add user_id for credit tracking
           provider,
-          voice_id: provider === 'replicate' ? voiceId : elVoiceId,
+          voice_id: provider === 'replicate' ? voiceId : provider === 'kokoro' ? kokoroVoice : elVoiceId,
           model_id: provider === 'elevenlabs' ? elModelId : undefined,
           output_format: provider === 'elevenlabs' ? elOutputFormat : undefined,
           emotion,
-          speed,
+          speed: provider === 'kokoro' ? kokoroSpeed : speed,
           pitch,
           volume,
           language_boost: languageBoost,
@@ -288,6 +292,7 @@ export default function TtsPage() {
               <option value="replicate">Replicate (minimax/speech-02-hd) - 5 credits</option>
               <option value="elevenlabs">ElevenLabs (Premium Quality) - 8 credits</option>
               <option value="dia">Replicate (zsxkib/dia · Dialogue) - 6 credits</option>
+              <option value="kokoro">Kokoro 82M (Multilingual · 46 Voices) - 3 credits</option>
             </select>
           </div>
         </div>
@@ -368,6 +373,94 @@ export default function TtsPage() {
                   <option value="mp3_22050_32">MP3 22kHz 32kbps</option>
                   <option value="wav_44100">WAV 44.1kHz</option>
                 </select>
+              </div>
+            </>
+          ) : provider === 'kokoro' ? (
+            <>
+              <div>
+                <div className="small">Kokoro Voice (46 voices, 6+ languages)</div>
+                <select className="select" value={kokoroVoice} onChange={(e)=>setKokoroVoice(e.target.value)}>
+                  <optgroup label="American English (Female)">
+                    <option value="af_alloy">AF Alloy</option>
+                    <option value="af_aoede">AF Aoede</option>
+                    <option value="af_bella">AF Bella (High Quality)</option>
+                    <option value="af_jessica">AF Jessica</option>
+                    <option value="af_kore">AF Kore</option>
+                    <option value="af_nicole">AF Nicole (Default)</option>
+                    <option value="af_nova">AF Nova</option>
+                    <option value="af_river">AF River</option>
+                    <option value="af_sarah">AF Sarah</option>
+                    <option value="af_sky">AF Sky</option>
+                  </optgroup>
+                  <optgroup label="American English (Male)">
+                    <option value="am_adam">AM Adam</option>
+                    <option value="am_echo">AM Echo</option>
+                    <option value="am_eric">AM Eric</option>
+                    <option value="am_fenrir">AM Fenrir</option>
+                    <option value="am_liam">AM Liam</option>
+                    <option value="am_michael">AM Michael</option>
+                    <option value="am_onyx">AM Onyx</option>
+                    <option value="am_puck">AM Puck</option>
+                  </optgroup>
+                  <optgroup label="British English (Female)">
+                    <option value="bf_alice">BF Alice</option>
+                    <option value="bf_emma">BF Emma</option>
+                    <option value="bf_isabella">BF Isabella</option>
+                    <option value="bf_lily">BF Lily</option>
+                  </optgroup>
+                  <optgroup label="British English (Male)">
+                    <option value="bm_daniel">BM Daniel</option>
+                    <option value="bm_fable">BM Fable</option>
+                    <option value="bm_george">BM George</option>
+                    <option value="bm_lewis">BM Lewis</option>
+                  </optgroup>
+                  <optgroup label="French">
+                    <option value="ff_siwis">FF Siwis</option>
+                  </optgroup>
+                  <optgroup label="Hindi">
+                    <option value="hf_alpha">HF Alpha (Female)</option>
+                    <option value="hf_beta">HF Beta (Female)</option>
+                    <option value="hm_omega">HM Omega (Male)</option>
+                    <option value="hm_psi">HM Psi (Male)</option>
+                  </optgroup>
+                  <optgroup label="Italian">
+                    <option value="if_sara">IF Sara (Female)</option>
+                    <option value="im_nicola">IM Nicola (Male)</option>
+                  </optgroup>
+                  <optgroup label="Japanese">
+                    <option value="jf_alpha">JF Alpha (Female)</option>
+                    <option value="jf_gongitsune">JF Gongitsune (Female)</option>
+                    <option value="jf_nezumi">JF Nezumi (Female)</option>
+                    <option value="jf_tebukuro">JF Tebukuro (Female)</option>
+                    <option value="jm_kumo">JM Kumo (Male)</option>
+                  </optgroup>
+                  <optgroup label="Mandarin Chinese">
+                    <option value="zf_xiaobei">ZF Xiaobei (Female)</option>
+                    <option value="zf_xiaoni">ZF Xiaoni (Female)</option>
+                    <option value="zf_xiaoxiao">ZF Xiaoxiao (Female)</option>
+                    <option value="zf_xiaoyi">ZF Xiaoyi (Female)</option>
+                    <option value="zm_yunjian">ZM Yunjian (Male)</option>
+                    <option value="zm_yunxi">ZM Yunxi (Male)</option>
+                    <option value="zm_yunxia">ZM Yunxia (Male)</option>
+                    <option value="zm_yunyang">ZM Yunyang (Male)</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <div className="small">Speed (0.5x - 2.0x)</div>
+                <input 
+                  type="number" 
+                  className="input" 
+                  value={kokoroSpeed} 
+                  onChange={(e)=>setKokoroSpeed(Number(e.target.value))} 
+                  min={0.5} 
+                  max={2.0} 
+                  step={0.1}
+                  placeholder="1.0"
+                />
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
+                  {kokoroSpeed < 1 ? `${kokoroSpeed}x slower` : kokoroSpeed > 1 ? `${kokoroSpeed}x faster` : 'Normal speed'}
+                </div>
               </div>
             </>
           ) : (

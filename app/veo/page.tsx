@@ -15,6 +15,10 @@ type VideoModelValue =
   | 'bytedance/seedance-1-lite'
   | 'wan-video/wan-2.2-i2v-fast'
   | 'wan-video/wan-2.2-animate-replace'
+  | 'wan-video/wan-2.5-i2v'
+  | 'bytedance/omni-human-1.5'
+  | 'lightricks/ltx-2-fast'
+  | 'lightricks/ltx-2-pro'
   | 'kwaivgi/kling-v2.5-turbo-pro'
   | 'kwaivgi/kling-v2.1';
 
@@ -80,12 +84,36 @@ const VIDEO_MODELS: readonly VideoModelMeta[] = [
   {
     value: 'wan-video/wan-2.2-animate-replace',
     label: 'Wan 2.2 Animate Replace',
-    description: 'Swap characters inside existing footage using Wan’s character replacement.',
+    description: 'Swap characters inside existing footage using Wan\'s character replacement.',
+  },
+  {
+    value: 'wan-video/wan-2.5-i2v',
+    label: 'Alibaba WAN 2.5 i2v',
+    badge: 'New',
+    description: 'Image-to-video with background audio sync, up to 10s, supports 480p/720p/1080p with one-pass A/V sync.',
+  },
+  {
+    value: 'bytedance/omni-human-1.5',
+    label: 'ByteDance Omni Human 1.5',
+    badge: 'Film-grade',
+    description: 'Film-grade digital human from image + audio (<35s). Perfect for realistic talking head videos.',
+  },
+  {
+    value: 'lightricks/ltx-2-fast',
+    label: 'LTX 2 Fast',
+    badge: 'Lightning',
+    description: 'Ultra-fast 6-10s video generation with auto-synced audio. Renders faster than playback, ideal for rapid prototyping.',
+  },
+  {
+    value: 'lightricks/ltx-2-pro',
+    label: 'LTX 2 Pro',
+    badge: 'Pro',
+    description: 'High visual fidelity 6-10s videos with fast turnaround. Superior quality for daily content creation.',
   },
   {
     value: 'kwaivgi/kling-v2.5-turbo-pro',
     label: 'Kling 2.5 Turbo Pro',
-    badge: 'New',
+    badge: 'Cinematic',
     description: 'Pro-level text-to-video and image-to-video with silky motion and cinematic depth.',
   },
   {
