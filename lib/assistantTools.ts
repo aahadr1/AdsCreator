@@ -104,6 +104,45 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     ],
   },
   {
+    model: 'bytedance/seedream-4',
+    defaults: { size: '2K', aspect_ratio: '1:1', sequential_image_generation: 'disabled', max_images: 1, enhance_prompt: false },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Text prompt for image generation' },
+      { key: 'image_input', label: 'Input image(s) URLs (comma separated)', type: 'text', helper: 'List of 1-10 images for single or multi-reference generation' },
+      { key: 'size', label: 'Image size', type: 'select', options: ['1K', '2K', '4K', 'custom'].map((s) => ({ value: s, label: s })), helper: '1K (1024px), 2K (2048px), 4K (4096px), or custom for specific dimensions' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: ['match_input_image', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9', '9:21'].map((r) => ({ value: r, label: r })), helper: 'Use match_input_image to match input image aspect ratio' },
+      { key: 'width', label: 'Custom width (px)', type: 'number', min: 1024, max: 4096, helper: 'Only used when size=custom. Range: 1024-4096 pixels' },
+      { key: 'height', label: 'Custom height (px)', type: 'number', min: 1024, max: 4096, helper: 'Only used when size=custom. Range: 1024-4096 pixels' },
+      { key: 'sequential_image_generation', label: 'Sequential generation', type: 'select', options: [{ value: 'disabled', label: 'Disabled' }, { value: 'auto', label: 'Auto' }], helper: 'Auto lets model decide whether to generate multiple related images' },
+      { key: 'max_images', label: 'Max images', type: 'number', min: 1, max: 15, helper: 'Maximum number of images when sequential_image_generation=auto' },
+      { key: 'enhance_prompt', label: 'Enhance prompt', type: 'select', options: [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }], helper: 'Enable prompt enhancement for higher quality (takes longer)' },
+    ],
+  },
+  {
+    model: 'bytedance/seedream-4.5',
+    defaults: { size: '2K', aspect_ratio: 'match_input_image', sequential_image_generation: 'disabled', max_images: 1 },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Text prompt for image generation' },
+      { key: 'image_input', label: 'Input image(s) URLs (comma separated)', type: 'text', helper: 'List of 1-14 images for single or multi-reference generation' },
+      { key: 'size', label: 'Image size', type: 'select', options: ['2K', '4K', 'custom'].map((s) => ({ value: s, label: s })), helper: '2K (2048px), 4K (4096px), or custom. Note: 1K not supported in 4.5' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: ['match_input_image', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9', '9:21'].map((r) => ({ value: r, label: r })), helper: 'Use match_input_image to match input image aspect ratio' },
+      { key: 'width', label: 'Custom width (px)', type: 'number', min: 1024, max: 4096, helper: 'Only used when size=custom. Range: 1024-4096 pixels' },
+      { key: 'height', label: 'Custom height (px)', type: 'number', min: 1024, max: 4096, helper: 'Only used when size=custom. Range: 1024-4096 pixels' },
+      { key: 'sequential_image_generation', label: 'Sequential generation', type: 'select', options: [{ value: 'disabled', label: 'Disabled' }, { value: 'auto', label: 'Auto' }], helper: 'Auto lets model decide whether to generate multiple related images' },
+      { key: 'max_images', label: 'Max images', type: 'number', min: 1, max: 15, helper: 'Maximum number of images when sequential_image_generation=auto' },
+    ],
+  },
+  {
+    model: 'bytedance/seededit-3.0',
+    defaults: { guidance_scale: 5.5 },
+    fields: [
+      { key: 'image', label: 'Input image URL (required)', type: 'url', required: true, helper: 'Input image to edit' },
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Text prompt for image editing (e.g., "Change text to X", "Replace background")' },
+      { key: 'guidance_scale', label: 'Guidance scale', type: 'number', helper: 'Prompt adherence. Higher = more literal interpretation' },
+      { key: 'seed', label: 'Seed', type: 'number', helper: 'Random seed for reproducible generation' },
+    ],
+  },
+  {
     model: 'google/veo-3-fast',
     defaults: { resolution: '720p' },
     fields: [
@@ -229,6 +268,53 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     ],
   },
   {
+    model: 'wan-video/wan-2.5-i2v',
+    defaults: { resolution: '720p', duration: 10, enable_prompt_expansion: true },
+    fields: [
+      { key: 'image', label: 'Input image URL (required)', type: 'url', required: true, helper: 'Input image for video generation' },
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Text prompt for video generation' },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'textarea', helper: 'Negative prompt to avoid certain elements' },
+      { key: 'audio', label: 'Audio file URL', type: 'url', helper: 'Audio file (wav/mp3, 3-30s, ≤15MB) for voice/music synchronization' },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['480p', '720p', '1080p'].map((r) => ({ value: r, label: r })) },
+      { key: 'duration', label: 'Duration (s)', type: 'number', min: 1, max: 10, helper: 'Duration of the generated video in seconds' },
+      { key: 'enable_prompt_expansion', label: 'Enable prompt expansion', type: 'select', options: [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }], helper: 'Enable prompt optimizer for better results' },
+      { key: 'seed', label: 'Seed', type: 'number', helper: 'Random seed for reproducible generation' },
+    ],
+  },
+  {
+    model: 'bytedance/omni-human-1.5',
+    defaults: { fast_mode: true },
+    fields: [
+      { key: 'image', label: 'Image URL (required)', type: 'url', required: true, helper: 'Input image containing a human subject, face or character' },
+      { key: 'audio', label: 'Audio URL (required)', type: 'url', required: true, helper: 'Input audio file (MP3, WAV, etc.). Duration must be less than 35 seconds' },
+      { key: 'prompt', label: 'Prompt', type: 'textarea', helper: 'Optional prompt for precise control of scene, movements, camera movements. Supports multiple languages' },
+      { key: 'fast_mode', label: 'Fast mode', type: 'select', options: [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }], helper: 'Enable fast mode to speed up generation by sacrificing some effects' },
+      { key: 'seed', label: 'Seed', type: 'number', helper: 'Random seed for reproducible generation' },
+    ],
+  },
+  {
+    model: 'lightricks/ltx-2-fast',
+    defaults: { resolution: '1080p', duration: 6, generate_audio: false },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Text prompt describing the video to generate' },
+      { key: 'image', label: 'First frame image URL', type: 'url', helper: 'Optional first frame image for image-to-video generation' },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })), helper: 'Resolution quality of the generated video' },
+      { key: 'duration', label: 'Duration (s)', type: 'select', options: [6, 8, 10].map((d) => ({ value: String(d), label: `${d}s` })), helper: 'Duration of video (6, 8, or 10 seconds). Durations > 10s only available with 1080p' },
+      { key: 'generate_audio', label: 'Generate audio', type: 'select', options: [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }], helper: 'Generate audio for the video' },
+    ],
+  },
+  {
+    model: 'lightricks/ltx-2-pro',
+    defaults: { resolution: '1080p', duration: 6, generate_audio: false },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Text prompt describing the video to generate' },
+      { key: 'image', label: 'First frame image URL', type: 'url', helper: 'Optional first frame image for image-to-video generation' },
+      { key: 'resolution', label: 'Resolution', type: 'select', options: ['720p', '1080p'].map((r) => ({ value: r, label: r })), helper: 'Resolution quality of the generated video' },
+      { key: 'duration', label: 'Duration (s)', type: 'number', min: 6, max: 10, helper: 'Duration of the video in seconds' },
+      { key: 'generate_audio', label: 'Generate audio', type: 'select', options: [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }], helper: 'Generate audio for the video' },
+    ],
+  },
+  {
     model: 'minimax-speech-02-hd',
     fields: [
       { key: 'text', label: 'Text', type: 'textarea', required: true },
@@ -247,6 +333,42 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
     fields: [
       { key: 'text', label: 'Text', type: 'textarea', required: true },
       { key: 'voice_id', label: 'Voice ID', type: 'text' },
+    ],
+  },
+  {
+    model: 'jaaari/kokoro-82m',
+    defaults: { voice: 'af_nicole', speed: 1 },
+    fields: [
+      { key: 'text', label: 'Text', type: 'textarea', required: true, helper: 'Text input (long text is automatically split)' },
+      { key: 'voice', label: 'Voice', type: 'select', options: [
+        { value: 'af_alloy', label: 'AF Alloy (Female US)' },
+        { value: 'af_aoede', label: 'AF Aoede (Female US)' },
+        { value: 'af_bella', label: 'AF Bella (Female US) - High Quality' },
+        { value: 'af_jessica', label: 'AF Jessica (Female US)' },
+        { value: 'af_kore', label: 'AF Kore (Female US)' },
+        { value: 'af_nicole', label: 'AF Nicole (Female US) - Default' },
+        { value: 'af_nova', label: 'AF Nova (Female US)' },
+        { value: 'af_river', label: 'AF River (Female US)' },
+        { value: 'af_sarah', label: 'AF Sarah (Female US)' },
+        { value: 'af_sky', label: 'AF Sky (Female US)' },
+        { value: 'am_adam', label: 'AM Adam (Male US)' },
+        { value: 'am_echo', label: 'AM Echo (Male US)' },
+        { value: 'am_eric', label: 'AM Eric (Male US)' },
+        { value: 'am_fenrir', label: 'AM Fenrir (Male US)' },
+        { value: 'am_liam', label: 'AM Liam (Male US)' },
+        { value: 'am_michael', label: 'AM Michael (Male US)' },
+        { value: 'am_onyx', label: 'AM Onyx (Male US)' },
+        { value: 'am_puck', label: 'AM Puck (Male US)' },
+        { value: 'bf_alice', label: 'BF Alice (Female UK)' },
+        { value: 'bf_emma', label: 'BF Emma (Female UK)' },
+        { value: 'bf_isabella', label: 'BF Isabella (Female UK)' },
+        { value: 'bf_lily', label: 'BF Lily (Female UK)' },
+        { value: 'bm_daniel', label: 'BM Daniel (Male UK)' },
+        { value: 'bm_fable', label: 'BM Fable (Male UK)' },
+        { value: 'bm_george', label: 'BM George (Male UK)' },
+        { value: 'bm_lewis', label: 'BM Lewis (Male UK)' },
+      ], helper: 'Voice to use for synthesis. Supports US English and UK English voices' },
+      { key: 'speed', label: 'Speed', type: 'number', min: 0.5, max: 2.0, helper: 'Speech speed multiplier (0.5 = half speed, 2.0 = double speed)' },
     ],
   },
   {
@@ -306,6 +428,9 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { id: 'black-forest-labs/flux-krea-dev', label: 'Flux Krea Dev', defaultInputs: { aspect_ratio: '1:1' } },
       { id: 'google/nano-banana', label: 'Nano Banana', defaultInputs: { output_format: 'jpg' } },
       { id: 'google/nano-banana-pro', label: 'Nano Banana Pro', defaultInputs: { output_format: 'png' } },
+      { id: 'bytedance/seedream-4', label: 'Seedream 4', defaultInputs: { size: '2K', aspect_ratio: '1:1' } },
+      { id: 'bytedance/seedream-4.5', label: 'Seedream 4.5', defaultInputs: { size: '2K', aspect_ratio: 'match_input_image' } },
+      { id: 'bytedance/seededit-3.0', label: 'Seededit 3.0', defaultInputs: { guidance_scale: 5.5 } },
     ],
   },
   video: {
@@ -326,6 +451,10 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { id: 'kwaivgi/kling-v2.1', label: 'Kling v2.1', defaultInputs: { duration: 4, aspect_ratio: '16:9', mode: 'default' } },
       { id: 'wan-video/wan-2.2-i2v-fast', label: 'WAN 2.2 i2v Fast', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'wan-video/wan-2.2-animate-replace', label: 'WAN 2.2 Animate Replace', defaultInputs: { aspect_ratio: '16:9' } },
+      { id: 'wan-video/wan-2.5-i2v', label: 'WAN 2.5 i2v', defaultInputs: { resolution: '720p', duration: 10 } },
+      { id: 'bytedance/omni-human-1.5', label: 'Omni Human 1.5', defaultInputs: { fast_mode: true } },
+      { id: 'lightricks/ltx-2-fast', label: 'LTX 2 Fast', defaultInputs: { resolution: '1080p', duration: 6 } },
+      { id: 'lightricks/ltx-2-pro', label: 'LTX 2 Pro', defaultInputs: { resolution: '1080p', duration: 6 } },
       { id: 'bytedance/seedance-1-lite', label: 'Seedance 1 Lite', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'bytedance/seedance-1-pro', label: 'Seedance 1 Pro', defaultInputs: { aspect_ratio: '16:9' } },
     ],
@@ -436,6 +565,7 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { id: 'minimax-speech-02-hd', label: 'Minimax Speech 02 HD', defaultInputs: { provider: 'replicate' } },
       { id: 'elevenlabs-tts', label: 'ElevenLabs TTS', defaultInputs: { provider: 'elevenlabs' } },
       { id: 'dia-tts', label: 'Dia TTS', defaultInputs: { provider: 'dia' } },
+      { id: 'jaaari/kokoro-82m', label: 'Kokoro 82M', defaultInputs: { voice: 'af_nicole', speed: 1 } },
     ],
   },
 };
@@ -597,6 +727,9 @@ Image Generation:
 - black-forest-labs/flux-krea-dev: Square format optimized, multiple outputs (1-4). Use for: Instagram posts, square social media, balanced compositions.
 - google/nano-banana: Fast generation, lightweight. Use for: Quick iterations, simple images, speed priority.
 - google/nano-banana-pro: Enhanced Nano Banana with aspect ratio control. Use for: Fast generation with format control.
+- bytedance/seedream-4: Unified text-to-image and image editing, multi-reference support (1-10 images), up to 4K. Use for: Complex compositions, image editing, batch generation, style transfer.
+- bytedance/seedream-4.5: Upgraded Seedream with stronger spatial understanding, cinematic aesthetics, up to 4K (no 1K). Use for: High-quality professional content, e-commerce, film/advertising, architectural design.
+- bytedance/seededit-3.0: Text-guided image editing, preserves original details while making targeted modifications. Use for: Lighting changes, object removal, style conversion, text replacement in existing images.
 
 Video Generation:
 - google/veo-3.1-fast: Balanced quality/speed, strong prompt following. Use for: Social media videos, quick iterations, 720p/1080p.
@@ -609,6 +742,10 @@ Video Generation:
 - kwaivgi/kling-v2.1: Image-to-video with modes. Use for: Photo-to-video, video2video, requires start_image, 4-8 seconds.
 - wan-video/wan-2.2-i2v-fast: Fast image-to-video. Use for: Quick animation from stills, 2-8 seconds, requires start_image.
 - wan-video/wan-2.2-animate-replace: Character replacement. Use for: Swapping characters in videos, requires video + character_image.
+- wan-video/wan-2.5-i2v: Alibaba Wan 2.5 image-to-video with background audio, up to 10s, 480p/720p/1080p. Use for: Audio-synchronized video from images, voice/music sync, requires image + prompt, optional audio input.
+- bytedance/omni-human-1.5: Film-grade digital human from image + audio (<35s). Use for: Realistic talking head videos, character-driven content, portrait animation with audio lip-sync.
+- lightricks/ltx-2-fast: Lightning-fast video generation (6-10s) with auto-synced audio, 720p/1080p. Use for: Instant ideation, rapid prototyping, mobile workflows, storyboarding, text-to-video with audio.
+- lightricks/ltx-2-pro: High visual fidelity with fast turnaround (6-10s), 720p/1080p. Use for: Daily content creation, marketing teams, iterative creative workflows, professional quality.
 - bytedance/seedance-1-pro: Character motion specialist. Use for: High-energy ads, character animation.
 - bytedance/seedance-1-lite: Fast character motion. Use for: Quick character animation, budget-friendly.
 
@@ -616,6 +753,7 @@ Text-to-Speech (TTS):
 - minimax-speech-02-hd: Fast, cost-effective. Use for: Quick voiceovers, general purpose, provider: "replicate".
 - elevenlabs-tts: Premium quality voices. Use for: High-quality narrations, professional content, provider: "elevenlabs".
 - dia-tts: Customizable, emotion control. Use for: Custom voices, emotion/speed/pitch control, provider: "dia".
+- jaaari/kokoro-82m: Lightweight 82M param model, 46 voices (US/UK English, French, Hindi, Italian, Japanese, Chinese), Apache-licensed. Use for: Fast TTS, cost-effective voiceovers, multilingual content, mobile workflows. Speed control: 0.5-2.0x.
 
 Lip Sync:
 - sievesync-1.1: Fast lipsync. Use for: Quick lipsync on existing videos, backend: "sievesync-1.1".
@@ -952,6 +1090,31 @@ IMAGE GENERATION MODELS:
    Output format: enum "jpg" | "png" (default: "jpg").
    Safety filter: enum "block_low_and_above" | "block_medium_and_above" | "block_only_high" (default: "block_only_high").
 
+6. bytedance/seedream-4 – Seedream 4
+   Required: prompt (string).
+   Optional: image_input (array of 1-10 URIs) – for single or multi-reference generation.
+   Size: enum "1K" | "2K" | "4K" | "custom" (default: "2K"). If custom: width (integer 1024-4096), height (integer 1024-4096).
+   Aspect ratio: enum "match_input_image" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "4:5" | "5:4" | "21:9" | "9:21" (default: "1:1").
+   Sequential image generation: enum "disabled" | "auto" (default: "disabled"). When "auto", model decides whether to generate multiple related images.
+   Max images: integer 1-15 (default: 1) – used when sequential_image_generation is "auto". Total images (input + generated) cannot exceed 15.
+   Enhance prompt: boolean (default: false) – enables prompt enhancement for higher quality (takes longer).
+   Use for: Unified text-to-image generation and image editing, multi-reference support, batch workflows, style transfer.
+
+7. bytedance/seedream-4.5 – Seedream 4.5
+   Required: prompt (string).
+   Optional: image_input (array of 1-14 URIs) – for single or multi-reference generation.
+   Size: enum "2K" | "4K" | "custom" (default: "2K"). Note: 1K resolution NOT supported in Seedream 4.5. If custom: width (integer 1024-4096), height (integer 1024-4096).
+   Aspect ratio: enum "match_input_image" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "4:5" | "5:4" | "21:9" | "9:21" (default: "match_input_image").
+   Sequential image generation: enum "disabled" | "auto" (default: "disabled"). When "auto", model decides whether to generate multiple related images.
+   Max images: integer 1-15 (default: 1) – used when sequential_image_generation is "auto". Total images (input + generated) cannot exceed 15.
+   Use for: Upgraded version with stronger spatial understanding, world knowledge, cinematic aesthetics, professional workflows, e-commerce, film/advertising.
+
+8. bytedance/seededit-3.0 – Seededit 3.0
+   Required: image (URI), prompt (string) – text-guided editing instructions (e.g., "Change text to X", "Remove object Y", "Replace background").
+   Guidance scale: number (default: 5.5) – prompt adherence, higher = more literal interpretation.
+   Optional: seed (integer) – for reproducible generation.
+   Use for: Text-guided image editing, preserving original details while making targeted modifications, lighting changes, object removal, style conversion, text replacement.
+
 VIDEO GENERATION MODELS:
 
 6-9. google/veo-3.1-fast, google/veo-3-fast, google/veo-3.1, google/veo-3
@@ -1014,7 +1177,40 @@ VIDEO GENERATION MODELS:
 17. bytedance/seedance-1-pro – Seedance 1 Pro
    Same as Lite, but default resolution is "1080p" and reference_images field is not present.
 
-18. wan-video/wan-2.2-s2v – WAN 2.2 S2V (Cinematic)
+18. wan-video/wan-2.5-i2v – WAN 2.5 i2v
+   Required: image (URI) – input image for video generation, prompt (string) – text prompt for video generation.
+   Optional: negative_prompt (string) – negative prompt to avoid certain elements.
+   Audio: audio (URI) – optional audio file (wav/mp3, 3-30s, ≤15MB) for voice/music synchronization.
+   Resolution: enum "480p" | "720p" | "1080p" (default: "720p").
+   Duration: integer 1-10 seconds (default: 10) – duration of the generated video.
+   Enable prompt expansion: boolean (default: true) – enables prompt optimizer for better results.
+   Seed: integer (optional) – random seed for reproducible generation.
+   Use for: Alibaba Wan 2.5 image-to-video with background audio support, audio-synchronized video generation, one-pass A/V sync.
+
+19. bytedance/omni-human-1.5 – Omni Human 1.5
+   Required: image (URI) – input image containing human subject/face/character, audio (URI) – input audio file (MP3, WAV, etc.). Audio duration MUST be less than 35 seconds or generation will fail.
+   Optional: prompt (string) – optional prompt for precise control of scene, movements, camera movements. Supports Chinese, English, Japanese, Korean, Spanish, and Indonesian.
+   Fast mode: boolean (default: true) – enable fast mode to speed up generation by sacrificing some effects.
+   Seed: integer (optional) – random seed for reproducible generation.
+   Use for: Film-grade digital human videos from single image + audio, realistic talking head videos, character-driven content, portrait animation with audio lip-sync.
+
+20. lightricks/ltx-2-fast – LTX 2 Fast
+   Required: prompt (string) – text prompt describing the video to generate. Write as one vivid paragraph in present tense with camera moves, lighting, and actions.
+   Optional: image (URI) – first frame image for optional image-to-video generation.
+   Resolution: enum "720p" | "1080p" (default: "1080p") – resolution quality of the generated video.
+   Duration: enum 6 | 8 | 10 seconds (default: 6) – duration of video. Durations longer than 10 seconds only available with 1080p resolution.
+   Generate audio: boolean (default: false) – generate audio for the video with perfectly synced SFX/dialogue/music.
+   Use for: Lightning-fast video generation (renders faster than playback), instant ideation, storyboarding, mobile workflows, high-throughput production. Ideal for rapid prototyping and iterative workflows.
+
+21. lightricks/ltx-2-pro – LTX 2 Pro
+   Required: prompt (string) – text prompt describing the video to generate. Write as one flowing paragraph with camera behavior, lighting, physical details.
+   Optional: image (URI) – first frame image for optional image-to-video generation.
+   Resolution: enum "720p" | "1080p" (default: "1080p") – resolution quality of the generated video.
+   Duration: integer 6-10 seconds (default: 6) – duration of the video in seconds.
+   Generate audio: boolean (default: false) – generate audio for the video.
+   Use for: High visual fidelity with fast turnaround, daily content creation, marketing teams, iterative creative workflows. Delivers superior quality vs Fast mode.
+
+22. wan-video/wan-2.2-s2v – WAN 2.2 S2V (Cinematic)
    Required: audio (URI), image (URI) – audio drives lip-sync, image is first frame.
    Optional: prompt (string) – describe additional visual elements.
    Frames per chunk: num_frames_per_chunk integer 1–121 (default: 81).
@@ -1023,7 +1219,7 @@ VIDEO GENERATION MODELS:
 
 TEXT-TO-SPEECH MODELS:
 
-20. minimax-speech-02-hd – Minimax Speech 02 HD
+23. minimax-speech-02-hd – Minimax Speech 02 HD
    Required: text (string) – up to 10,000 characters. Use markers like <#0.5#> for pauses.
    Pitch: integer -12 to +12 semitones (default: 0).
    Speed: float 0.5–2.0 (default: 1).
@@ -1038,11 +1234,11 @@ TEXT-TO-SPEECH MODELS:
    Subtitle enable: boolean (default: false).
    English normalization: boolean (default: false).
 
-21. elevenlabs-tts – ElevenLabs TTS
+24. elevenlabs-tts – ElevenLabs TTS
    Required: text (string), voice_id (string).
    Optional: model_id (string, e.g., "eleven_turbo_v2", "eleven_multilingual_v2"), voice_settings (object with stability, similarity_boost, style, use_speaker_boost).
 
-22. dia-tts (zsxkib/dia) – Dia 1.6B
+25. dia-tts (zsxkib/dia) – Dia 1.6B
    Required: text (string) – use markers like [S1], [S2] for speaker changes, parentheses for non-verbal actions (e.g., "(laughs)").
    Top P: float 0.1–1 (default: 0.95).
    CFG scale: float 1–5 (default: 3).
@@ -1054,21 +1250,34 @@ TEXT-TO-SPEECH MODELS:
    CFG filter top K: integer 10–100 (default: 45).
    Optional: seed (integer).
 
+26. jaaari/kokoro-82m – Kokoro 82M
+   Required: text (string) – text input (long text is automatically split).
+   Voice: string (default: "af_nicole") – voice to use for synthesis. Supports 46 voices across multiple languages:
+     American English (US): af_alloy, af_aoede, af_bella (high quality), af_jessica, af_kore, af_nicole, af_nova, af_river, af_sarah, af_sky, am_adam, am_echo, am_eric, am_fenrir, am_liam, am_michael, am_onyx, am_puck
+     British English (UK): bf_alice, bf_emma, bf_isabella, bf_lily, bm_daniel, bm_fable, bm_george, bm_lewis
+     French (FR): ff_siwis
+     Hindi (IN): hf_alpha, hf_beta, hm_omega, hm_psi
+     Italian (IT): if_sara, im_nicola
+     Japanese (JP): jf_alpha, jf_gongitsune, jf_nezumi, jf_tebukuro, jm_kumo
+     Mandarin Chinese (CN): zf_xiaobei, zf_xiaoni, zf_xiaoxiao, zf_xiaoyi, zm_yunjian, zm_yunxi, zm_yunxia, zm_yunyang
+   Speed: float 0.5–2.0 (default: 1) – speech speed multiplier (0.5 = half speed, 2.0 = double speed).
+   Use for: Lightweight 82M param TTS model, fast generation, cost-effective voiceovers, multilingual content, mobile workflows. Apache-licensed, ideal for production environments and personal projects.
+
 LIP SYNC MODELS:
 
-23. sievesync-1.1 – Sieve Sync 1.1
+27. sievesync-1.1 – Sieve Sync 1.1
    Required: video (URI), audio (URI).
    Backend: string "sievesync-1.1" (default).
    Optional: enable_multispeaker (boolean), enhance (boolean), check_quality (boolean), downsample (boolean), cut_by (string).
 
-24. bytedance/latentsync – LatentSync
+28. bytedance/latentsync – LatentSync
    Required: audio (URI), video (URI).
    Guidance scale: number (default: 1, max: 10).
    Optional: seed (integer, 0 for random).
 
-25. wan-video/wan-2.2-s2v – Wan 2.2 S2V (see section 18 above)
+29. wan-video/wan-2.2-s2v – Wan 2.2 S2V (see section 22 above)
 
-26. wavespeed-ai/infinitetalk – InfiniteTalk (Image-to-Video)
+30. wavespeed-ai/infinitetalk – InfiniteTalk (Image-to-Video)
    Required: image (URI), audio (URI).
    Optional: prompt (string) – describe expression, style, or pose.
    Optional: mask_image (URI) – specify which regions can move (CRITICAL: do NOT upload full image, only the regions to animate).
@@ -1077,7 +1286,7 @@ LIP SYNC MODELS:
    Max length: 10 minutes (600 seconds). Processing: ~10-30 seconds wall time per 1 second of video.
    Use for: Single character talking videos from static photos, image-to-video lipsync.
 
-27. wavespeed-ai/infinitetalk/multi – InfiniteTalk Multi (Two Characters)
+31. wavespeed-ai/infinitetalk/multi – InfiniteTalk Multi (Two Characters)
    Required: image (URI) – must clearly show two people, left_audio (URI), right_audio (URI).
    Optional: prompt (string) – describe additional visual elements.
    Order: enum "meanwhile" | "left_right" | "right_left" (default: "meanwhile").
@@ -1089,7 +1298,7 @@ LIP SYNC MODELS:
    Max length: 10 minutes (600 seconds). Processing: ~10-30 seconds wall time per 1 second of video.
    Use for: Multi-character talking videos, conversations, duets, interviews with two people.
 
-28. wavespeed-ai/infinitetalk/video-to-video – InfiniteTalk Video-to-Video
+32. wavespeed-ai/infinitetalk/video-to-video – InfiniteTalk Video-to-Video
    Required: video (URI), audio (URI).
    Optional: prompt (string) – describe style, pose, or expressions.
    Optional: mask_image (URI) – specify which regions can move (CRITICAL: do NOT upload full image, only the regions to animate).
@@ -1100,19 +1309,19 @@ LIP SYNC MODELS:
 
 OTHER TOOLS:
 
-29. background-remover (851-labs/background-remover)
+33. background-remover (851-labs/background-remover)
    Required: image (URI) or video_url (URI for videos).
    Output format: enum "png" | "jpg" (default: "png").
    Optional: reverse (boolean), threshold (float 0.0–1.0), background_type (string: "rgba" | "map" | "green" | "white" | [R,G,B] | "blur" | "overlay" | image path, default: "rgba").
 
-30. topazlabs/image-upscale – Topaz Upscale (Enhance)
+34. topazlabs/image-upscale – Topaz Upscale (Enhance)
    Required: image (URI).
    Enhance model: enum "Standard V2" | "Low Resolution V2" | "CGI" | "High Fidelity V2" | "Text Refine" (default: "Standard V2").
    Output format: enum "jpg" | "png" (default: "jpg").
    Upscale factor: enum "None" | "2x" | "4x" | "6x" (default: "None").
    Face enhancement: boolean (default: false). If true: subject_detection enum "None" | "ALL" | "Foreground" | "Background" (default: "None"), face_enhancement_strength float 0–1 (default: 0.8), face_enhancement_creativity float 0–1 (default: 0).
 
-31. openai/gpt-4o-transcribe – GPT-4o Transcribe
+35. openai/gpt-4o-transcribe – GPT-4o Transcribe
    Required: audio_file (URI) – formats: mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm.
    Optional: prompt (string) – guide transcription, language (ISO-639-1 code), temperature (float 0–1, default: 0).
 
@@ -1125,12 +1334,12 @@ VALIDATION RULES FOR THE ASSISTANT:
    - Landscape/YouTube: "16:9"
    - Square/Social: "1:1"
    - For GPT Image 1.5: ONLY "1:1", "3:2", "2:3" (default: "2:3")
-4. Respect limits: Do not exceed maximums (e.g., max 10 images for GPT-Image 1.5, max 14 for Nano Banana Pro, max 121 frames for WAN models, max 10,000 chars for Minimax TTS).
+4. Respect limits: Do not exceed maximums (e.g., max 10 images for GPT-Image 1.5, max 14 for Nano Banana Pro/Seedream 4.5, max 15 for Seedream 4, max 121 frames for WAN models, max 10,000 chars for Minimax TTS, max 35s audio for Omni Human 1.5).
 5. Use defaults: When user doesn't specify, use the default values listed above.
 6. Plan sequential workflows: For complex tasks (image → video, image + audio → lipsync), ensure intermediate outputs are generated before feeding to next model. Match file formats to next model's requirements.
 7. Safety: Leave moderation/safety controls at defaults unless user explicitly requests otherwise.
 
-By following these validation rules and referencing the detailed schema above, construct accurate workflow plans with valid inputs for all 31 models.`;
+By following these validation rules and referencing the detailed schema above, construct accurate workflow plans with valid inputs for all 35 models.`;
 }
 
 
