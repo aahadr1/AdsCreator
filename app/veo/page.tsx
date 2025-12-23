@@ -7,6 +7,8 @@ import { supabaseClient as supabase } from '../../lib/supabaseClient';
 type VideoModelValue =
   | 'google/veo-3.1-fast'
   | 'google/veo-3.1'
+  | 'kwaivgi/kling-v2.5-turbo-pro'
+  | 'kwaivgi/kling-v2.1'
   | 'wan-video/wan-2.2-i2v-fast'
   | 'wan-video/wan-2.2-animate-replace'
   | 'wan-video/wan-2.5-i2v'
@@ -33,6 +35,18 @@ const VIDEO_MODELS: readonly VideoModelMeta[] = [
     label: 'Google VEO 3.1',
     badge: 'Ultra',
     description: 'Top-tier VEO quality with cinematic depth, better camera reasoning, and longer durations.',
+  },
+  {
+    value: 'kwaivgi/kling-v2.5-turbo-pro',
+    label: 'Kling 2.5 Turbo Pro',
+    badge: 'New',
+    description:
+      'Pro-level Kling text-to-video with smooth motion, cinematic depth, and strong prompt fidelity. Supports aspect ratios + optional start image.',
+  },
+  {
+    value: 'kwaivgi/kling-v2.1',
+    label: 'Kling v2.1 Image-to-Video',
+    description: 'Animate a start frame into 5-10s clips (720p/1080p) with accurate gestures and product framing.',
   },
   {
     value: 'wan-video/wan-2.2-i2v-fast',
@@ -115,6 +129,44 @@ const VIDEO_MODEL_DOCS: Record<string, ModelDoc> = {
           guidance_scale: 0.5,
         },
         output: 'https://replicate.delivery/xezq/17c3JG1SzH6NCduMiKp1Cxyqvpad0GXRf507Pqq5GOqNsZsKA/tmpg4w3kyjz.mp4',
+      },
+      {
+        title: 'Image + prompt (Tokyo rain)',
+        link: 'https://replicate.com/p/zz6r0wtn61rma0csg8tr2qnnew',
+        input: {
+          prompt:
+            'A man in a trench coat holding a black umbrella walks briskly through the streets of Tokyo on a rainy night, splashing through puddles. A handheld follow-cam shot from his side and slightly behind. The focus is locked on the man, while background neon signs blur into beautiful bokeh. Cyberpunk aesthetic with a film noir quality; the mood is mysterious and lonely. The pavement is slick and wet, reflecting the vibrant neon signs. Individual raindrops are visible, and a light fog hangs in the air.',
+          duration: 5,
+          aspect_ratio: '16:9',
+          image:
+            'https://replicate.delivery/pbxt/NmA3RGnKCecr9sJH8yREBWdqKvka91xFfc9mAhxrreYmJClz/man-in-rain.jpeg',
+          guidance_scale: 0.5,
+        },
+        output: 'https://replicate.delivery/xezq/ssJoLMbvdLIgIRdWaDY26XEmUJmQfH1Af6He1Z2XHLtqIoxqA/tmpp3vqjumh.mp4',
+      },
+      {
+        title: 'Cinematic hero reveal',
+        link: 'https://replicate.com/p/gq20bdaybdrm80csg8wbd5vst8',
+        input: {
+          prompt:
+            'Prompt: Real-time playback. Wide shot of a ruined city: collapsed towers, fires blazing, storm clouds with lightning. Camera drops fast from the sky over burning streets and tilted buildings. Smoke and dust fill the air. A lone hero walks out of the ruins, silhouetted by fire. Camera shifts front: his face is dirty with dust and sweat, eyes firm, a faint smile. Wind blows, debris rises. Extreme close-up: his eyes reflect the approaching enemy. Music and drums hit. Final wide shot: fire forms a blazing halo behind him - reborn in flames with epic cinematic vibe.',
+          duration: 5,
+          aspect_ratio: '16:9',
+          guidance_scale: 0.5,
+        },
+        output: 'https://replicate.delivery/xezq/Fez1ZQegP1tyC0f18Qr1WyVpVeGWEYS0GPemdGCI9ayvDhGrC/tmp4s6vgmpf.mp4',
+      },
+      {
+        title: 'Parkour FPV',
+        link: 'https://replicate.com/p/a91f3sfp3drmc0csg9bry7rg34',
+        input: {
+          prompt:
+            'A skilled parkour athlete sprints through the city, leaping and doing many flips over urban obstacles. FPV tracking shot, swoops and banks with him.',
+          duration: 5,
+          aspect_ratio: '16:9',
+          guidance_scale: 0.5,
+        },
+        output: 'https://replicate.delivery/xezq/Lzq3zWbgAH7vCRFyf7xef9AEqfNOK1fYk2ZJfprfEdHaZUasKA/tmpmpzrg66r.mp4',
       },
     ],
     tips: [

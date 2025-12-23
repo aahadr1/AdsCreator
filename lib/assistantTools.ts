@@ -34,7 +34,6 @@ const IMAGE_RATIOS_FLUX = ['match_input_image', '16:9', '9:16', '1:1', '4:3', '3
 const IMAGE_RATIOS_SIMPLE = ['1:1', '16:9', '9:16'] as const;
 const VIDEO_RATIOS = ['16:9', '9:16', '1:1'] as const;
 const VIDEO_DURATIONS_SHORT = [4, 5, 6] as const;
-const VIDEO_DURATIONS_KLING = [4, 6, 8] as const;
 
 const MODEL_FIELDS: ModelFieldConfig[] = [
   {
@@ -173,6 +172,31 @@ const MODEL_FIELDS: ModelFieldConfig[] = [
       { key: 'duration', label: 'Duration (s)', type: 'number', min: 1, max: 10, helper: 'Duration of the generated video in seconds' },
       { key: 'enable_prompt_expansion', label: 'Enable prompt expansion', type: 'select', options: [{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }], helper: 'Enable prompt optimizer for better results' },
       { key: 'seed', label: 'Seed', type: 'number', helper: 'Random seed for reproducible generation' },
+    ],
+  },
+  {
+    model: 'kwaivgi/kling-v2.5-turbo-pro',
+    defaults: { aspect_ratio: '16:9', duration: 5 },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Describe the action, camera moves, palette, and pacing' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })), helper: 'Ignored when a start image is supplied' },
+      { key: 'duration', label: 'Duration (s)', type: 'number', min: 1, max: 10, helper: 'Duration of the generated video (1-10 seconds)' },
+      { key: 'start_image', label: 'Start image URL', type: 'url', helper: 'Optional first frame that Kling will animate' },
+      { key: 'image', label: 'Image (deprecated alias)', type: 'url', helper: 'Deprecated alias for start_image; include for compatibility' },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'textarea', helper: 'Elements to exclude from the render' },
+    ],
+  },
+  {
+    model: 'kwaivgi/kling-v2.1',
+    defaults: { aspect_ratio: '16:9', duration: 5, mode: 'standard' },
+    fields: [
+      { key: 'prompt', label: 'Prompt', type: 'textarea', required: true, helper: 'Describe gestures, shots, and pacing' },
+      { key: 'start_image', label: 'Start image URL (required)', type: 'url', required: true, helper: 'Kling v2.1 always requires a start frame' },
+      { key: 'aspect_ratio', label: 'Aspect ratio', type: 'select', options: VIDEO_RATIOS.map((r) => ({ value: r, label: r })) },
+      { key: 'duration', label: 'Duration (s)', type: 'select', options: [{ value: '5', label: '5s' }, { value: '10', label: '10s' }], helper: 'Supports 5 or 10 second clips' },
+      { key: 'mode', label: 'Mode', type: 'select', options: [{ value: 'standard', label: 'Standard (720p)' }, { value: 'pro', label: 'Pro (1080p)' }], helper: 'Use pro for 1080p or end_image control' },
+      { key: 'end_image', label: 'End image URL', type: 'url', helper: 'Optional final pose (requires mode=pro)' },
+      { key: 'negative_prompt', label: 'Negative prompt', type: 'textarea', helper: 'Lock out undesired elements' },
     ],
   },
   {
@@ -321,6 +345,8 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
     models: [
       { id: 'google/veo-3.1-fast', label: 'VEO 3.1 Fast', defaultInputs: { resolution: '720p' } },
       { id: 'google/veo-3.1', label: 'VEO 3.1', defaultInputs: { resolution: '1080p' } },
+      { id: 'kwaivgi/kling-v2.5-turbo-pro', label: 'Kling 2.5 Turbo Pro', defaultInputs: { aspect_ratio: '16:9', duration: 5 } },
+      { id: 'kwaivgi/kling-v2.1', label: 'Kling v2.1 (I2V)', defaultInputs: { aspect_ratio: '16:9', duration: 5 } },
       { id: 'wan-video/wan-2.2-i2v-fast', label: 'WAN 2.2 i2v Fast', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'wan-video/wan-2.2-animate-replace', label: 'WAN 2.2 Animate Replace', defaultInputs: { aspect_ratio: '16:9' } },
       { id: 'wan-video/wan-2.5-i2v', label: 'WAN 2.5 i2v', defaultInputs: { resolution: '720p', duration: 10 } },
