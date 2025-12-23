@@ -1,0 +1,183 @@
+{
+  "example_name": "Creative Analysis from Uploaded Video",
+  "user_request": "Analyze this competitor ad and make variations",
+  "uploaded_video": "https://example.com/competitor-ad.mp4",
+  "flow_description": "Demonstrates media analysis → principle extraction → variation generation",
+  
+  "step_1_media_upload": {
+    "user_action": "Uploads competitor ad video (TikTok ad for meal kit service)",
+    "video_url": "https://example.com/competitor-ad.mp4",
+    "video_metadata": {
+      "duration": "20s",
+      "format": "9:16 vertical",
+      "platform_detected": "TikTok"
+    }
+  },
+  
+  "step_2_media_analysis": {
+    "agent": "Media Analyst Agent",
+    "action": "Analyze uploaded video with vision model",
+    "input": {
+      "mediaUrl": "https://example.com/competitor-ad.mp4",
+      "mediaType": "video"
+    },
+    "output": {
+      "visual_analysis": {
+        "layout": "Centered subject (person speaking to camera), text overlays top and bottom third",
+        "color_palette": ["#FF6B35", "#F7F7F7", "#2E2E2E"],
+        "text_content": [
+          "MEAL PREP SUNDAY ➜ SAD CHICKEN WEDNESDAY",
+          "SAVE 8 HRS/WEEK",
+          "50% OFF ➜ LINK IN BIO"
+        ],
+        "style_keywords": ["UGC", "handheld camera", "natural lighting", "bold text overlays", "high contrast", "authentic"],
+        "aspect_ratio": "9:16",
+        "format": "Video (20 seconds)"
+      },
+      "brand_elements": {
+        "logo_detected": true,
+        "logo_position": "top-right",
+        "brand_colors": ["#FF6B35"],
+        "brand_name_visible": true
+      },
+      "ad_elements": {
+        "hook_identified": true,
+        "hook_text": "If you meal prep every Sunday but eat sad chicken by Wednesday...",
+        "hook_timing": "0-3s",
+        "offer_detected": true,
+        "offer_text": "50% OFF first box",
+        "cta_detected": true,
+        "cta_text": "Link in bio",
+        "cta_position": "bottom",
+        "cta_timing": "18-20s"
+      },
+      "effectiveness_scores": {
+        "hook_strength": 85,
+        "visual_appeal": 75,
+        "cta_clarity": 65,
+        "text_readability": 90,
+        "composition_balance": 80,
+        "overall_score": 79
+      },
+      "platform_fit": {
+        "platform_detected": "TikTok",
+        "platform_appropriateness": 95,
+        "format_compliance": "Yes - 9:16 vertical, 20s duration, UGC style"
+      },
+      "strengths": [
+        "Hyper-specific hook (meal prep Sunday → sad chicken Wednesday) creates immediate relatability",
+        "Concrete benefit (SAVE 8 HRS/WEEK) with numbers",
+        "Strong text overlays with high contrast and readability",
+        "Authentic UGC style fits TikTok platform",
+        "Clear offer (50% OFF)"
+      ],
+      "weaknesses": [
+        "CTA appears very late (18s) - some viewers may drop off",
+        "CTA could be more specific ('Try first box 50% off' vs 'Link in bio')",
+        "Brand logo is small and easy to miss",
+        "No social proof or testimonial element"
+      ],
+      "recommendations": [
+        "Move offer reveal earlier (around 12-15s) to reduce drop-off",
+        "Make CTA more action-specific: '50% OFF FIRST BOX ➜ LINK'",
+        "Add brief testimonial overlay ('Used by 100K+ people')",
+        "Test larger brand logo for awareness",
+        "Consider voiceover for better engagement"
+      ],
+      "variations": [
+        {
+          "variation_type": "CTA timing",
+          "description": "Move CTA from 18-20s to 15-20s (5 second window)",
+          "rationale": "TikTok average watch time is ~16s. Earlier CTA captures more viewers.",
+          "hypothesis": "Expect 15-20% increase in link clicks"
+        },
+        {
+          "variation_type": "Hook variation",
+          "description": "Test alternative: 'POV: You just worked 10 hours and dinner is ready in 8 minutes'",
+          "rationale": "POV format is trending on TikTok",
+          "hypothesis": "May improve hook retention rate"
+        },
+        {
+          "variation_type": "Visual variation",
+          "description": "Add B-roll of actual meal preparation (timelapse)",
+          "rationale": "Show product in action, not just talking head",
+          "hypothesis": "Visual proof may increase trust and conversion"
+        },
+        {
+          "variation_type": "Social proof",
+          "description": "Add overlay: '★★★★★ 50K+ REVIEWS' at 12-14s",
+          "rationale": "Social proof increases credibility",
+          "hypothesis": "5-10% lift in conversion rate"
+        }
+      ]
+    },
+    "cost": 0.04,
+    "latency": 10
+  },
+  
+  "step_3_present_analysis": {
+    "agent": "Orchestrator",
+    "action": "Present analysis to user",
+    "output": "### Analysis of Competitor Ad\n\n**Effectiveness Score**: 79/100\n\n**Strengths**:\n- Hyper-specific hook (85/100 hook strength)\n- Strong text overlays (90/100 readability)\n- Authentic UGC style (95/100 platform fit)\n- Clear offer (50% OFF)\n\n**Weaknesses**:\n- CTA appears too late (18s, most drop off by 16s)\n- CTA is vague ('Link in bio' vs '50% OFF FIRST BOX')\n- No social proof element\n\n**Recommended Variations** (ranked by impact):\n1. **CTA Timing**: Move CTA to 15-20s (expect 15-20% more clicks)\n2. **Hook Variation**: Test POV format ('POV: You just worked 10 hours...')\n3. **Social Proof**: Add '50K+ REVIEWS' overlay\n4. **Visual Proof**: Add meal prep B-roll\n\nWould you like me to generate these variations?"
+  },
+  
+  "step_4_user_confirmation": {
+    "user": "Yes, generate all 4 variations",
+    "orchestrator_action": "Generate execution plan for 4 variations"
+  },
+  
+  "step_5_execution_plan": {
+    "agent": "Orchestrator",
+    "action": "Generate execution plan for variations",
+    "summary": "Generate 4 variations of competitor ad with improvements",
+    "steps": [
+      {
+        "id": "var_1",
+        "title": "Variation 1: Earlier CTA timing",
+        "description": "Same creative, move CTA overlay to 15-20s instead of 18-20s",
+        "tool": "video",
+        "changes": "Adjust text overlay timing in editing"
+      },
+      {
+        "id": "var_2",
+        "title": "Variation 2: POV hook alternative",
+        "description": "New hook: 'POV: You just worked 10 hours and dinner is ready in 8 minutes'",
+        "steps": [
+          "Generate new image with POV hook text",
+          "Animate to video",
+          "Add voiceover with new script"
+        ]
+      },
+      {
+        "id": "var_3",
+        "title": "Variation 3: Add social proof",
+        "description": "Original ad + '★★★★★ 50K+ REVIEWS' overlay at 12-14s",
+        "tool": "video",
+        "changes": "Add social proof text overlay"
+      },
+      {
+        "id": "var_4",
+        "title": "Variation 4: Visual proof B-roll",
+        "description": "Original + quick timelapse of meal preparation",
+        "steps": [
+          "Generate meal prep images (3 frames)",
+          "Create timelapse sequence",
+          "Composite into original video at 8-12s"
+        ]
+      }
+    ],
+    "totalEstimatedCost": 3.80,
+    "totalEstimatedLatency": 480,
+    "testingApproach": "A/B test all 4 variations against original for 7 days"
+  },
+  
+  "success_criteria": {
+    "media_understanding": "✓ Accurately analyzed video composition, hook, timing",
+    "effectiveness_scoring": "✓ Objective scoring (79/100) with specific criteria",
+    "actionable_recommendations": "✓ Each recommendation has clear hypothesis and expected impact",
+    "variation_quality": "✓ Variations preserve strengths, address weaknesses",
+    "no_generic_advice": "✓ All suggestions are specific and measurable",
+    "research_informed": "✓ POV hook suggestion based on TikTok trends"
+  }
+}
+

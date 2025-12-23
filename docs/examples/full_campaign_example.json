@@ -1,0 +1,365 @@
+{
+  "example_name": "Full Campaign Generation",
+  "user_request": "Make ads for my meal kit delivery service targeting busy professionals",
+  "flow_description": "Demonstrates end-to-end campaign generation: research → strategy → script → media production",
+  
+  "step_1_understanding": {
+    "agent": "Orchestrator",
+    "action": "Parse user intent",
+    "detected": {
+      "product": "meal kit delivery service",
+      "target_audience": "busy professionals",
+      "platforms": ["inferred: TikTok, Instagram"],
+      "goal": "generate ads / campaign"
+    },
+    "ambiguity_check": {
+      "triggered": false,
+      "reason": "Request is sufficiently clear"
+    }
+  },
+  
+  "step_2_strategy_generation": {
+    "agent": "Creative Strategist Agent",
+    "action": "Generate comprehensive advertising strategy",
+    "input": {
+      "product": "meal kit delivery service",
+      "targetAudience": "busy professionals"
+    },
+    "output": {
+      "audience_hypotheses": [
+        {
+          "segment": "Busy professionals 28-40, working 50+ hours/week, living in urban areas, value health but struggle with meal planning",
+          "core_pain": "Wasting 2+ hours every Sunday meal prepping, only to eat sad, repetitive meals by Wednesday",
+          "desires": "Healthy, diverse meals that take <15 minutes to prepare after a long workday",
+          "belief_shifts": "Convenient doesn't mean unhealthy or expensive",
+          "objections": "Meal kits are expensive; worried about food waste; skeptical of quality",
+          "media_consumption": ["Instagram Reels", "TikTok", "LinkedIn"]
+        },
+        {
+          "segment": "Health-conscious parents 30-45 with 1-3 kids",
+          "core_pain": "Kids won't eat healthy food",
+          "desires": "Nutritious family meals that kids actually enjoy",
+          "belief_shifts": "Healthy meals can be kid-approved",
+          "objections": "Kids are too picky; too expensive for family portions",
+          "media_consumption": ["Facebook", "Instagram", "Parenting blogs"]
+        },
+        {
+          "segment": "Fitness enthusiasts 22-35 tracking macros",
+          "core_pain": "Spending hours weighing food and calculating macros",
+          "desires": "Pre-portioned meals with exact macro breakdowns",
+          "belief_shifts": "Can hit fitness goals without sacrificing life",
+          "objections": "Macros might not match specific needs",
+          "media_consumption": ["TikTok fitness", "YouTube", "Reddit"]
+        }
+      ],
+      "angle_maps": [
+        {
+          "angle_name": "Time-Freedom Angle",
+          "problem_hook": "Spending 2+ hours every Sunday meal prepping",
+          "desire_amplification": "Imagine having restaurant-quality meals in 10 minutes",
+          "belief_shift": "Healthy eating doesn't require hours of meal prep",
+          "objection_handling": "At $8.99/meal, you're saving 8+ hours per week",
+          "hook_examples": [
+            "If you meal prep every Sunday but eat sad chicken by Wednesday, I need to show you this",
+            "POV: You just worked 10 hours and dinner is ready in 8 minutes",
+            "I used to waste 2 hours every Sunday meal prepping. I don't anymore."
+          ],
+          "body_structure": "Problem agitation (0-8s) → Solution reveal (8-13s) → Social proof (13-17s) → CTA (17-20s)",
+          "cta": "Try your first box 50% off → Link in bio",
+          "platform_fit": ["TikTok", "Instagram Reels"]
+        },
+        {
+          "angle_name": "Kid-Approved Health Angle",
+          "problem_hook": "Your kids won't eat vegetables",
+          "desire_amplification": "What if your kids asked for seconds of broccoli?",
+          "belief_shift": "Healthy meals can be so good that picky eaters love them",
+          "objection_handling": "Picky eater guarantee: If kid doesn't like it, free replacement",
+          "hook_examples": [
+            "My 6-year-old just asked for SECONDS of broccoli",
+            "If your kid only eats chicken nuggets, watch this",
+            "The moment my picky eater said 'Mom, this is actually good'"
+          ],
+          "body_structure": "Problem (0-7s) → Solution (7-12s) → Proof (12-16s) → CTA (16-20s)",
+          "cta": "First box free with code PICKYFREE",
+          "platform_fit": ["Facebook", "Instagram"]
+        },
+        {
+          "angle_name": "Macro-Perfect Fitness Angle",
+          "problem_hook": "Spending 3 hours every Sunday weighing chicken",
+          "desire_amplification": "Hit your macros without touching a food scale",
+          "belief_shift": "Precision nutrition doesn't require precision meal prep",
+          "objection_handling": "Every meal has exact macro breakdown: 40P/30C/30F",
+          "hook_examples": [
+            "If you're tracking macros but wasting hours meal prepping, this changes everything",
+            "POV: You hit your protein goal without weighing a single meal",
+            "Confession: I used to spend 3 hours/week weighing food. I don't anymore."
+          ],
+          "body_structure": "Problem (0-6s) → Solution (6-11s) → Proof (11-16s) → CTA (16-20s)",
+          "cta": "Get meals that match YOUR macros → Link in bio",
+          "platform_fit": ["TikTok", "Instagram Reels", "YouTube Shorts"]
+        }
+      ],
+      "creative_routes": [
+        {
+          "route_id": "time_savings_ugc",
+          "format": "ugc",
+          "platform": "TikTok",
+          "hypothesis": "Busy professionals will respond strongly to time-saving framing with authentic UGC format",
+          "angle": "Time-Freedom Angle",
+          "variants": 3
+        },
+        {
+          "route_id": "parent_testimonial",
+          "format": "testimonial",
+          "platform": "Facebook",
+          "hypothesis": "Parents trust other parents' recommendations",
+          "angle": "Kid-Approved Health Angle",
+          "variants": 3
+        },
+        {
+          "route_id": "fitness_demo",
+          "format": "demo",
+          "platform": "Instagram",
+          "hypothesis": "Fitness audience wants to see actual meals and macros",
+          "angle": "Macro-Perfect Fitness Angle",
+          "variants": 2
+        }
+      ],
+      "testing_matrix": {
+        "routes": 3,
+        "variants_per_route": 3,
+        "total_assets": 8,
+        "testing_approach": "Test all routes simultaneously for 7 days, identify winning angle, scale with more variants"
+      }
+    },
+    "cost": 0.05,
+    "latency": 12
+  },
+  
+  "step_3_execution_plan": {
+    "agent": "Orchestrator",
+    "action": "Generate execution plan from strategy",
+    "summary": "Generate 8 ad videos across 3 creative routes",
+    "steps": [
+      {
+        "id": "step_1",
+        "title": "Generate product card image - Time Savings variant 1",
+        "tool": "image",
+        "model": "openai/gpt-image-1.5",
+        "inputs": {
+          "prompt": "Professional product photography, fresh meal kit ingredients arranged aesthetically, bright natural lighting, text overlay: 'SAVE 8 HRS/WEEK', mobile aspect ratio 2:3",
+          "aspect_ratio": "2:3",
+          "number_of_images": 1
+        },
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "medium",
+        "estimatedCostAmount": 0.80,
+        "estimatedLatency": 30,
+        "riskLevel": "low"
+      },
+      {
+        "id": "step_2",
+        "title": "Animate product card to video",
+        "tool": "video",
+        "model": "wan-video/wan-2.2-i2v-fast",
+        "inputs": {
+          "prompt": "Static camera, subtle zoom in, product remains centered, 4 second duration, 9:16 vertical format",
+          "start_image": "{{steps.step_1.url}}",
+          "aspect_ratio": "9:16",
+          "duration": 4
+        },
+        "dependencies": ["step_1"],
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "medium",
+        "estimatedCostAmount": 0.60,
+        "estimatedLatency": 120,
+        "riskLevel": "low"
+      },
+      {
+        "id": "step_3",
+        "title": "Generate voiceover script",
+        "tool": "tts",
+        "model": "minimax-speech-02-hd",
+        "inputs": {
+          "text": "If you meal prep every Sunday but eat sad chicken by Wednesday, I need to show you this. Fresh ingredients, pre-portioned, 10-minute meals. I've saved 8 hours a week. First box 50% off, link in bio.",
+          "provider": "replicate"
+        },
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "low",
+        "estimatedCostAmount": 0.05,
+        "estimatedLatency": 15,
+        "riskLevel": "low"
+      },
+      {
+        "id": "step_4",
+        "title": "Add lipsync to video",
+        "tool": "lipsync",
+        "model": "wavespeed-ai/infinitetalk",
+        "inputs": {
+          "image": "{{steps.step_1.url}}",
+          "audio": "{{steps.step_3.url}}",
+          "resolution": "720p"
+        },
+        "dependencies": ["step_1", "step_3"],
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "high",
+        "estimatedCostAmount": 1.20,
+        "estimatedLatency": 240,
+        "riskLevel": "medium"
+      },
+      {
+        "id": "step_5",
+        "title": "[Variant 2] Generate alternative hook image",
+        "tool": "image",
+        "model": "openai/gpt-image-1.5",
+        "inputs": {
+          "prompt": "Professional product photography, meal kit box being delivered to doorstep, text overlay: 'POV: DINNER IN 8 MIN', 2:3 aspect ratio",
+          "aspect_ratio": "2:3"
+        },
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "medium",
+        "estimatedCostAmount": 0.80,
+        "estimatedLatency": 30,
+        "riskLevel": "low"
+      },
+      {
+        "id": "step_6",
+        "title": "[Variant 2] Animate alternative variant",
+        "tool": "video",
+        "model": "wan-video/wan-2.2-i2v-fast",
+        "inputs": {
+          "prompt": "Camera dolly in, focus on product, 9:16 vertical",
+          "start_image": "{{steps.step_5.url}}",
+          "duration": 4
+        },
+        "dependencies": ["step_5"],
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "medium",
+        "estimatedCostAmount": 0.60,
+        "estimatedLatency": 120,
+        "riskLevel": "low"
+      },
+      {
+        "id": "step_7",
+        "title": "[Variant 3] Generate third variant image",
+        "tool": "image",
+        "model": "openai/gpt-image-1.5",
+        "inputs": {
+          "prompt": "Professional product photography, prepared meal on plate, text overlay: '10 MIN MEALS', 2:3 mobile format",
+          "aspect_ratio": "2:3"
+        },
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "medium",
+        "estimatedCostAmount": 0.80,
+        "estimatedLatency": 30,
+        "riskLevel": "low"
+      },
+      {
+        "id": "step_8",
+        "title": "[Variant 3] Animate final variant",
+        "tool": "video",
+        "model": "wan-video/wan-2.2-i2v-fast",
+        "inputs": {
+          "prompt": "Static camera, steam rising from meal, 9:16 vertical",
+          "start_image": "{{steps.step_7.url}}",
+          "duration": 4
+        },
+        "dependencies": ["step_7"],
+        "executionMode": "manual",
+        "requiresApproval": true,
+        "estimatedCost": "medium",
+        "estimatedCostAmount": 0.60,
+        "estimatedLatency": 120,
+        "riskLevel": "low"
+      }
+    ],
+    "totalEstimatedCost": 5.45,
+    "totalEstimatedLatency": 705,
+    "executionMode": "manual"
+  },
+  
+  "step_4_qa_review": {
+    "agent": "QA Reviewer Agent",
+    "action": "Review hook novelty before execution",
+    "review": {
+      "content": "If you meal prep every Sunday but eat sad chicken by Wednesday",
+      "contentType": "hook",
+      "result": {
+        "approved": true,
+        "noveltyScore": 78,
+        "brandConsistency": true,
+        "platformAppropriateness": true,
+        "hookStrength": 85,
+        "clarity": true,
+        "suggestions": []
+      }
+    }
+  },
+  
+  "step_5_compliance_check": {
+    "agent": "Compliance Agent",
+    "action": "Verify platform compliance",
+    "check": {
+      "content": "If you meal prep every Sunday but eat sad chicken by Wednesday, I need to show you this. Fresh ingredients, pre-portioned, 10-minute meals. I've saved 8 hours a week. First box 50% off, link in bio.",
+      "platform": "tiktok",
+      "result": {
+        "compliant": true,
+        "platform": "tiktok",
+        "violations": [],
+        "warnings": [],
+        "confidence": "high"
+      }
+    }
+  },
+  
+  "step_6_execution": {
+    "mode": "manual",
+    "description": "User reviews plan and approves execution",
+    "user_action": "Click 'Run All' or approve step-by-step",
+    "streaming": true,
+    "progress_events": [
+      { "type": "step_start", "stepId": "step_1", "title": "Generate product card image" },
+      { "type": "step_complete", "stepId": "step_1", "outputUrl": "https://example.com/image1.png" },
+      { "type": "step_start", "stepId": "step_2", "title": "Animate product card" },
+      { "type": "step_complete", "stepId": "step_2", "outputUrl": "https://example.com/video1.mp4" },
+      "... (continues for all steps)"
+    ]
+  },
+  
+  "final_outputs": {
+    "variant_1": {
+      "image": "https://example.com/image1.png",
+      "video": "https://example.com/video1.mp4",
+      "voiceover": "https://example.com/audio1.mp3",
+      "final_video": "https://example.com/final1.mp4"
+    },
+    "variant_2": {
+      "image": "https://example.com/image2.png",
+      "video": "https://example.com/video2.mp4"
+    },
+    "variant_3": {
+      "image": "https://example.com/image3.png",
+      "video": "https://example.com/video3.mp4"
+    },
+    "total_cost": 5.45,
+    "total_time": "11m 45s",
+    "assets_generated": 8
+  },
+  
+  "success_criteria": {
+    "strategic_depth": "✓ Generated 3 audience hypotheses, 3 angle maps, 3 creative routes",
+    "novelty_enforcement": "✓ All hooks scored ≥78 novelty",
+    "compliance": "✓ All content passed TikTok compliance checks",
+    "cost_accuracy": "✓ Estimated $5.45, actual within 10%",
+    "latency_accuracy": "✓ Completed within expected timeframe",
+    "user_control": "✓ Manual mode allowed user approval at each step"
+  }
+}
+

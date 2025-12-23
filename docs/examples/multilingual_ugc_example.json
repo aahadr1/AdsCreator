@@ -1,0 +1,229 @@
+{
+  "example_name": "Multilingual UGC Campaign",
+  "user_request": "Generate UGC ads for my language learning app in English, Spanish, and French",
+  "flow_description": "Demonstrates localization with culturally-adapted hooks and platform-specific formatting",
+  
+  "step_1_understanding": {
+    "agent": "Orchestrator",
+    "action": "Parse multilingual request",
+    "detected": {
+      "product": "language learning app",
+      "languages": ["English", "Spanish", "French"],
+      "format": "UGC",
+      "platforms": ["inferred: TikTok, Instagram"]
+    }
+  },
+  
+  "step_2_strategy_generation": {
+    "agent": "Creative Strategist Agent",
+    "action": "Generate strategy with localization notes",
+    "output": {
+      "audience_hypotheses": [
+        {
+          "segment": "English speakers learning Spanish (US market, 18-35)",
+          "core_pain": "Classroom Spanish doesn't work in real conversations",
+          "desires": "Speak confidently with native speakers",
+          "belief_shifts": "Can become conversational in 3 months",
+          "objections": "Apps are boring, prefer immersion",
+          "media_consumption": ["TikTok", "Instagram"]
+        },
+        {
+          "segment": "Spanish speakers learning English (LATAM market, 20-40)",
+          "core_pain": "Understand English but can't speak fluently",
+          "desires": "Career advancement through English fluency",
+          "belief_shifts": "Practice > grammar drills",
+          "objections": "Too expensive, no time",
+          "media_consumption": ["TikTok", "Instagram", "Facebook"]
+        },
+        {
+          "segment": "French speakers learning English (France market, 18-30)",
+          "core_pain": "French education focuses on reading, not speaking",
+          "desires": "Speak English naturally, not textbook",
+          "belief_shifts": "Conversation practice is key",
+          "objections": "Apps are repetitive",
+          "media_consumption": ["TikTok", "Instagram"]
+        }
+      ],
+      "angle_maps": [
+        {
+          "angle_name": "Real Conversation Angle",
+          "problem_hook_en": "If you studied Spanish for years but still can't order at a restaurant",
+          "problem_hook_es": "Si estudiaste inglés pero no puedes mantener una conversación",
+          "problem_hook_fr": "Si tu as étudié l'anglais mais tu ne peux pas parler naturellement",
+          "localization_notes": {
+            "en": "Emphasize real-world usage (ordering food, travel)",
+            "es": "Emphasize career benefits and professional growth",
+            "fr": "Emphasize natural speaking vs textbook formality"
+          },
+          "hook_examples_en": [
+            "If you studied Spanish for years but freeze when a native speaker talks to you...",
+            "POV: You finally understand Spanish conversations (not just textbook Spanish)",
+            "Confession: I took 4 years of Spanish and couldn't order tacos"
+          ],
+          "hook_examples_es": [
+            "Si estudiaste inglés pero te bloqueas en las entrevistas de trabajo...",
+            "POV: Finalmente puedes hablar inglés con confianza en el trabajo",
+            "Confesión: Estudié inglés por años y no podía hacer una presentación"
+          ],
+          "hook_examples_fr": [
+            "Si tu as étudié l'anglais à l'école mais tu ne peux pas parler naturellement...",
+            "POV: Tu parles enfin anglais comme un natif (pas comme dans les livres)",
+            "Confession : J'ai étudié l'anglais pendant 10 ans et je ne pouvais pas avoir une conversation"
+          ]
+        }
+      ],
+      "creative_routes": [
+        {
+          "route_id": "english_ugc",
+          "format": "ugc",
+          "platform": "TikTok",
+          "language": "English",
+          "target_market": "US",
+          "hypothesis": "English speakers respond to relatable 'can't speak' scenarios",
+          "variants": 2
+        },
+        {
+          "route_id": "spanish_ugc",
+          "format": "ugc",
+          "platform": "TikTok",
+          "language": "Spanish",
+          "target_market": "LATAM",
+          "hypothesis": "Spanish speakers motivated by career advancement",
+          "variants": 2
+        },
+        {
+          "route_id": "french_ugc",
+          "format": "ugc",
+          "platform": "TikTok",
+          "language": "French",
+          "target_market": "France",
+          "hypothesis": "French speakers want natural, not textbook English",
+          "variants": 2
+        }
+      ]
+    }
+  },
+  
+  "step_3_script_generation": {
+    "agent": "Script Generator Agent",
+    "action": "Generate localized scripts",
+    "scripts": {
+      "english_variant_1": {
+        "hook": "[0-3s] If you studied Spanish for years but freeze when a native speaker talks to you...",
+        "body": "[3-8s] I took 4 years of Spanish. Could pass tests. Couldn't order tacos. [8-13s] Then I found [App Name] - real conversations, not textbook drills. [13-17s] 3 months later, I'm chatting with my coworkers in Spanish.",
+        "cta": "[17-20s] Try 7 days free → Link in bio",
+        "language": "English",
+        "cultural_notes": "US audience relates to classroom-vs-real-world gap"
+      },
+      "spanish_variant_1": {
+        "hook": "[0-3s] Si estudiaste inglés pero te bloqueas en las entrevistas de trabajo...",
+        "body": "[3-8s] Yo entendía inglés perfecto. Pero cuando tenía que hablar, me bloqueaba. [8-13s] Encontré [App Name] - practicas conversaciones reales, no gramática aburrida. [13-17s] Ahora hago presentaciones en inglés sin miedo.",
+        "cta": "[17-20s] Prueba 7 días gratis → Link en bio",
+        "language": "Spanish",
+        "cultural_notes": "LATAM audience motivated by professional advancement"
+      },
+      "french_variant_1": {
+        "hook": "[0-3s] Si tu as étudié l'anglais à l'école mais tu ne peux pas parler naturellement...",
+        "body": "[3-8s] J'ai étudié l'anglais pendant 10 ans. Je comprenais tout. Mais je ne pouvais pas parler. [8-13s] Puis j'ai trouvé [App Name] - des vraies conversations, pas des exercices ennuyeux. [13-17s] Maintenant je parle anglais couramment.",
+        "cta": "[17-20s] Essai gratuit 7 jours → Lien en bio",
+        "language": "French",
+        "cultural_notes": "French audience frustrated by textbook vs natural speech"
+      }
+    }
+  },
+  
+  "step_4_execution_plan": {
+    "agent": "Orchestrator",
+    "action": "Generate multilingual execution plan",
+    "summary": "Generate 6 UGC videos (2 per language) with localized hooks and cultural adaptation",
+    "steps": [
+      {
+        "id": "en_1",
+        "title": "[English] Generate UGC image with text overlay",
+        "tool": "image",
+        "model": "openai/gpt-image-1.5",
+        "inputs": {
+          "prompt": "UGC selfie style, person looking confused, text overlay: 'STUDIED SPANISH FOR YEARS', 9:16 format",
+          "aspect_ratio": "2:3"
+        }
+      },
+      {
+        "id": "en_2",
+        "title": "[English] Generate voiceover",
+        "tool": "tts",
+        "model": "minimax-speech-02-hd",
+        "inputs": {
+          "text": "If you studied Spanish for years but freeze when a native speaker talks to you... [full script]",
+          "provider": "replicate",
+          "language": "en"
+        }
+      },
+      {
+        "id": "es_1",
+        "title": "[Spanish] Generate UGC image",
+        "tool": "image",
+        "model": "openai/gpt-image-1.5",
+        "inputs": {
+          "prompt": "UGC selfie style, professional setting, text overlay: 'ME BLOQUEABA EN ENTREVISTAS', 9:16 format",
+          "aspect_ratio": "2:3"
+        }
+      },
+      {
+        "id": "es_2",
+        "title": "[Spanish] Generate voiceover",
+        "tool": "tts",
+        "model": "minimax-speech-02-hd",
+        "inputs": {
+          "text": "Si estudiaste inglés pero te bloqueas en las entrevistas de trabajo... [full script in Spanish]",
+          "provider": "replicate",
+          "language": "es"
+        }
+      },
+      {
+        "id": "fr_1",
+        "title": "[French] Generate UGC image",
+        "tool": "image",
+        "model": "openai/gpt-image-1.5",
+        "inputs": {
+          "prompt": "UGC selfie style, student environment, text overlay: 'ANGLAIS SCOLAIRE VS RÉEL', 9:16 format",
+          "aspect_ratio": "2:3"
+        }
+      },
+      {
+        "id": "fr_2",
+        "title": "[French] Generate voiceover",
+        "tool": "tts",
+        "model": "minimax-speech-02-hd",
+        "inputs": {
+          "text": "Si tu as étudié l'anglais à l'école mais tu ne peux pas parler naturellement... [full script in French]",
+          "provider": "replicate",
+          "language": "fr"
+        }
+      }
+    ],
+    "totalEstimatedCost": 3.30,
+    "totalEstimatedLatency": 420,
+    "localization_notes": {
+      "targeting": {
+        "en": "US market, emphasize real-world usage",
+        "es": "LATAM market, emphasize career benefits",
+        "fr": "France market, emphasize natural vs textbook"
+      },
+      "cultural_adaptation": {
+        "en": "Casual tone, relatable scenarios (ordering food)",
+        "es": "Professional tone, career focus",
+        "fr": "Frustrated with formal education tone"
+      }
+    }
+  },
+  
+  "success_criteria": {
+    "multilingual_support": "✓ Generated ads in 3 languages with proper localization",
+    "cultural_adaptation": "✓ Each market has culturally-appropriate hooks and messaging",
+    "hook_localization": "✓ Hooks adapted to local pain points (not direct translations)",
+    "language_detection": "✓ TTS models used correct language settings",
+    "platform_formatting": "✓ All videos 9:16 vertical for TikTok",
+    "novelty_maintained": "✓ All hooks scored ≥70 novelty in their respective languages"
+  }
+}
+

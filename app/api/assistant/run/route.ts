@@ -691,6 +691,32 @@ async function runTtsStep(origin: string, inputs: Record<string, any>): Promise<
   return { url: json?.url || json?.audio || null };
 }
 
+async function runCompetitorAnalystStep(origin: string, inputs: Record<string, any>): Promise<StepResult> {
+  const res = await fetch(`${origin}/api/tools/competitor-analyst`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand: inputs.brand }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const json = await res.json();
+  // Return the analysis as JSON text
+  const analysisText = JSON.stringify(json.data, null, 2);
+  return { text: analysisText, url: null };
+}
+
+async function runWebSearchStep(origin: string, inputs: Record<string, any>): Promise<StepResult> {
+  const res = await fetch(`${origin}/api/tools/web-search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: inputs.query }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const json = await res.json();
+  // Return the search results as text
+  const searchText = JSON.stringify(json.data, null, 2);
+  return { text: searchText, url: null };
+}
+
 async function executeStep(
   origin: string,
   step: AssistantPlanStep,
@@ -706,6 +732,8 @@ async function executeStep(
   if (step.tool === 'enhance') return runEnhanceStep(origin, injected);
   if (step.tool === 'transcription') return runTranscriptionStep(origin, injected);
   if (step.tool === 'tts') return runTtsStep(origin, { ...injected, user_id: injected.user_id || userId });
+  if (step.tool === 'competitor_analyst') return runCompetitorAnalystStep(origin, injected);
+  if (step.tool === 'web_search') return runWebSearchStep(origin, injected);
   throw new Error(`Unsupported tool: ${step.tool}`);
 }
 

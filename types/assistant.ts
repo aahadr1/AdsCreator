@@ -5,7 +5,9 @@ export type AssistantToolKind =
   | 'background_remove'
   | 'enhance'
   | 'transcription'
-  | 'tts';
+  | 'tts'
+  | 'competitor_analyst'
+  | 'web_search';
 
 export type AssistantPlanField = {
   key: string;

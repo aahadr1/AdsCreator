@@ -458,6 +458,30 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { id: 'jaaari/kokoro-82m', label: 'Kokoro 82M', defaultInputs: { voice: 'af_nicole', speed: 1 } },
     ],
   },
+  competitor_analyst: {
+    id: 'competitor_analyst',
+    label: 'Competitor Analysis',
+    description: 'Autonomously browse Meta Ads Library, download competitor video ads, transcribe audio with Whisper, analyze visuals with GPT-4o-mini. Returns strategic insights to inform creative strategy.',
+    outputType: 'json',
+    fields: [
+      { key: 'brand', label: 'Competitor Brand', type: 'text', required: true, helper: 'The competitor brand name to analyze (e.g., "Starbucks", "Nike")' },
+    ],
+    models: [
+      { id: 'competitor_analyst', label: 'Competitor Analyst (Playwright + Whisper + GPT-4o-mini)', defaultInputs: {} },
+    ],
+  },
+  web_search: {
+    id: 'web_search',
+    label: 'Web Search',
+    description: 'Search the web for trends, data, platform policies, and research. Returns cited text-based research.',
+    outputType: 'text',
+    fields: [
+      { key: 'query', label: 'Search Query', type: 'text', required: true, helper: 'What to search for (e.g., "TikTok video ads trends 2025")' },
+    ],
+    models: [
+      { id: 'web_search', label: 'Web Search', defaultInputs: {} },
+    ],
+  },
 };
 
 function fieldsForTool(tool: AssistantToolKind): AssistantPlanField[] {
@@ -502,7 +526,15 @@ export type AnalyzedRequest = {
 };
 
 // Comprehensive system prompt for Sonnet 4.5 - includes all tools, models, use cases, and technical details
+import { buildAdvertisingOrchestratorPrompt } from './prompts/orchestrator';
+
 export function buildUnifiedPlannerSystemPrompt(): string {
+  // Use the enhanced advertising-native orchestrator prompt
+  return buildAdvertisingOrchestratorPrompt();
+}
+
+// Legacy function maintained for backward compatibility
+export function buildUnifiedPlannerSystemPromptLegacy(): string {
   // Build detailed tool sections with all models, use cases, and technical details
   const buildToolSection = (tool: ToolSpec): string => {
     const modelDetails = tool.models.map((model) => {

@@ -1,0 +1,223 @@
+{
+  "example_name": "Research-Driven Strategy Generation",
+  "user_request": "What's working in fitness ads on TikTok right now?",
+  "flow_description": "Demonstrates research → insight synthesis → strategy generation",
+  
+  "step_1_understanding": {
+    "agent": "Orchestrator",
+    "action": "Detect research need",
+    "detected": {
+      "intent": "research",
+      "category": "fitness",
+      "platform": "TikTok",
+      "goal": "understand current trends"
+    },
+    "decision": "Call web research agent"
+  },
+  
+  "step_2_research": {
+    "agent": "Web Research Agent",
+    "action": "Call TikTok Creative Center API",
+    "request": {
+      "endpoint": "/api/research/tiktok-creative",
+      "payload": {
+        "category": "fitness",
+        "region": "US",
+        "dateRange": "30d"
+      }
+    },
+    "response": {
+      "insights": [
+        {
+          "adId": "tt_fitness_001",
+          "brand": "Gymshark",
+          "hookPreview": "POV: You finally found workout leggings that don't fall down",
+          "format": "UGC",
+          "viewsEstimate": "5M-10M",
+          "engagementRate": "high",
+          "url": "https://ads.tiktok.com/...",
+          "hashtags": ["#gymtok", "#fitnesstiktok"],
+          "soundUsed": "Trending upbeat track"
+        },
+        {
+          "adId": "tt_fitness_002",
+          "brand": "Nike",
+          "hookPreview": "If you're doing burpees wrong, watch this",
+          "format": "Education/Correction",
+          "viewsEstimate": "10M-50M",
+          "engagementRate": "high",
+          "url": "https://ads.tiktok.com/..."
+        },
+        {
+          "adId": "tt_fitness_003",
+          "brand": "MyProtein",
+          "hookPreview": "Confession: I used to hate protein shakes",
+          "format": "UGC Testimonial",
+          "viewsEstimate": "1M-5M",
+          "engagementRate": "medium",
+          "url": "https://ads.tiktok.com/..."
+        }
+      ],
+      "trends": [
+        {
+          "trend": "UGC-style workout demos with voiceover narration",
+          "confidence": "high",
+          "examples": 45,
+          "description": "Authentic, handheld camera showing exercise form corrections or new workout techniques"
+        },
+        {
+          "trend": "POV format: 'POV: You finally...' hooks",
+          "confidence": "high",
+          "examples": 38,
+          "description": "Point-of-view format positioning product as the solution to a relatable problem"
+        },
+        {
+          "trend": "Exercise correction format: 'You're doing X wrong'",
+          "confidence": "high",
+          "examples": 32,
+          "description": "Educational content that corrects common form mistakes, then introduces product"
+        },
+        {
+          "trend": "Confession-style testimonials",
+          "confidence": "medium",
+          "examples": 21,
+          "description": "Authentic UGC starting with 'Confession:' or 'I need to admit...' for pattern interrupt"
+        }
+      ],
+      "citations": [
+        "TikTok Creative Center - Fitness Category, accessed Dec 23, 2025"
+      ],
+      "metadata": {
+        "searchDate": "2025-12-23T10:00:00Z",
+        "totalResults": 136,
+        "region": "US"
+      }
+    },
+    "cost": 0.00,
+    "latency": 5
+  },
+  
+  "step_3_insight_synthesis": {
+    "agent": "Orchestrator",
+    "action": "Synthesize research findings",
+    "synthesis": {
+      "top_formats": [
+        "UGC workout demos (45 examples, high engagement)",
+        "Exercise correction/education (32 examples, viral potential)",
+        "Confession-style testimonials (21 examples, authentic)"
+      ],
+      "top_hooks": [
+        "POV: You finally... (38 uses)",
+        "If you're doing X wrong... (32 uses)",
+        "Confession: I used to... (21 uses)"
+      ],
+      "recommendations": [
+        "Use UGC format for authenticity",
+        "Lead with POV or correction hooks",
+        "Include voiceover narration (text overlays secondary)",
+        "Keep duration 15-30 seconds",
+        "Show actual product usage, not just talking head"
+      ]
+    }
+  },
+  
+  "step_4_present_findings": {
+    "agent": "Orchestrator",
+    "action": "Present research to user",
+    "output": "Here's what's working in fitness ads on TikTok right now:\n\n**Top Formats:**\n1. UGC workout demos with voiceover (45 examples, high engagement)\n2. Exercise correction/education format (32 examples, viral potential)\n3. Confession-style testimonials (21 examples, authentic)\n\n**Top Hooks:**\n- 'POV: You finally...' (38 uses)\n- 'If you're doing X wrong...' (32 uses)\n- 'Confession: I used to...' (21 uses)\n\n**Recommendations:**\n- Use authentic UGC style (not overly polished)\n- Lead with pattern interrupt (POV, confession, correction)\n- Include voiceover narration\n- 15-30 second duration\n- Show product in action\n\n[Citations: TikTok Creative Center - Fitness Category, Dec 23, 2025]\n\nWould you like me to generate ads using these insights?"
+  },
+  
+  "step_5_user_followup": {
+    "user": "Yes, make ads for my protein powder using these trends",
+    "orchestrator_action": "User confirmed. Now call Creative Strategist with research insights."
+  },
+  
+  "step_6_strategy_generation": {
+    "agent": "Creative Strategist Agent",
+    "action": "Generate strategy informed by research",
+    "input": {
+      "product": "protein powder",
+      "researchInsights": {
+        "topFormats": ["UGC workout demos", "Confession testimonials"],
+        "topHooks": ["POV: You finally...", "Confession: I used to..."],
+        "platform": "TikTok"
+      }
+    },
+    "output": {
+      "audience_hypotheses": [
+        {
+          "segment": "Gym-goers 22-35 who struggle with post-workout nutrition",
+          "core_pain": "Protein shakes taste chalky or cause bloating",
+          "desires": "Delicious protein that doesn't upset stomach",
+          "belief_shifts": "Protein powder can taste good AND work well",
+          "objections": "All protein powders taste bad or cause digestive issues",
+          "media_consumption": ["TikTok #gymtok", "Instagram fitness"]
+        }
+      ],
+      "angle_maps": [
+        {
+          "angle_name": "Taste Transformation Angle",
+          "problem_hook": "Protein shakes that taste like chalk",
+          "desire_amplification": "What if protein tasted like a milkshake?",
+          "belief_shift": "Protein can taste amazing without sacrificing quality",
+          "objection_handling": "30-day taste guarantee: Love it or full refund",
+          "hook_examples": [
+            "POV: You finally found protein that doesn't taste like chalk (RESEARCH-INFORMED)",
+            "Confession: I used to dread my post-workout shake. Not anymore. (RESEARCH-INFORMED)",
+            "If you're forcing down chalky protein shakes, you need to try this"
+          ],
+          "body_structure": "Hook (0-3s) → Problem agitation (3-8s) → Taste reveal (8-13s) → Social proof (13-17s) → CTA (17-20s)",
+          "cta": "30-day taste guarantee → Link in bio",
+          "platform_fit": ["TikTok"]
+        }
+      ],
+      "creative_routes": [
+        {
+          "route_id": "ugc_workout_demo",
+          "format": "ugc",
+          "platform": "TikTok",
+          "hypothesis": "UGC workout format is trending (45 examples). Show protein shake integration into real workout.",
+          "angle": "Taste Transformation Angle",
+          "variants": 3,
+          "research_basis": "Top format on TikTok Creative Center"
+        },
+        {
+          "route_id": "confession_testimonial",
+          "format": "testimonial",
+          "platform": "TikTok",
+          "hypothesis": "Confession hook is trending (21 examples). Authentic testimonial about taste.",
+          "angle": "Taste Transformation Angle",
+          "variants": 2,
+          "research_basis": "Trending hook format"
+        }
+      ],
+      "testing_matrix": {
+        "routes": 2,
+        "variants_per_route": 3,
+        "total_assets": 5,
+        "testing_approach": "A/B test UGC vs Confession format. Winner gets scaled."
+      }
+    },
+    "cost": 0.05,
+    "latency": 12
+  },
+  
+  "step_7_execution_plan": {
+    "agent": "Orchestrator",
+    "action": "Generate execution plan",
+    "summary": "Generate 5 TikTok ads using research-informed hooks and formats",
+    "note": "All hooks are informed by TikTok Creative Center research (POV, Confession patterns)",
+    "totalEstimatedCost": 4.25,
+    "totalEstimatedLatency": 590
+  },
+  
+  "success_criteria": {
+    "research_quality": "✓ Real data from TikTok Creative Center (45 examples analyzed)",
+    "citation_tracking": "✓ All insights cited with source URLs",
+    "strategy_alignment": "✓ Creative strategy directly informed by research",
+    "hook_novelty": "✓ Hooks use trending patterns (POV, Confession) but adapted to product",
+    "format_compliance": "✓ UGC format matches top-performing trend",
+    "no_fabrication": "✓ Zero invented data, all insights traced to sources"
+  }
+}
+
