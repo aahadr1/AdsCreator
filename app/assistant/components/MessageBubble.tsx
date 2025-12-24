@@ -5,13 +5,16 @@ import { Image as ImageIcon, Video, Music, File } from 'lucide-react';
 import ClarificationWidget from './widgets/ClarificationWidget';
 import ResearchWidget from './widgets/ResearchWidget';
 import StrategyWidget from './widgets/StrategyWidget';
+import DynamicBlockRenderer from './DynamicBlockRenderer';
 import type { AgentResponse } from '@/types/agentResponse';
+import type { DynamicResponse } from '@/types/dynamicContent';
 import {
   isClarificationNeeded,
   isResearchInProgress,
   isResearchComplete,
   isStrategyComplete,
 } from '@/types/agentResponse';
+import { isDynamicResponse } from '@/types/dynamicContent';
 
 type MessageBubbleProps = {
   role: 'user' | 'assistant';
@@ -20,6 +23,7 @@ type MessageBubbleProps = {
   children?: React.ReactNode;
   onClarificationSubmit?: (answers: Record<string, string>) => void;
   onStrategyProceed?: () => void;
+  onDynamicAction?: (action: string, parameters?: Record<string, any>) => void;
 };
 
 export default function MessageBubble({
@@ -29,16 +33,17 @@ export default function MessageBubble({
   children,
   onClarificationSubmit,
   onStrategyProceed,
+  onDynamicAction,
 }: MessageBubbleProps) {
   const isUser = role === 'user';
 
-  // Try to parse content as special response type
-  let specialResponse: AgentResponse | null = null;
+  // Try to parse content as response (supports both old and new formats)
+  let parsedResponse: AgentResponse | DynamicResponse | null = null;
   if (role === 'assistant' && content) {
     try {
       const parsed = JSON.parse(content);
       if (parsed.responseType) {
-        specialResponse = parsed as AgentResponse;
+        parsedResponse = parsed;
       }
     } catch {
       // Not JSON, treat as regular text
@@ -48,21 +53,34 @@ export default function MessageBubble({
   return (
     <div className={`message-bubble message-bubble-${role}`}>
       <div className="message-bubble-content">
-        {/* Special Widget Rendering */}
-        {specialResponse && isClarificationNeeded(specialResponse) && onClarificationSubmit && (
-          <ClarificationWidget data={specialResponse} onSubmit={onClarificationSubmit} />
+        {/* Dynamic Block System (NEW - handles any combination) */}
+        {parsedResponse && isDynamicResponse(parsedResponse) && (
+          <div className="space-y-4">
+            {parsedResponse.blocks.map((block) => (
+              <DynamicBlockRenderer
+                key={block.id}
+                block={block}
+                onAction={onDynamicAction}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Legacy Widget Rendering (for backward compatibility) */}
+        {parsedResponse && !isDynamicResponse(parsedResponse) && isClarificationNeeded(parsedResponse) && onClarificationSubmit && (
+          <ClarificationWidget data={parsedResponse} onSubmit={onClarificationSubmit} />
         )}
         
-        {specialResponse && (isResearchInProgress(specialResponse) || isResearchComplete(specialResponse)) && (
-          <ResearchWidget data={specialResponse} />
+        {parsedResponse && !isDynamicResponse(parsedResponse) && (isResearchInProgress(parsedResponse) || isResearchComplete(parsedResponse)) && (
+          <ResearchWidget data={parsedResponse} />
         )}
         
-        {specialResponse && isStrategyComplete(specialResponse) && onStrategyProceed && (
-          <StrategyWidget data={specialResponse} onProceed={onStrategyProceed} />
+        {parsedResponse && !isDynamicResponse(parsedResponse) && isStrategyComplete(parsedResponse) && onStrategyProceed && (
+          <StrategyWidget data={parsedResponse} onProceed={onStrategyProceed} />
         )}
 
         {/* Regular Text Content (only if not a special response) */}
-        {!specialResponse && content && (
+        {!parsedResponse && content && (
           <div className="message-bubble-text">
             {content}
           </div>

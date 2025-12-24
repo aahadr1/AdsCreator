@@ -1,0 +1,261 @@
+/**
+ * Dynamic Content Block System
+ * 
+ * This allows the assistant to compose ANY combination of content blocks
+ * without being limited by predefined pipelines or response types.
+ */
+
+// Base interface for all content blocks
+export type ContentBlock = {
+  id: string;
+  blockType: string; // Extensible - can be any string
+  data: Record<string, any>; // Flexible data structure
+  metadata?: {
+    timestamp?: string;
+    source?: string;
+    priority?: 'low' | 'medium' | 'high';
+    collapsible?: boolean;
+    defaultExpanded?: boolean;
+  };
+};
+
+// Common block types (extensible)
+export type QuestionBlock = ContentBlock & {
+  blockType: 'question';
+  data: {
+    questions: Array<{
+      id: string;
+      question: string;
+      type: 'text' | 'url' | 'choice' | 'multiselect' | 'number' | 'date';
+      options?: string[];
+      required?: boolean;
+      placeholder?: string;
+      defaultValue?: string;
+      validation?: {
+        min?: number;
+        max?: number;
+        pattern?: string;
+        message?: string;
+      };
+    }>;
+    title?: string;
+    description?: string;
+    submitLabel?: string;
+  };
+};
+
+export type TextBlock = ContentBlock & {
+  blockType: 'text';
+  data: {
+    content: string;
+    format?: 'plain' | 'markdown' | 'html';
+    style?: 'normal' | 'success' | 'warning' | 'error' | 'info';
+  };
+};
+
+export type ThinkingBlock = ContentBlock & {
+  blockType: 'thinking';
+  data: {
+    title: string;
+    thoughts: string[];
+    decision?: string;
+    reasoning?: string;
+  };
+};
+
+export type ResearchBlock = ContentBlock & {
+  blockType: 'research';
+  data: {
+    status: 'in_progress' | 'complete' | 'partial';
+    sources: Array<{
+      name: string;
+      type: 'competitor' | 'web' | 'library' | 'analysis';
+      url?: string;
+    }>;
+    insights?: {
+      summary?: string;
+      patterns?: string[];
+      recommendations?: string[];
+      dataPoints?: Array<{
+        label: string;
+        value: string | number;
+        context?: string;
+      }>;
+      quotes?: string[];
+      visuals?: string[]; // URLs to screenshots/images
+    };
+  };
+};
+
+export type StrategyBlock = ContentBlock & {
+  blockType: 'strategy';
+  data: {
+    title?: string;
+    sections: Array<{
+      id: string;
+      title: string;
+      type: 'audience' | 'angle' | 'route' | 'testing' | 'custom';
+      items: Array<{
+        label: string;
+        description?: string;
+        tags?: string[];
+        metadata?: Record<string, any>;
+      }>;
+    }>;
+  };
+};
+
+export type ActionBlock = ContentBlock & {
+  blockType: 'action';
+  data: {
+    label: string;
+    action: string; // Action identifier
+    style?: 'primary' | 'secondary' | 'success' | 'danger';
+    icon?: string;
+    parameters?: Record<string, any>;
+    confirmation?: {
+      required: boolean;
+      message: string;
+    };
+  };
+};
+
+export type MediaBlock = ContentBlock & {
+  blockType: 'media';
+  data: {
+    items: Array<{
+      url: string;
+      type: 'image' | 'video' | 'audio';
+      caption?: string;
+      thumbnail?: string;
+    }>;
+    layout?: 'grid' | 'carousel' | 'list';
+  };
+};
+
+export type MetricsBlock = ContentBlock & {
+  blockType: 'metrics';
+  data: {
+    metrics: Array<{
+      label: string;
+      value: string | number;
+      change?: {
+        value: number;
+        direction: 'up' | 'down' | 'neutral';
+      };
+      format?: 'number' | 'currency' | 'percentage' | 'duration';
+    }>;
+    layout?: 'row' | 'grid';
+  };
+};
+
+export type TableBlock = ContentBlock & {
+  blockType: 'table';
+  data: {
+    headers: string[];
+    rows: Array<Array<string | number>>;
+    sortable?: boolean;
+    filterable?: boolean;
+  };
+};
+
+export type TimelineBlock = ContentBlock & {
+  blockType: 'timeline';
+  data: {
+    events: Array<{
+      id: string;
+      timestamp: string;
+      title: string;
+      description?: string;
+      status: 'pending' | 'in_progress' | 'completed' | 'failed';
+      icon?: string;
+    }>;
+  };
+};
+
+export type ComparisonBlock = ContentBlock & {
+  blockType: 'comparison';
+  data: {
+    items: Array<{
+      label: string;
+      attributes: Record<string, string | number | boolean>;
+      score?: number;
+      recommended?: boolean;
+    }>;
+  };
+};
+
+// Dynamic response that can contain any combination of blocks
+export type DynamicResponse = {
+  responseType: 'dynamic';
+  blocks: ContentBlock[];
+  metadata?: {
+    conversationId?: string;
+    requiresContinuation?: boolean;
+    nextAction?: string;
+  };
+};
+
+// Type guards
+export function isQuestionBlock(block: ContentBlock): block is QuestionBlock {
+  return block.blockType === 'question';
+}
+
+export function isTextBlock(block: ContentBlock): block is TextBlock {
+  return block.blockType === 'text';
+}
+
+export function isThinkingBlock(block: ContentBlock): block is ThinkingBlock {
+  return block.blockType === 'thinking';
+}
+
+export function isResearchBlock(block: ContentBlock): block is ResearchBlock {
+  return block.blockType === 'research';
+}
+
+export function isStrategyBlock(block: ContentBlock): block is StrategyBlock {
+  return block.blockType === 'strategy';
+}
+
+export function isActionBlock(block: ContentBlock): block is ActionBlock {
+  return block.blockType === 'action';
+}
+
+export function isMediaBlock(block: ContentBlock): block is MediaBlock {
+  return block.blockType === 'media';
+}
+
+export function isMetricsBlock(block: ContentBlock): block is MetricsBlock {
+  return block.blockType === 'metrics';
+}
+
+export function isTableBlock(block: ContentBlock): block is TableBlock {
+  return block.blockType === 'table';
+}
+
+export function isTimelineBlock(block: ContentBlock): block is TimelineBlock {
+  return block.blockType === 'timeline';
+}
+
+export function isComparisonBlock(block: ContentBlock): block is ComparisonBlock {
+  return block.blockType === 'comparison';
+}
+
+export function isDynamicResponse(response: any): response is DynamicResponse {
+  return response?.responseType === 'dynamic' && Array.isArray(response?.blocks);
+}
+
+// Helper to create blocks
+export function createBlock<T extends ContentBlock>(
+  blockType: string,
+  data: T['data'],
+  metadata?: ContentBlock['metadata']
+): ContentBlock {
+  return {
+    id: `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    blockType,
+    data,
+    metadata,
+  };
+}
+

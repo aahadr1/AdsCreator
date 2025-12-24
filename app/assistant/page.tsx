@@ -271,6 +271,51 @@ export default function AssistantPage() {
     }
   };
 
+  // Handle dynamic actions from block renderer
+  const handleDynamicAction = async (action: string, parameters?: Record<string, any>) => {
+    if (!userId) return;
+
+    // Handle different action types
+    switch (action) {
+      case 'submit_answers':
+        // Similar to clarification submit
+        if (parameters?.answers) {
+          await handleClarificationSubmit(parameters.answers);
+        }
+        break;
+
+      case 'create_workflow':
+      case 'proceed':
+      case 'continue':
+        // Similar to strategy proceed
+        await handleStrategyProceed();
+        break;
+
+      case 'research_competitor':
+        // Trigger competitor research
+        if (parameters?.brand) {
+          addUserMessage(`Research competitor: ${parameters.brand}`);
+          await generatePlan();
+        }
+        break;
+
+      case 'regenerate':
+      case 'retry':
+        // Regenerate last response
+        await generatePlan();
+        break;
+
+      default:
+        // Generic action: send to assistant as user message
+        const actionMessage = parameters 
+          ? `${action}: ${JSON.stringify(parameters)}`
+          : action;
+        addUserMessage(actionMessage);
+        await generatePlan();
+        break;
+    }
+  };
+
   const generatePlan = async () => {
     if (!userId) {
       addAssistantMessage('Please sign in at /auth to generate a plan.', 'error');
@@ -1073,6 +1118,7 @@ export default function AssistantPage() {
                 attachments={msg.attachments}
                 onClarificationSubmit={handleClarificationSubmit}
                 onStrategyProceed={handleStrategyProceed}
+                onDynamicAction={handleDynamicAction}
               >
                 {widgetContent}
               </MessageBubble>
