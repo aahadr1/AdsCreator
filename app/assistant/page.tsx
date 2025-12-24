@@ -177,6 +177,100 @@ export default function AssistantPage() {
     );
   };
 
+  // Handle clarification submissions
+  const handleClarificationSubmit = async (answers: Record<string, string>) => {
+    if (!userId) return;
+
+    // Format answers as a message
+    const answerText = Object.entries(answers)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+
+    addUserMessage(`Clarification answers:\n${answerText}`);
+
+    setPlanLoading(true);
+    setRunError(null);
+
+    // Get all messages including the new answers
+    const userMessages: AssistantPlanMessage[] = chatMessages
+      .filter((m) => m.role === 'user')
+      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
+    userMessages.push({ role: 'user', content: answerText });
+
+    try {
+      const res = await fetch('/api/assistant/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          conversation_id: conversationId,
+          messages: userMessages,
+          media_context: attachments,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      const parsed = await res.json();
+      if (parsed.summary && Array.isArray(parsed.steps)) {
+        addAssistantMessage(JSON.stringify(parsed));
+        setPlan({ summary: parsed.summary, steps: parsed.steps });
+      } else {
+        throw new Error('Invalid plan response');
+      }
+    } catch (error: any) {
+      console.error('[Plan Error]:', error);
+      addAssistantMessage(error.message || 'Failed to generate plan', 'error');
+      setRunError(error.message || 'Unknown error');
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
+  // Handle strategy proceed
+  const handleStrategyProceed = async () => {
+    if (!userId) return;
+
+    addUserMessage('Create execution plan from this strategy');
+
+    setPlanLoading(true);
+    setRunError(null);
+
+    const userMessages: AssistantPlanMessage[] = chatMessages
+      .filter((m) => m.role === 'user')
+      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
+    userMessages.push({ role: 'user', content: 'Create execution plan from this strategy' });
+
+    try {
+      const res = await fetch('/api/assistant/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          conversation_id: conversationId,
+          messages: userMessages,
+          media_context: attachments,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      const parsed = await res.json();
+      if (parsed.summary && Array.isArray(parsed.steps)) {
+        addAssistantMessage(JSON.stringify(parsed));
+        setPlan({ summary: parsed.summary, steps: parsed.steps });
+      } else {
+        throw new Error('Invalid plan response');
+      }
+    } catch (error: any) {
+      console.error('[Plan Error]:', error);
+      addAssistantMessage(error.message || 'Failed to generate plan', 'error');
+      setRunError(error.message || 'Unknown error');
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
   const generatePlan = async () => {
     if (!userId) {
       addAssistantMessage('Please sign in at /auth to generate a plan.', 'error');
@@ -977,6 +1071,8 @@ export default function AssistantPage() {
                 role={msg.role}
                 content={msg.content}
                 attachments={msg.attachments}
+                onClarificationSubmit={handleClarificationSubmit}
+                onStrategyProceed={handleStrategyProceed}
               >
                 {widgetContent}
               </MessageBubble>
