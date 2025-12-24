@@ -31,7 +31,7 @@ type ChatMessage = {
   content?: string;
   timestamp: Date;
   attachments?: AssistantMedia[];
-  widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error';
+  widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error' | 'phased';
   widgetData?: any;
 };
 
@@ -356,6 +356,15 @@ export default function AssistantPage() {
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
+      
+      // Check if this is a phased response (thinking/questions) or a plan
+      if (json.responseType === 'phased') {
+        console.log('[Frontend] 📥 Received phased response (thinking phase)');
+        // Store the phased response as a special assistant message
+        addAssistantMessage(JSON.stringify(json), undefined, 'phased');
+        return; // Don't set plan yet, wait for user input or completion
+      }
+      
       const nextPlan: AssistantPlan = json.plan || json;
       
       // VERIFICATION: Log what we received from API
@@ -417,7 +426,7 @@ export default function AssistantPage() {
 
   const addAssistantMessage = (
     content: string,
-    widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error',
+    widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error' | 'phased',
     widgetData?: any
   ) => {
     const msg: ChatMessage = {

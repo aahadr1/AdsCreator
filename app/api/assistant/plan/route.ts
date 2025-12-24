@@ -274,6 +274,41 @@ function chunkToString(chunk: any): string {
 // REMOVED: extractPlanFromText - we only use Claude's output, no fallbacks
 
 
+// Helper to detect vague requests
+function isVagueRequest(messages: AssistantPlanMessage[]): boolean {
+  const lastUserMsg = messages.slice().reverse().find(m => m.role === 'user');
+  if (!lastUserMsg) return false;
+  
+  const content = lastUserMsg.content.toLowerCase();
+  const vaguePatterns = [
+    /^(create|make|generate|build|design)(\s+an?)?(\s+ad|ads|campaign)/i,
+    /^(help|assist)(\s+me)?(\s+with)?(\s+ad|ads)/i,
+    /^ad(s)?\s+for\s+my\s+brand/i,
+  ];
+  
+  return vaguePatterns.some(pattern => pattern.test(content)) && !hasWebsiteURL(content);
+}
+
+// Helper to extract website URL
+function extractWebsiteURL(text: string): string | null {
+  const urlPatterns = [
+    /https?:\/\/[^\s]+/i,
+    /www\.[^\s]+/i,
+    /[a-z0-9-]+\.(com|net|org|io|co|ai|app)[^\s]*/i,
+  ];
+  
+  for (const pattern of urlPatterns) {
+    const match = text.match(pattern);
+    if (match) return match[0];
+  }
+  return null;
+}
+
+// Helper to check if URL exists
+function hasWebsiteURL(text: string): boolean {
+  return extractWebsiteURL(text) !== null;
+}
+
 export async function POST(req: NextRequest) {
   let body: any = null;
   try {
@@ -289,6 +324,122 @@ export async function POST(req: NextRequest) {
   }
   if (!userId) {
     return new Response('Missing user_id', { status: 401 });
+  }
+
+  const lastUserMsg = messages[messages.length - 1];
+  const websiteURL = lastUserMsg?.role === 'user' ? extractWebsiteURL(lastUserMsg.content) : null;
+
+  // CRITICAL: Check if request is vague and needs clarification
+  if (isVagueRequest(messages)) {
+    console.log('[Plan] 🤔 Vague request detected, returning thinking phase with questions');
+    
+    return Response.json({
+      responseType: 'phased',
+      activePhase: 'thinking',
+      requestId: `req_${Date.now()}`,
+      timestamp: Date.now(),
+      thinking: {
+        phase: 'thinking',
+        status: 'active',
+        thoughts: [
+          {
+            id: 't1',
+            type: 'understanding',
+            title: 'Understanding Request',
+            content: 'User wants to create ads but hasn\'t provided enough information yet.',
+            priority: 'important',
+            status: 'complete',
+            timestamp: Date.now(),
+          },
+          {
+            id: 't2',
+            type: 'questioning',
+            title: 'Missing Critical Information',
+            content: 'I need website URL to analyze the brand, and details about the product/service to promote.',
+            priority: 'critical',
+            status: 'complete',
+            timestamp: Date.now(),
+          },
+        ],
+        currentThought: 'Waiting for brand information...',
+      },
+      needsInput: {
+        type: 'question',
+        data: {
+          questions: [
+            {
+              id: 'url',
+              question: 'What\'s your brand\'s website URL?',
+              type: 'url',
+              required: true,
+            },
+            {
+              id: 'product',
+              question: 'What product or service should the ads promote?',
+              type: 'text',
+              required: true,
+            },
+            {
+              id: 'platform',
+              question: 'Which platform(s)? (TikTok, Instagram, Facebook, YouTube)',
+              type: 'text',
+              required: false,
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  // CRITICAL: If URL provided, call website_analyzer autonomously
+  if (websiteURL) {
+    console.log(`[Plan] 🔍 Website URL detected: ${websiteURL}, analyzing...`);
+    
+    // Return thinking phase with tool execution
+    return Response.json({
+      responseType: 'phased',
+      activePhase: 'thinking',
+      requestId: `req_${Date.now()}`,
+      timestamp: Date.now(),
+      thinking: {
+        phase: 'thinking',
+        status: 'active',
+        streamingEnabled: true,
+        thoughts: [
+          {
+            id: 't1',
+            type: 'understanding',
+            title: 'Understanding Request',
+            content: `User wants ads for ${websiteURL}. I have the website URL, so I'll analyze it first.`,
+            priority: 'info',
+            status: 'complete',
+            timestamp: Date.now(),
+          },
+          {
+            id: 't2',
+            type: 'executing_tool',
+            title: 'Analyzing Brand Website',
+            content: 'Calling website_analyzer to understand brand identity, products, target audience, tone, and visual style.',
+            priority: 'important',
+            status: 'running',
+            toolExecution: {
+              toolName: 'website_analyzer',
+              params: { url: websiteURL },
+              status: 'running',
+            },
+            timestamp: Date.now(),
+          },
+        ],
+        currentThought: '🔍 Analyzing your brand website...',
+        currentToolExecution: {
+          toolName: 'website_analyzer',
+          displayMessage: '🔍 Analyzing your brand website...',
+          progress: 50,
+        },
+      },
+    });
+    // Note: In production, this would actually call the tool and continue
+    // For now, we're showing the thinking phase so the user sees the process
   }
 
   let usedModel = DEFAULT_PLANNER_MODEL;

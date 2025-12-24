@@ -19,7 +19,14 @@ export type ThoughtType =
   | 'strategizing'     // Building creative strategy
   | 'deciding'         // Making a decision
   | 'planning'         // Planning next steps
-  | 'concluding';      // Final conclusions
+  | 'concluding'       // Final conclusions
+  | 'executing_tool'   // Calling/executing a tool
+  | 'evaluating'       // Evaluating results
+  | 'iterating'        // Iterating on approach
+  | 'error_handling'   // Handling errors
+  | 'optimizing'       // Optimizing strategy
+  | 'validating'       // Validating outputs
+  | 'refining';        // Refining approach
 
 export type Thought = {
   id: string;
@@ -28,8 +35,24 @@ export type Thought = {
   content: string;
   details?: string[];
   data?: Record<string, any>;
+  priority?: 'critical' | 'important' | 'info';
+  status?: 'pending' | 'active' | 'complete';
+  progress?: number; // 0-100 for progress tracking
+  toolExecution?: {
+    toolName: string;
+    params: Record<string, any>;
+    status: 'calling' | 'running' | 'complete' | 'error';
+    result?: any;
+    error?: string;
+  };
+  children?: Thought[]; // Nested thoughts
   timestamp: number;
   duration?: number; // ms
+};
+
+export type StreamingThought = Thought & {
+  isStreaming: boolean;
+  partialContent?: string;
 };
 
 export type ThinkingPhase = {
@@ -37,7 +60,13 @@ export type ThinkingPhase = {
   status: 'active' | 'complete';
   thoughts: Thought[];
   currentThought?: string;
+  currentToolExecution?: {
+    toolName: string;
+    displayMessage: string;
+    progress?: number;
+  };
   summary?: string;
+  streamingEnabled?: boolean;
 };
 
 // ============================================================================

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import type { AgentPhaseResponse, Thought, PlanStep } from '@/types/agentPhases';
+import LiveThinkingStream from './LiveThinkingStream';
+import ToolExecutionCard from './ToolExecutionCard';
 
 type Props = {
   data: AgentPhaseResponse;
@@ -17,12 +19,32 @@ export default function AgentPhaseDisplay({ data, onQuestionAnswer, onRunWorkflo
       {/* Phase Indicator */}
       <PhaseIndicator activePhase={activePhase} />
 
-      {/* Thinking Phase */}
+      {/* Thinking Phase - Enhanced with LiveThinkingStream */}
       {thinking && (
-        <ThinkingPhaseDisplay 
-          phase={thinking} 
-          isActive={activePhase === 'thinking'}
-        />
+        <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/30 rounded-xl overflow-hidden">
+          <div className="px-4 py-4">
+            {/* Show tool execution if active */}
+            {thinking.currentToolExecution && (
+              <div className="mb-4">
+                <ToolExecutionCard
+                  toolName={thinking.currentToolExecution.toolName}
+                  displayMessage={thinking.currentToolExecution.displayMessage}
+                  status="running"
+                  progress={thinking.currentToolExecution.progress}
+                />
+              </div>
+            )}
+            
+            {/* Live thinking stream */}
+            {thinking.thoughts && thinking.thoughts.length > 0 && (
+              <LiveThinkingStream
+                thoughts={thinking.thoughts}
+                currentThought={thinking.currentThought}
+                isStreaming={thinking.streamingEnabled && thinking.status === 'active'}
+              />
+            )}
+          </div>
+        </div>
       )}
 
       {/* Planning Phase */}
@@ -107,102 +129,7 @@ function PhaseIndicator({ activePhase }: { activePhase: string }) {
   );
 }
 
-// ============================================================================
-// Thinking Phase Display
-// ============================================================================
-
-function ThinkingPhaseDisplay({ phase, isActive }: { phase: any; isActive: boolean }) {
-  const [expanded, setExpanded] = useState(true);
-
-  const thoughtIcons: Record<string, string> = {
-    understanding: '👁️',
-    questioning: '❓',
-    researching: '🔍',
-    analyzing: '📊',
-    strategizing: '🎯',
-    deciding: '⚖️',
-    planning: '📝',
-    concluding: '💡',
-  };
-
-  return (
-    <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/30 rounded-xl overflow-hidden">
-      {/* Header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
-      >
-        <div className="flex items-center space-x-3">
-          <span className="text-xl">🧠</span>
-          <span className="font-semibold text-white">Thinking Process</span>
-          {isActive && (
-            <span className="px-2 py-0.5 bg-indigo-500/30 text-indigo-300 text-xs rounded-full animate-pulse">
-              Active
-            </span>
-          )}
-        </div>
-        <svg
-          className={`w-5 h-5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {/* Content */}
-      {expanded && (
-        <div className="px-4 pb-4 space-y-3">
-          {phase.thoughts?.map((thought: Thought, index: number) => (
-            <div
-              key={thought.id}
-              className="flex items-start space-x-3 p-3 bg-gray-800/50 rounded-lg"
-            >
-              <span className="text-lg mt-0.5">{thoughtIcons[thought.type] || '💭'}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center space-x-2 mb-1">
-                  <span className="font-medium text-white text-sm">{thought.title}</span>
-                  <span className="text-xs text-gray-500">
-                    {thought.type}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-300">{thought.content}</p>
-                {thought.details && thought.details.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {thought.details.map((detail, i) => (
-                      <li key={i} className="text-xs text-gray-400 flex items-start">
-                        <span className="text-indigo-400 mr-2">•</span>
-                        {detail}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {isActive && phase.currentThought && (
-            <div className="flex items-center space-x-2 text-sm text-gray-400">
-              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span>{phase.currentThought}</span>
-            </div>
-          )}
-
-          {phase.summary && (
-            <div className="mt-4 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
-              <div className="text-xs font-semibold text-indigo-400 mb-1">Summary</div>
-              <p className="text-sm text-gray-200">{phase.summary}</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+// Note: ThinkingPhaseDisplay is now integrated into the main component above
 
 // ============================================================================
 // Planning Phase Display
