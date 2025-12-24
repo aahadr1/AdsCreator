@@ -717,6 +717,19 @@ async function runWebSearchStep(origin: string, inputs: Record<string, any>): Pr
   return { text: searchText, url: null };
 }
 
+async function runWebsiteAnalyzerStep(origin: string, inputs: Record<string, any>): Promise<StepResult> {
+  const res = await fetch(`${origin}/api/tools/website-analyzer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: inputs.url }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const json = await res.json();
+  // Return the analysis as JSON text
+  const analysisText = JSON.stringify(json.data, null, 2);
+  return { text: analysisText, url: null };
+}
+
 async function executeStep(
   origin: string,
   step: AssistantPlanStep,
@@ -734,6 +747,7 @@ async function executeStep(
   if (step.tool === 'tts') return runTtsStep(origin, { ...injected, user_id: injected.user_id || userId });
   if (step.tool === 'competitor_analyst') return runCompetitorAnalystStep(origin, injected);
   if (step.tool === 'web_search') return runWebSearchStep(origin, injected);
+  if (step.tool === 'website_analyzer') return runWebsiteAnalyzerStep(origin, injected);
   throw new Error(`Unsupported tool: ${step.tool}`);
 }
 

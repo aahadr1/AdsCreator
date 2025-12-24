@@ -482,6 +482,18 @@ export const TOOL_SPECS: Record<AssistantToolKind, ToolSpec> = {
       { id: 'web_search', label: 'Web Search', defaultInputs: {} },
     ],
   },
+  website_analyzer: {
+    id: 'website_analyzer',
+    label: 'Website & Brand Analyzer',
+    description: 'Scrapes and analyzes a website to understand brand identity, products, target audience, tone of voice, visual style, and generates ad recommendations.',
+    outputType: 'json',
+    fields: [
+      { key: 'url', label: 'Website URL', type: 'url', required: true, helper: 'The website URL to analyze (e.g., "example.com")' },
+    ],
+    models: [
+      { id: 'website_analyzer', label: 'Website Analyzer (Playwright + GPT-4o-mini)', defaultInputs: {} },
+    ],
+  },
 };
 
 function fieldsForTool(tool: AssistantToolKind): AssistantPlanField[] {

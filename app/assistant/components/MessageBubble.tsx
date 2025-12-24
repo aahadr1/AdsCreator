@@ -6,8 +6,10 @@ import ClarificationWidget from './widgets/ClarificationWidget';
 import ResearchWidget from './widgets/ResearchWidget';
 import StrategyWidget from './widgets/StrategyWidget';
 import DynamicBlockRenderer from './DynamicBlockRenderer';
+import AgentPhaseDisplay from './AgentPhaseDisplay';
 import type { AgentResponse } from '@/types/agentResponse';
 import type { DynamicResponse } from '@/types/dynamicContent';
+import type { AgentPhaseResponse } from '@/types/agentPhases';
 import {
   isClarificationNeeded,
   isResearchInProgress,
@@ -15,6 +17,7 @@ import {
   isStrategyComplete,
 } from '@/types/agentResponse';
 import { isDynamicResponse } from '@/types/dynamicContent';
+import { isAgentPhaseResponse } from '@/types/agentPhases';
 
 type MessageBubbleProps = {
   role: 'user' | 'assistant';
@@ -24,6 +27,7 @@ type MessageBubbleProps = {
   onClarificationSubmit?: (answers: Record<string, string>) => void;
   onStrategyProceed?: () => void;
   onDynamicAction?: (action: string, parameters?: Record<string, any>) => void;
+  onRunWorkflow?: () => void;
 };
 
 export default function MessageBubble({
@@ -34,11 +38,12 @@ export default function MessageBubble({
   onClarificationSubmit,
   onStrategyProceed,
   onDynamicAction,
+  onRunWorkflow,
 }: MessageBubbleProps) {
   const isUser = role === 'user';
 
-  // Try to parse content as response (supports both old and new formats)
-  let parsedResponse: AgentResponse | DynamicResponse | null = null;
+  // Try to parse content as response (supports multiple formats)
+  let parsedResponse: AgentResponse | DynamicResponse | AgentPhaseResponse | null = null;
   if (role === 'assistant' && content) {
     try {
       const parsed = JSON.parse(content);
@@ -53,7 +58,16 @@ export default function MessageBubble({
   return (
     <div className={`message-bubble message-bubble-${role}`}>
       <div className="message-bubble-content">
-        {/* Dynamic Block System (NEW - handles any combination) */}
+        {/* Phased Response (THINK → PLAN → EXECUTE) */}
+        {parsedResponse && isAgentPhaseResponse(parsedResponse) && (
+          <AgentPhaseDisplay
+            data={parsedResponse}
+            onQuestionAnswer={onClarificationSubmit}
+            onRunWorkflow={onRunWorkflow}
+          />
+        )}
+
+        {/* Dynamic Block System */}
         {parsedResponse && isDynamicResponse(parsedResponse) && (
           <div className="space-y-4">
             {parsedResponse.blocks.map((block) => (
@@ -67,16 +81,16 @@ export default function MessageBubble({
         )}
 
         {/* Legacy Widget Rendering (for backward compatibility) */}
-        {parsedResponse && !isDynamicResponse(parsedResponse) && isClarificationNeeded(parsedResponse) && onClarificationSubmit && (
-          <ClarificationWidget data={parsedResponse} onSubmit={onClarificationSubmit} />
+        {parsedResponse && !isDynamicResponse(parsedResponse) && !isAgentPhaseResponse(parsedResponse) && isClarificationNeeded(parsedResponse as AgentResponse) && onClarificationSubmit && (
+          <ClarificationWidget data={parsedResponse as any} onSubmit={onClarificationSubmit} />
         )}
         
-        {parsedResponse && !isDynamicResponse(parsedResponse) && (isResearchInProgress(parsedResponse) || isResearchComplete(parsedResponse)) && (
-          <ResearchWidget data={parsedResponse} />
+        {parsedResponse && !isDynamicResponse(parsedResponse) && !isAgentPhaseResponse(parsedResponse) && (isResearchInProgress(parsedResponse as AgentResponse) || isResearchComplete(parsedResponse as AgentResponse)) && (
+          <ResearchWidget data={parsedResponse as any} />
         )}
         
-        {parsedResponse && !isDynamicResponse(parsedResponse) && isStrategyComplete(parsedResponse) && onStrategyProceed && (
-          <StrategyWidget data={parsedResponse} onProceed={onStrategyProceed} />
+        {parsedResponse && !isDynamicResponse(parsedResponse) && !isAgentPhaseResponse(parsedResponse) && isStrategyComplete(parsedResponse as AgentResponse) && onStrategyProceed && (
+          <StrategyWidget data={parsedResponse as any} onProceed={onStrategyProceed} />
         )}
 
         {/* Regular Text Content (only if not a special response) */}

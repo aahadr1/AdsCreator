@@ -1119,6 +1119,7 @@ export default function AssistantPage() {
                 onClarificationSubmit={handleClarificationSubmit}
                 onStrategyProceed={handleStrategyProceed}
                 onDynamicAction={handleDynamicAction}
+                onRunWorkflow={runWorkflow}
               >
                 {widgetContent}
               </MessageBubble>

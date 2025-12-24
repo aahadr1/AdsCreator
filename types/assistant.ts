@@ -7,7 +7,8 @@ export type AssistantToolKind =
   | 'transcription'
   | 'tts'
   | 'competitor_analyst'
-  | 'web_search';
+  | 'web_search'
+  | 'website_analyzer';
 
 export type AssistantPlanField = {
   key: string;
