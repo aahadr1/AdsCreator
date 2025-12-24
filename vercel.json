@@ -1,15 +1,18 @@
 {
   "buildCommand": "npm run build",
-  "installCommand": "npm install && npx playwright install --with-deps chromium",
+  "installCommand": "npm install && npx playwright install chromium || echo 'Playwright install skipped'",
   "functions": {
     "app/api/tools/website-analyzer/route.ts": {
-      "maxDuration": 120
+      "maxDuration": 120,
+      "memory": 3008
     },
     "app/api/tools/competitor-analyst/route.ts": {
-      "maxDuration": 300
+      "maxDuration": 300,
+      "memory": 3008
     },
     "app/api/assistant/plan/route.ts": {
-      "maxDuration": 300
+      "maxDuration": 300,
+      "memory": 3008
     }
   }
 }

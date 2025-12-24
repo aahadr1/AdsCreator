@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext js,jsx,ts,tsx --max-warnings=0 || true",
-    "postinstall": "npx playwright install --with-deps chromium"
+    "postinstall": "npx playwright install chromium || echo 'Playwright install skipped'"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.884.0",
