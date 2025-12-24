@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ext js,jsx,ts,tsx --max-warnings=0 || true"
+    "lint": "eslint . --ext js,jsx,ts,tsx --max-warnings=0 || true",
+    "postinstall": "npx playwright install --with-deps chromium"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.884.0",
