@@ -9,14 +9,75 @@
  * - Key value propositions
  */
 
-import { chromium, Browser } from 'playwright';
 import OpenAI from 'openai';
+import * as cheerio from 'cheerio';
 
 function getOpenAIClient(): OpenAI {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY environment variable is not set');
   }
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
+
+// Lightweight fallback scraper (no browser needed)
+async function scrapeWithFetch(url: string): Promise<{
+  title: string;
+  description: string;
+  bodyText: string;
+  headings: string[];
+  links: string[];
+}> {
+  // Ensure URL has protocol
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; AdzCreator/1.0; +https://adzcreator.com)',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+  }
+
+  const html = await response.text();
+  const $ = cheerio.load(html);
+
+  // Extract content
+  const title = $('title').text() || $('meta[property="og:title"]').attr('content') || '';
+  const description = 
+    $('meta[name="description"]').attr('content') || 
+    $('meta[property="og:description"]').attr('content') || 
+    '';
+
+  // Get main content (remove script, style, nav, footer)
+  $('script, style, nav, footer, header').remove();
+  const bodyText = $('body').text()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 5000); // Limit to 5000 chars
+
+  // Get headings
+  const headings: string[] = [];
+  $('h1, h2, h3').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text && headings.length < 10) {
+      headings.push(text);
+    }
+  });
+
+  // Get key links
+  const links: string[] = [];
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (href && links.length < 5) {
+      links.push(href);
+    }
+  });
+
+  return { title, description, bodyText, headings, links };
 }
 
 export type BrandAnalysis = {
@@ -44,7 +105,7 @@ export type BrandAnalysis = {
 };
 
 /**
- * Scrape website content
+ * Scrape website content (with Playwright fallback to fetch)
  */
 async function scrapeWebsite(url: string): Promise<{
   title: string;
@@ -55,66 +116,84 @@ async function scrapeWebsite(url: string): Promise<{
   images: string[];
   colors: string[];
 }> {
-  let browser: Browser | null = null;
-  
+  // Ensure URL has protocol
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
+  // Try Playwright first (for local dev)
   try {
-    browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    const { chromium } = await import('playwright');
+    console.log(`[Website Analyzer] Using Playwright for ${url}`);
     
-    // Navigate with timeout
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    
-    // Wait a bit for dynamic content
-    await page.waitForTimeout(2000);
-    
-    // Extract content
-    const data = await page.evaluate(() => {
-      // Title
-      const title = document.title || '';
-      
-      // Meta description
-      const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
-      
-      // Headings
-      const headings: string[] = [];
-      document.querySelectorAll('h1, h2, h3').forEach((h) => {
-        const text = h.textContent?.trim();
-        if (text && text.length > 2 && text.length < 200) {
-          headings.push(text);
-        }
-      });
-      
-      // Body text (limited)
-      const bodyText = document.body.innerText.slice(0, 10000);
-      
-      // Links
-      const links: string[] = [];
-      document.querySelectorAll('a[href]').forEach((a) => {
-        const href = a.getAttribute('href');
-        if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-          links.push(href);
-        }
-      });
-      
-      // Images
-      const images: string[] = [];
-      document.querySelectorAll('img[src]').forEach((img) => {
-        const src = img.getAttribute('src');
-        if (src) images.push(src);
-      });
-      
-      // Extract colors from stylesheets (simplified)
-      const colors: string[] = [];
-      const styles = getComputedStyle(document.body);
-      if (styles.backgroundColor) colors.push(styles.backgroundColor);
-      if (styles.color) colors.push(styles.color);
-      
-      return { title, metaDescription: metaDesc, headings: headings.slice(0, 20), bodyText, links: links.slice(0, 50), images: images.slice(0, 20), colors };
+    const browser = await chromium.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     
-    return data;
-  } finally {
-    if (browser) await browser.close();
+    try {
+      const page = await browser.newPage();
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000);
+      
+      const data = await page.evaluate(() => {
+        const title = document.title || '';
+        const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+        
+        const headings: string[] = [];
+        document.querySelectorAll('h1, h2, h3').forEach((h) => {
+          const text = h.textContent?.trim();
+          if (text && text.length > 2 && text.length < 200) headings.push(text);
+        });
+        
+        const bodyText = document.body.innerText.slice(0, 10000);
+        
+        const links: string[] = [];
+        document.querySelectorAll('a[href]').forEach((a) => {
+          const href = a.getAttribute('href');
+          if (href && !href.startsWith('#') && !href.startsWith('javascript:')) links.push(href);
+        });
+        
+        const images: string[] = [];
+        document.querySelectorAll('img[src]').forEach((img) => {
+          const src = img.getAttribute('src');
+          if (src) images.push(src);
+        });
+        
+        const colors: string[] = [];
+        const styles = getComputedStyle(document.body);
+        if (styles.backgroundColor) colors.push(styles.backgroundColor);
+        if (styles.color) colors.push(styles.color);
+        
+        return { title, metaDescription: metaDesc, headings: headings.slice(0, 20), bodyText, links: links.slice(0, 50), images: images.slice(0, 20), colors };
+      });
+      
+      await browser.close();
+      console.log(`[Website Analyzer] ✓ Scraped with Playwright`);
+      return data;
+    } finally {
+      await browser.close().catch(() => {});
+    }
+  } catch (playwrightError: any) {
+    // Fallback to fetch + cheerio (for serverless)
+    console.log(`[Website Analyzer] Playwright unavailable, using fetch fallback:`, playwrightError.message);
+    
+    try {
+      const result = await scrapeWithFetch(url);
+      console.log(`[Website Analyzer] ✓ Scraped with fetch`);
+      
+      return {
+        title: result.title,
+        metaDescription: result.description,
+        headings: result.headings,
+        bodyText: result.bodyText,
+        links: result.links,
+        images: [], // No images in simple scrape
+        colors: [], // No colors in simple scrape
+      };
+    } catch (fetchError: any) {
+      throw new Error(`Failed to scrape website: ${fetchError.message}`);
+    }
   }
 }
 
