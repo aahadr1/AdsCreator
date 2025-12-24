@@ -1,0 +1,16 @@
+{
+  "buildCommand": "npm run build",
+  "installCommand": "npm install && npx playwright install --with-deps chromium",
+  "functions": {
+    "app/api/tools/website-analyzer/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/tools/competitor-analyst/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/assistant/plan/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}
+
