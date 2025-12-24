@@ -2,7 +2,7 @@
  * API Endpoint for Web Search Tool
  * 
  * This endpoint handles web search requests for trends, data, and research.
- * Currently uses a placeholder implementation (can be enhanced with real search API).
+ * Uses Tavily API for AI-optimized search results.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,6 +13,86 @@ export const dynamic = 'force-dynamic';
 type WebSearchRequest = {
   query: string;
 };
+
+type TavilySearchResult = {
+  title: string;
+  url: string;
+  content: string;
+  score: number;
+  raw_content?: string;
+};
+
+type TavilyResponse = {
+  results: TavilySearchResult[];
+  query: string;
+  answer?: string;
+  images?: string[];
+};
+
+async function searchWithTavily(query: string): Promise<any> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  
+  if (!apiKey) {
+    console.warn('[Web Search] TAVILY_API_KEY not set, using fallback');
+    return {
+      query,
+      results: [
+        {
+          title: 'Web search requires API key',
+          snippet: 'To enable web search, set TAVILY_API_KEY environment variable. Get your API key at https://tavily.com',
+          url: 'https://tavily.com',
+          content: 'Web search functionality requires a Tavily API key to be configured.',
+        },
+      ],
+      summary: `Unable to search for "${query}" - API key not configured.`,
+      provider: 'fallback',
+    };
+  }
+
+  try {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: 'basic', // or 'advanced' for more thorough search
+        include_answer: true,
+        include_raw_content: false,
+        max_results: 5,
+        include_domains: [],
+        exclude_domains: [],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Web Search] Tavily API error:', errorText);
+      throw new Error(`Tavily API error: ${response.status}`);
+    }
+
+    const data: TavilyResponse = await response.json();
+    
+    // Format results for our use case
+    return {
+      query,
+      results: data.results.map((r) => ({
+        title: r.title,
+        snippet: r.content.slice(0, 300) + (r.content.length > 300 ? '...' : ''),
+        url: r.url,
+        content: r.content,
+        score: r.score,
+      })),
+      summary: data.answer || `Found ${data.results.length} results for "${query}"`,
+      provider: 'tavily',
+    };
+  } catch (error: any) {
+    console.error('[Web Search] Tavily search failed:', error);
+    throw error;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,23 +106,11 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    console.log(`[API] Web search: ${body.query}`);
+    console.log(`[Web Search] Searching for: ${body.query}`);
     
-    // TODO: Implement actual web search
-    // Options: Serper API, Tavily API, Brave Search API, etc.
+    const result = await searchWithTavily(body.query);
     
-    // Placeholder response
-    const result = {
-      query: body.query,
-      results: [
-        {
-          title: 'Search functionality coming soon',
-          snippet: 'This is a placeholder for web search. Integrate with Serper, Tavily, or Brave Search API.',
-          url: 'https://example.com',
-        },
-      ],
-      summary: `Web search for "${body.query}" - Implementation pending. Consider integrating with a search API provider.`,
-    };
+    console.log(`[Web Search] ✅ Found ${result.results.length} results`);
     
     return NextResponse.json({
       success: true,
@@ -50,7 +118,7 @@ export async function POST(req: NextRequest) {
     });
     
   } catch (error: any) {
-    console.error('[API] Web search error:', error);
+    console.error('[Web Search] Error:', error);
     
     return NextResponse.json(
       {
@@ -61,4 +129,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

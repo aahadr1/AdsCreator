@@ -395,51 +395,134 @@ export async function POST(req: NextRequest) {
   if (websiteURL) {
     console.log(`[Plan] 🔍 Website URL detected: ${websiteURL}, analyzing...`);
     
-    // Return thinking phase with tool execution
-    return Response.json({
-      responseType: 'phased',
-      activePhase: 'thinking',
-      requestId: `req_${Date.now()}`,
-      timestamp: Date.now(),
-      thinking: {
-        phase: 'thinking',
-        status: 'active',
-        streamingEnabled: true,
-        thoughts: [
-          {
-            id: 't1',
-            type: 'understanding',
-            title: 'Understanding Request',
-            content: `User wants ads for ${websiteURL}. I have the website URL, so I'll analyze it first.`,
-            priority: 'info',
+    try {
+      // Actually call the website analyzer tool
+      const origin = new URL(req.url).origin;
+      const toolStartTime = Date.now();
+      
+      const toolRes = await fetch(`${origin}/api/tools/website-analyzer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: websiteURL }),
+      });
+      
+      const toolDuration = Date.now() - toolStartTime;
+      
+      if (!toolRes.ok) {
+        const errorText = await toolRes.text();
+        console.error(`[Plan] ❌ Website analyzer failed:`, errorText);
+        
+        // Return thinking phase with error
+        return Response.json({
+          responseType: 'phased',
+          activePhase: 'thinking',
+          requestId: `req_${Date.now()}`,
+          timestamp: Date.now(),
+          thinking: {
+            phase: 'thinking',
             status: 'complete',
-            timestamp: Date.now(),
+            thoughts: [
+              {
+                id: 't1',
+                type: 'understanding',
+                title: 'Understanding Request',
+                content: `User wants ads for ${websiteURL}. I have the website URL.`,
+                priority: 'info',
+                status: 'complete',
+                timestamp: toolStartTime,
+              },
+              {
+                id: 't2',
+                type: 'executing_tool',
+                title: 'Analyzing Brand Website',
+                content: 'Attempted to analyze website but encountered an error.',
+                priority: 'important',
+                status: 'complete',
+                toolExecution: {
+                  toolName: 'website_analyzer',
+                  params: { url: websiteURL },
+                  status: 'error',
+                  error: errorText,
+                },
+                timestamp: toolStartTime,
+                duration: toolDuration,
+              },
+              {
+                id: 't3',
+                type: 'error_handling',
+                title: 'Proceeding Without Website Analysis',
+                content: 'I\'ll continue with the information I have. You can provide more details about your brand manually.',
+                priority: 'important',
+                status: 'complete',
+                timestamp: Date.now(),
+              },
+            ],
+            summary: 'Website analysis failed. Proceeding with available information.',
           },
-          {
-            id: 't2',
-            type: 'executing_tool',
-            title: 'Analyzing Brand Website',
-            content: 'Calling website_analyzer to understand brand identity, products, target audience, tone, and visual style.',
-            priority: 'important',
-            status: 'running',
-            toolExecution: {
-              toolName: 'website_analyzer',
-              params: { url: websiteURL },
-              status: 'running',
+          needsInput: {
+            type: 'question',
+            data: {
+              questions: [
+                {
+                  id: 'product',
+                  question: 'What product or service should the ads promote?',
+                  type: 'text',
+                  required: true,
+                },
+                {
+                  id: 'audience',
+                  question: 'Who is your target audience?',
+                  type: 'text',
+                  required: false,
+                },
+                {
+                  id: 'platform',
+                  question: 'Which platform(s)? (TikTok, Instagram, Facebook, YouTube)',
+                  type: 'text',
+                  required: false,
+                },
+              ],
             },
-            timestamp: Date.now(),
           },
-        ],
-        currentThought: '🔍 Analyzing your brand website...',
-        currentToolExecution: {
-          toolName: 'website_analyzer',
-          displayMessage: '🔍 Analyzing your brand website...',
-          progress: 50,
+        });
+      }
+      
+      const toolResult = await toolRes.json();
+      console.log(`[Plan] ✅ Website analysis complete (${toolDuration}ms):`, toolResult);
+      
+      // Extract the actual data from the response
+      const analysisData = toolResult.data || toolResult;
+      
+      // Format the analysis into a readable summary
+      const summary = analysisData.brandName 
+        ? `Brand: ${analysisData.brandName}\n` +
+          `Products: ${analysisData.products?.join(', ') || 'N/A'}\n` +
+          `Target Audience: ${analysisData.targetAudience || 'N/A'}\n` +
+          `Tone: ${analysisData.toneOfVoice || 'N/A'}\n` +
+          `Value Props: ${analysisData.valuePropositions?.join(', ') || 'N/A'}\n` +
+          `Ad Recommendations: ${analysisData.adRecommendations?.join(', ') || 'N/A'}`
+        : JSON.stringify(analysisData, null, 2);
+      
+      // Now append the tool results to the conversation and let Claude create the plan
+      const enrichedMessages = [
+        ...messages,
+        {
+          role: 'assistant' as const,
+          content: `I've analyzed your website (${websiteURL}). Here's what I found:\n\n${summary}\n\nNow I'll create a strategic plan for your ads based on this brand analysis.`,
         },
-      },
-    });
-    // Note: In production, this would actually call the tool and continue
-    // For now, we're showing the thinking phase so the user sees the process
+      ];
+      
+      console.log('[Plan] 📝 Continuing with Claude to create plan with website insights...');
+      
+      // Continue to normal plan generation with enriched context
+      // Fall through to the existing LLM logic below with enrichedMessages
+      messages.length = 0;
+      messages.push(...enrichedMessages);
+      
+    } catch (error: any) {
+      console.error('[Plan] ❌ Error during website analysis:', error);
+      // Fall through to normal planning if tool fails
+    }
   }
 
   let usedModel = DEFAULT_PLANNER_MODEL;
