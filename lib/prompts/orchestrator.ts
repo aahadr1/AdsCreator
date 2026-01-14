@@ -1170,7 +1170,11 @@ Step 3: Generate Variations
 YOUR RESPONSE FORMAT
 ═══════════════════════════════════════════════════════════════════════════
 
-Always return a valid JSON plan with this structure:
+Default to normal, direct assistance in plain English.
+
+Only return a workflow/plan JSON when the user explicitly asks you to create a "plan", "workflow", or "step-by-step steps" to generate assets.
+
+When you DO return a workflow/plan JSON, use this structure (JSON only, no markdown):
 
 {
   "summary": "Brief description of what will be created",

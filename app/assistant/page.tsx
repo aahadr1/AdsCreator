@@ -47,6 +47,22 @@ const ACTION_DESCRIPTIONS: Record<string, { base: string; withUpload?: string }>
   tts: { base: 'generate narration audio' },
 };
 
+const shouldGenerateWorkflowPlan = (text: string): boolean => {
+  const t = (text || '').trim();
+  if (!t) return false;
+  if (/^\/(plan|workflow)\b/i.test(t)) return true;
+  // Only treat as "asked for a plan" when the user explicitly requests a plan/workflow/steps to execute.
+  const hasPlanNoun = /\b(plan|workflow|steps|step-by-step)\b/i.test(t);
+  const hasRequestVerb = /\b(create|generate|make|build|give|show|draft|write|produce)\b/i.test(t);
+  const looksLikeHowTo = /\b(step-by-step|steps to|workflow to)\b/i.test(t);
+  return (hasPlanNoun && hasRequestVerb) || looksLikeHowTo;
+};
+
+const stripPlanCommand = (text: string): string => {
+  const t = (text || '').trim();
+  return t.replace(/^\/(plan|workflow)\b\s*/i, '').trim();
+};
+
 const stepIntro = (idx: number, total: number): string => {
   if (idx === 0) return 'First,';
   if (idx === total - 1) return 'Finally,';
@@ -98,7 +114,8 @@ export default function AssistantPage() {
     {
       id: 'welcome',
       role: 'assistant',
-      content: 'Hello! I can help you create workflows for image generation, video creation, text-to-speech, and more. What would you like to create?',
+      content:
+        "Hello! Ask me anything. If you want a runnable workflow, ask for a **workflow plan** (or start your message with `/plan ...`).",
       timestamp: new Date(),
     },
   ]);
@@ -205,19 +222,36 @@ export default function AssistantPage() {
           user_id: userId,
           conversation_id: conversationId,
           messages: userMessages,
-          media_context: attachments,
+          media: attachments,
         }),
       });
 
       if (!res.ok) throw new Error(await res.text());
 
-      const parsed = await res.json();
-      if (parsed.summary && Array.isArray(parsed.steps)) {
-        addAssistantMessage(JSON.stringify(parsed));
-        setPlan({ summary: parsed.summary, steps: parsed.steps });
-      } else {
-        throw new Error('Invalid plan response');
+      const json = await res.json();
+
+      if (json.responseType === 'phased') {
+        addAssistantMessage(JSON.stringify(json), undefined, 'phased');
+        await saveConversation();
+        return;
       }
+
+      const nextPlan: AssistantPlan = json.plan || json;
+      if (!nextPlan?.summary || !Array.isArray(nextPlan.steps)) throw new Error('Invalid plan response');
+
+      setPlan(nextPlan);
+      const nextConfigs: Record<string, StepConfig> = {};
+      const nextStates: Record<string, StepState> = {};
+      for (const step of nextPlan.steps) {
+        nextConfigs[step.id] = { model: step.model, inputs: { ...step.inputs } };
+        nextStates[step.id] = { status: 'idle' };
+      }
+      setStepConfigs(nextConfigs);
+      setStepStates(nextStates);
+
+      const narrative = describePlanIntent(nextPlan, attachments, userMessages);
+      addAssistantMessage(narrative);
+      await saveConversation();
     } catch (error: any) {
       console.error('[Plan Error]:', error);
       addAssistantMessage(error.message || 'Failed to generate plan', 'error');
@@ -249,19 +283,36 @@ export default function AssistantPage() {
           user_id: userId,
           conversation_id: conversationId,
           messages: userMessages,
-          media_context: attachments,
+          media: attachments,
         }),
       });
 
       if (!res.ok) throw new Error(await res.text());
 
-      const parsed = await res.json();
-      if (parsed.summary && Array.isArray(parsed.steps)) {
-        addAssistantMessage(JSON.stringify(parsed));
-        setPlan({ summary: parsed.summary, steps: parsed.steps });
-      } else {
-        throw new Error('Invalid plan response');
+      const json = await res.json();
+
+      if (json.responseType === 'phased') {
+        addAssistantMessage(JSON.stringify(json), undefined, 'phased');
+        await saveConversation();
+        return;
       }
+
+      const nextPlan: AssistantPlan = json.plan || json;
+      if (!nextPlan?.summary || !Array.isArray(nextPlan.steps)) throw new Error('Invalid plan response');
+
+      setPlan(nextPlan);
+      const nextConfigs: Record<string, StepConfig> = {};
+      const nextStates: Record<string, StepState> = {};
+      for (const step of nextPlan.steps) {
+        nextConfigs[step.id] = { model: step.model, inputs: { ...step.inputs } };
+        nextStates[step.id] = { status: 'idle' };
+      }
+      setStepConfigs(nextConfigs);
+      setStepStates(nextStates);
+
+      const narrative = describePlanIntent(nextPlan, attachments, userMessages);
+      addAssistantMessage(narrative);
+      await saveConversation();
     } catch (error: any) {
       console.error('[Plan Error]:', error);
       addAssistantMessage(error.message || 'Failed to generate plan', 'error');
@@ -294,15 +345,41 @@ export default function AssistantPage() {
       case 'research_competitor':
         // Trigger competitor research
         if (parameters?.brand) {
-          addUserMessage(`Research competitor: ${parameters.brand}`);
-          await generatePlan();
+          const msg = `Research competitor: ${parameters.brand}`;
+          addUserMessage(msg);
+          setPlanLoading(true);
+          setRunError(null);
+          try {
+            const history: AssistantPlanMessage[] = [
+              ...chatMessages
+                .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+                .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
+                .filter((m) => m.content.trim().length > 0),
+              { role: 'user', content: msg },
+            ];
+            await generatePlan(msg, [], history);
+          } finally {
+            setPlanLoading(false);
+          }
         }
         break;
 
       case 'regenerate':
       case 'retry':
         // Regenerate last response
-        await generatePlan();
+        setPlanLoading(true);
+        setRunError(null);
+        try {
+          const history: AssistantPlanMessage[] = chatMessages
+            .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+            .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
+            .filter((m) => m.content.trim().length > 0);
+          const lastUser = [...history].reverse().find((m) => m.role === 'user');
+          const seed = lastUser?.content || 'Create a workflow plan';
+          await generatePlan(seed, [], history);
+        } finally {
+          setPlanLoading(false);
+        }
         break;
 
       default:
@@ -311,37 +388,46 @@ export default function AssistantPage() {
           ? `${action}: ${JSON.stringify(parameters)}`
           : action;
         addUserMessage(actionMessage);
-        await generatePlan();
+        setPlanLoading(true);
+        setRunError(null);
+        try {
+          const history: AssistantPlanMessage[] = [
+            ...chatMessages
+              .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+              .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
+              .filter((m) => m.content.trim().length > 0),
+            { role: 'user', content: actionMessage },
+          ];
+          await generatePlan(actionMessage, [], history);
+        } finally {
+          setPlanLoading(false);
+        }
         break;
     }
   };
 
-  const generatePlan = async () => {
+  const sendChat = async (text: string, media: AssistantMedia[], history: AssistantPlanMessage[]) => {
+    const res = await fetch('/api/assistant/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        messages: history,
+        media,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    const message = typeof json?.message === 'string' ? json.message : '';
+    if (!message.trim()) throw new Error('Empty response from assistant');
+    addAssistantMessage(message);
+    await saveConversation();
+  };
+
+  const generatePlan = async (text: string, media: AssistantMedia[], history: AssistantPlanMessage[]) => {
     if (!userId) {
       addAssistantMessage('Please sign in at /auth to generate a plan.', 'error');
       return;
-    }
-    if (!draft.trim() && attachments.length === 0) {
-      return;
-    }
-
-    // Add user message
-    const userMessageId = `user-${Date.now()}`;
-    addUserMessage(draft.trim() || 'Generate a plan', attachments.length > 0 ? [...attachments] : undefined);
-    setDraft('');
-    const currentAttachments = [...attachments];
-    setAttachments([]);
-
-    setPlanLoading(true);
-    setRunError(null);
-
-    // Get all user messages for context
-    const userMessages: AssistantPlanMessage[] = chatMessages
-      .filter((m) => m.role === 'user')
-      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
-
-    if (draft.trim()) {
-      userMessages.push({ role: 'user', content: draft.trim() });
     }
 
     try {
@@ -349,8 +435,8 @@ export default function AssistantPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: userMessages,
-          media: currentAttachments,
+          messages: history,
+          media,
           user_id: userId,
         }),
       });
@@ -362,6 +448,7 @@ export default function AssistantPage() {
         console.log('[Frontend] 📥 Received phased response (thinking phase)');
         // Store the phased response as a special assistant message
         addAssistantMessage(JSON.stringify(json), undefined, 'phased');
+        await saveConversation();
         return; // Don't set plan yet, wait for user input or completion
       }
       
@@ -401,13 +488,57 @@ export default function AssistantPage() {
       setStepConfigs(nextConfigs);
       setStepStates(nextStates);
 
-      const narrative = describePlanIntent(nextPlan, currentAttachments, userMessages);
+      const narrative = describePlanIntent(nextPlan, media, history);
       addAssistantMessage(narrative);
 
       // Save conversation to database
       await saveConversation();
     } catch (err: any) {
       addAssistantMessage(err?.message || 'Failed to generate plan. Please try again.', 'error');
+    }
+  };
+
+  const handleSend = async () => {
+    if (!userId) {
+      addAssistantMessage('Please sign in at /auth to continue.', 'error');
+      return;
+    }
+
+    const raw = draft.trim();
+    const currentAttachments = [...attachments];
+    if (!raw && currentAttachments.length === 0) return;
+
+    const wantsPlan = shouldGenerateWorkflowPlan(raw);
+    const cleaned = wantsPlan ? stripPlanCommand(raw) : raw;
+    const userText = cleaned || (currentAttachments.length ? 'Analyze the attached media.' : '');
+
+    // Add user message to UI
+    addUserMessage(userText, currentAttachments.length > 0 ? currentAttachments : undefined);
+    setDraft('');
+    setAttachments([]);
+
+    setPlanLoading(true);
+    setRunError(null);
+
+    // Build full message history (include assistant + user), plus the new user message.
+    const history: AssistantPlanMessage[] = [
+      ...chatMessages
+        .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
+        .filter((m) => m.content.trim().length > 0),
+      { role: 'user', content: userText },
+    ];
+
+    try {
+      if (wantsPlan) {
+        await generatePlan(userText, currentAttachments, history);
+      } else {
+        await sendChat(userText, currentAttachments, history);
+      }
+    } catch (error: any) {
+      console.error('[Assistant Error]:', error);
+      addAssistantMessage(error?.message || 'Request failed. Please try again.', 'error');
+      setRunError(error?.message || 'Unknown error');
     } finally {
       setPlanLoading(false);
     }
@@ -1160,7 +1291,7 @@ export default function AssistantPage() {
             onChange={setDraft}
             attachments={attachments}
             onAttachmentsChange={setAttachments}
-            onSend={generatePlan}
+            onSend={handleSend}
             disabled={!userId}
             loading={planLoading}
             placeholder={userId ? 'Send a message...' : 'Sign in to continue...'}
