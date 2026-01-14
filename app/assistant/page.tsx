@@ -53,7 +53,17 @@ const shouldStartUgcBuilder = (text: string): boolean => {
   if (!t) return false;
   if (/^\/ugc\b/i.test(t)) return true;
   // Auto-detect phrases
-  const ugcKeywords = ['ugc ad', 'ugc script', 'tiktok ugc', 'creator style ad', 'user generated content'];
+  const ugcKeywords = [
+    'ugc ad',
+    'ugc script',
+    'ugc video',
+    'ugc reel',
+    'ugc tiktok',
+    'tiktok ugc',
+    'creator style ad',
+    'creator-style ad',
+    'user generated content',
+  ];
   return ugcKeywords.some(kw => t.includes(kw));
 };
 
