@@ -5,24 +5,36 @@
  * without being limited by predefined pipelines or response types.
  */
 
-// Base interface for all content blocks
-export type ContentBlock = {
-  id: string;
-  blockType: string; // Extensible - can be any string
-  data: Record<string, any>; // Flexible data structure
-  metadata?: {
-    timestamp?: string;
-    source?: string;
-    priority?: 'low' | 'medium' | 'high';
-    collapsible?: boolean;
-    defaultExpanded?: boolean;
-  };
+import type {
+  UgcAvatarPickerBlock,
+  UgcStoryboardLinkBlock,
+  UgcClipsResultBlock,
+} from './ugc';
+
+export type {
+  UgcAvatarPickerBlock,
+  UgcStoryboardLinkBlock,
+  UgcClipsResultBlock
+} from './ugc';
+
+export type BlockMetadata = {
+  timestamp?: string;
+  source?: string;
+  priority?: 'low' | 'medium' | 'high';
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
 };
 
-// Common block types (extensible)
-export type QuestionBlock = ContentBlock & {
-  blockType: 'question';
-  data: {
+export type BaseBlock<TBlockType extends string = string, TData = Record<string, any>> = {
+  id: string;
+  blockType: TBlockType;
+  data: TData;
+  metadata?: BlockMetadata;
+};
+
+export type QuestionBlock = BaseBlock<
+  'question',
+  {
     questions: Array<{
       id: string;
       question: string;
@@ -41,31 +53,31 @@ export type QuestionBlock = ContentBlock & {
     title?: string;
     description?: string;
     submitLabel?: string;
-  };
-};
+  }
+>;
 
-export type TextBlock = ContentBlock & {
-  blockType: 'text';
-  data: {
+export type TextBlock = BaseBlock<
+  'text',
+  {
     content: string;
     format?: 'plain' | 'markdown' | 'html';
     style?: 'normal' | 'success' | 'warning' | 'error' | 'info';
-  };
-};
+  }
+>;
 
-export type ThinkingBlock = ContentBlock & {
-  blockType: 'thinking';
-  data: {
+export type ThinkingBlock = BaseBlock<
+  'thinking',
+  {
     title: string;
     thoughts: string[];
     decision?: string;
     reasoning?: string;
-  };
-};
+  }
+>;
 
-export type ResearchBlock = ContentBlock & {
-  blockType: 'research';
-  data: {
+export type ResearchBlock = BaseBlock<
+  'research',
+  {
     status: 'in_progress' | 'complete' | 'partial';
     sources: Array<{
       name: string;
@@ -84,12 +96,12 @@ export type ResearchBlock = ContentBlock & {
       quotes?: string[];
       visuals?: string[]; // URLs to screenshots/images
     };
-  };
-};
+  }
+>;
 
-export type StrategyBlock = ContentBlock & {
-  blockType: 'strategy';
-  data: {
+export type StrategyBlock = BaseBlock<
+  'strategy',
+  {
     title?: string;
     sections: Array<{
       id: string;
@@ -102,12 +114,12 @@ export type StrategyBlock = ContentBlock & {
         metadata?: Record<string, any>;
       }>;
     }>;
-  };
-};
+  }
+>;
 
-export type ActionBlock = ContentBlock & {
-  blockType: 'action';
-  data: {
+export type ActionBlock = BaseBlock<
+  'action',
+  {
     label: string;
     action: string; // Action identifier
     style?: 'primary' | 'secondary' | 'success' | 'danger';
@@ -117,12 +129,12 @@ export type ActionBlock = ContentBlock & {
       required: boolean;
       message: string;
     };
-  };
-};
+  }
+>;
 
-export type MediaBlock = ContentBlock & {
-  blockType: 'media';
-  data: {
+export type MediaBlock = BaseBlock<
+  'media',
+  {
     items: Array<{
       url: string;
       type: 'image' | 'video' | 'audio';
@@ -130,12 +142,12 @@ export type MediaBlock = ContentBlock & {
       thumbnail?: string;
     }>;
     layout?: 'grid' | 'carousel' | 'list';
-  };
-};
+  }
+>;
 
-export type MetricsBlock = ContentBlock & {
-  blockType: 'metrics';
-  data: {
+export type MetricsBlock = BaseBlock<
+  'metrics',
+  {
     metrics: Array<{
       label: string;
       value: string | number;
@@ -146,22 +158,22 @@ export type MetricsBlock = ContentBlock & {
       format?: 'number' | 'currency' | 'percentage' | 'duration';
     }>;
     layout?: 'row' | 'grid';
-  };
-};
+  }
+>;
 
-export type TableBlock = ContentBlock & {
-  blockType: 'table';
-  data: {
+export type TableBlock = BaseBlock<
+  'table',
+  {
     headers: string[];
     rows: Array<Array<string | number>>;
     sortable?: boolean;
     filterable?: boolean;
-  };
-};
+  }
+>;
 
-export type TimelineBlock = ContentBlock & {
-  blockType: 'timeline';
-  data: {
+export type TimelineBlock = BaseBlock<
+  'timeline',
+  {
     events: Array<{
       id: string;
       timestamp: string;
@@ -170,20 +182,40 @@ export type TimelineBlock = ContentBlock & {
       status: 'pending' | 'in_progress' | 'completed' | 'failed';
       icon?: string;
     }>;
-  };
-};
+  }
+>;
 
-export type ComparisonBlock = ContentBlock & {
-  blockType: 'comparison';
-  data: {
+export type ComparisonBlock = BaseBlock<
+  'comparison',
+  {
     items: Array<{
       label: string;
       attributes: Record<string, string | number | boolean>;
       score?: number;
       recommended?: boolean;
     }>;
-  };
-};
+  }
+>;
+
+export type UnknownBlock = BaseBlock<string, Record<string, any>>;
+
+// Base union for all content blocks
+export type ContentBlock =
+  | QuestionBlock
+  | TextBlock
+  | ThinkingBlock
+  | ResearchBlock
+  | StrategyBlock
+  | ActionBlock
+  | MediaBlock
+  | MetricsBlock
+  | TableBlock
+  | TimelineBlock
+  | ComparisonBlock
+  | UgcAvatarPickerBlock
+  | UgcStoryboardLinkBlock
+  | UgcClipsResultBlock
+  | UnknownBlock;
 
 // Dynamic response that can contain any combination of blocks
 export type DynamicResponse = {
@@ -241,21 +273,33 @@ export function isComparisonBlock(block: ContentBlock): block is ComparisonBlock
   return block.blockType === 'comparison';
 }
 
+export function isUgcAvatarPickerBlock(block: ContentBlock): block is UgcAvatarPickerBlock {
+  return block.blockType === 'ugc_avatar_picker';
+}
+
+export function isUgcStoryboardLinkBlock(block: ContentBlock): block is UgcStoryboardLinkBlock {
+  return block.blockType === 'ugc_storyboard_link';
+}
+
+export function isUgcClipsResultBlock(block: ContentBlock): block is UgcClipsResultBlock {
+  return block.blockType === 'ugc_clips_result';
+}
+
 export function isDynamicResponse(response: any): response is DynamicResponse {
   return response?.responseType === 'dynamic' && Array.isArray(response?.blocks);
 }
 
 // Helper to create blocks
-export function createBlock<T extends ContentBlock>(
-  blockType: string,
-  data: T['data'],
-  metadata?: ContentBlock['metadata']
-): ContentBlock {
+export function createBlock<T extends ContentBlock['blockType']>(
+  blockType: T,
+  data: Extract<ContentBlock, { blockType: T }>['data'],
+  metadata?: BlockMetadata
+): Extract<ContentBlock, { blockType: T }> {
   return {
     id: `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     blockType,
     data,
     metadata,
-  };
+  } as Extract<ContentBlock, { blockType: T }>;
 }
 

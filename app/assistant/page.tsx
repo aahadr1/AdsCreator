@@ -14,6 +14,7 @@ import ProgressWidget from './components/ProgressWidget';
 import OutputPreview from './components/OutputPreview';
 import ConversationSidebar from './components/ConversationSidebar';
 import AssistantEditor from './components/AssistantEditor';
+import UgcStoryboardModal from './components/UgcStoryboardModal';
 import { Menu, ChevronLeft, Edit, History } from 'lucide-react';
 import type { EditorAsset } from '../../types/editor';
 
@@ -47,6 +48,15 @@ const ACTION_DESCRIPTIONS: Record<string, { base: string; withUpload?: string }>
   tts: { base: 'generate narration audio' },
 };
 
+const shouldStartUgcBuilder = (text: string): boolean => {
+  const t = (text || '').trim().toLowerCase();
+  if (!t) return false;
+  if (/^\/ugc\b/i.test(t)) return true;
+  // Auto-detect phrases
+  const ugcKeywords = ['ugc ad', 'ugc script', 'tiktok ugc', 'creator style ad', 'user generated content'];
+  return ugcKeywords.some(kw => t.includes(kw));
+};
+
 const shouldGenerateWorkflowPlan = (text: string): boolean => {
   const t = (text || '').trim();
   if (!t) return false;
@@ -56,6 +66,11 @@ const shouldGenerateWorkflowPlan = (text: string): boolean => {
   const hasRequestVerb = /\b(create|generate|make|build|give|show|draft|write|produce)\b/i.test(t);
   const looksLikeHowTo = /\b(step-by-step|steps to|workflow to)\b/i.test(t);
   return (hasPlanNoun && hasRequestVerb) || looksLikeHowTo;
+};
+
+const stripUgcCommand = (text: string): string => {
+  const t = (text || '').trim();
+  return t.replace(/^\/ugc\b\s*/i, '').trim();
 };
 
 const stripPlanCommand = (text: string): string => {
@@ -131,6 +146,9 @@ export default function AssistantPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed by default
   const [editorOpen, setEditorOpen] = useState(false);
+  const [ugcModalOpen, setUgcModalOpen] = useState(false);
+  const [ugcStoryboard, setUgcStoryboard] = useState<{ scenes: any[]; globalScript?: string } | null>(null);
+  const [ugcSelectedAvatarUrl, setUgcSelectedAvatarUrl] = useState<string>('');
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -382,6 +400,48 @@ export default function AssistantPage() {
         }
         break;
 
+      // UGC Builder Actions
+      case 'ugc_avatar_select':
+        if (parameters?.selectedAvatarUrl) {
+          addUserMessage(`Selected avatar. Generating storyboard...`);
+          setPlanLoading(true);
+          try {
+            const res = await fetch('/api/ugc-builder/storyboard/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                selectedAvatarUrl: parameters.selectedAvatarUrl,
+                avatarId: parameters.avatarId,
+                context: parameters.context // refinement prompt or original context
+              })
+            });
+            const data = await res.json();
+            addAssistantMessage(JSON.stringify(data));
+            await saveConversation();
+          } catch (e: any) {
+            addAssistantMessage(`Error generating storyboard: ${e.message}`, 'error');
+          } finally {
+            setPlanLoading(false);
+          }
+        }
+        break;
+
+      case 'ugc_avatar_regenerate':
+        if (parameters?.refinementPrompt) {
+          const msg = `Regenerate avatars: ${parameters.refinementPrompt}`;
+          addUserMessage(msg);
+          await startUgcBuilder(msg);
+        }
+        break;
+
+      case 'ugc_storyboard_open':
+        if (parameters?.storyboard) {
+          setUgcStoryboard(parameters.storyboard);
+          setUgcSelectedAvatarUrl(parameters.selectedAvatarUrl);
+          setUgcModalOpen(true);
+        }
+        break;
+
       default:
         // Generic action: send to assistant as user message
         const actionMessage = parameters 
@@ -422,6 +482,31 @@ export default function AssistantPage() {
     if (!message.trim()) throw new Error('Empty response from assistant');
     addAssistantMessage(message);
     await saveConversation();
+  };
+
+  const startUgcBuilder = async (text: string) => {
+    setPlanLoading(true);
+    setRunError(null);
+    try {
+      const res = await fetch('/api/ugc-builder/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userRequest: text,
+          userId
+        })
+      });
+      
+      if (!res.ok) throw new Error(await res.text());
+      
+      const data = await res.json();
+      addAssistantMessage(JSON.stringify(data));
+      await saveConversation();
+    } catch (e: any) {
+      addAssistantMessage(`Failed to start UGC builder: ${e.message}`, 'error');
+    } finally {
+      setPlanLoading(false);
+    }
   };
 
   const generatePlan = async (text: string, media: AssistantMedia[], history: AssistantPlanMessage[]) => {
@@ -509,11 +594,19 @@ export default function AssistantPage() {
     if (!raw && currentAttachments.length === 0) return;
 
     const wantsPlan = shouldGenerateWorkflowPlan(raw);
-    const cleaned = wantsPlan ? stripPlanCommand(raw) : raw;
-    const userText = cleaned || (currentAttachments.length ? 'Analyze the attached media.' : '');
+    const wantsUgc = shouldStartUgcBuilder(raw);
+    
+    let userText = raw;
+    if (wantsUgc) {
+      userText = stripUgcCommand(raw);
+    } else if (wantsPlan) {
+      userText = stripPlanCommand(raw);
+    }
+    
+    if (currentAttachments.length && !userText) userText = 'Analyze the attached media.';
 
     // Add user message to UI
-    addUserMessage(userText, currentAttachments.length > 0 ? currentAttachments : undefined);
+    addUserMessage(userText || raw, currentAttachments.length > 0 ? currentAttachments : undefined);
     setDraft('');
     setAttachments([]);
 
@@ -530,7 +623,9 @@ export default function AssistantPage() {
     ];
 
     try {
-      if (wantsPlan) {
+      if (wantsUgc) {
+        await startUgcBuilder(userText);
+      } else if (wantsPlan) {
         await generatePlan(userText, currentAttachments, history);
       } else {
         await sendChat(userText, currentAttachments, history);
@@ -1122,6 +1217,24 @@ export default function AssistantPage() {
     }
   };
 
+  const handleUgcGenerateClips = async (scenes: any[]) => {
+    // Optimistically update local state if needed (not strictly necessary as we close modal)
+    // Send request to generate clips
+    try {
+      addAssistantMessage("Generating video clips for your storyboard scenes...");
+      const res = await fetch('/api/ugc-builder/video/scenes/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenes })
+      });
+      const data = await res.json();
+      addAssistantMessage(JSON.stringify(data));
+      await saveConversation();
+    } catch (e: any) {
+      addAssistantMessage(`Error generating clips: ${e.message}`, 'error');
+    }
+  };
+
   return (
     <div className="assistant-page-layout">
       {userId && (
@@ -1305,6 +1418,16 @@ export default function AssistantPage() {
         onClose={() => setEditorOpen(false)}
         initialAssets={getWorkflowAssets()}
       />
+      
+      {ugcStoryboard && (
+        <UgcStoryboardModal
+          isOpen={ugcModalOpen}
+          onClose={() => setUgcModalOpen(false)}
+          storyboard={ugcStoryboard}
+          selectedAvatarUrl={ugcSelectedAvatarUrl}
+          onGenerateClips={handleUgcGenerateClips}
+        />
+      )}
     </div>
   );
 }
