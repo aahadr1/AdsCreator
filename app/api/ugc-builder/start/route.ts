@@ -7,7 +7,8 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const NANO_BANANA_PRO_MODEL = 'google/nano-banana-pro';
-const UGC_BRIEF_MODEL = 'meta/llama-3.1-8b-instruct';
+const CLAUDE_MODEL = 'anthropic/claude-4.5-sonnet';
+const UGC_BRIEF_MODEL = process.env.REPLICATE_CHAT_MODEL || CLAUDE_MODEL;
 
 async function generateAvatarJob(replicate: Replicate, prompt: string) {
   const prediction = await replicate.predictions.create({
@@ -127,10 +128,10 @@ export async function POST(req: NextRequest) {
 
     const llmOut = await replicate.run(UGC_BRIEF_MODEL as `${string}/${string}`, {
       input: {
+        // Match the same interface used by /api/assistant/chat for Claude on Replicate
+        system_prompt: 'You are a JSON-only API. Output valid JSON only.',
         prompt: llmPrompt,
         max_tokens: 1800,
-        temperature: 0.5,
-        system_prompt: 'You are a JSON-only API. Output valid JSON only.',
       },
     });
 

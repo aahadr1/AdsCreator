@@ -7,7 +7,8 @@ import { checkQualityGate } from '@/lib/safetyGates';
 export const runtime = 'nodejs';
 export const maxDuration = 300; // Longer due to multiple image gens
 
-const LLM_MODEL = 'meta/llama-3.1-8b-instruct';
+const CLAUDE_MODEL = 'anthropic/claude-4.5-sonnet';
+const LLM_MODEL = process.env.REPLICATE_CHAT_MODEL || CLAUDE_MODEL;
 const IMAGE_MODEL = 'google/nano-banana-pro';
 
 function chunkToString(chunk: any): string {
@@ -57,11 +58,10 @@ async function generateScriptAndScenes(
 
   const output: any = await replicate.run(LLM_MODEL as `${string}/${string}`, {
     input: {
+      system_prompt: 'You are a JSON-only API. Output valid JSON only.',
       prompt: prompt,
       max_tokens: 1500,
-      temperature: 0.55,
-      system_prompt: "You are a JSON-only API. Output valid JSON only."
-    }
+    },
   });
 
   const parsed = safeJsonParse<any>(chunkToString(output));
@@ -72,10 +72,9 @@ async function generateScriptAndScenes(
       const retryPrompt = `${prompt}\n\nQuality gate failed (${gate.noveltyScore}/${gate.threshold}). Fix it:\n- Avoid generic ad clichés\n- Include specific scenario details and at least 1 concrete number\n- Make hook sharp and product-specific\nReturn ONLY JSON.`;
       const retryOut: any = await replicate.run(LLM_MODEL as `${string}/${string}`, {
         input: {
+          system_prompt: 'You are a JSON-only API. Output valid JSON only.',
           prompt: retryPrompt,
           max_tokens: 1600,
-          temperature: 0.4,
-          system_prompt: "You are a JSON-only API. Output valid JSON only.",
         },
       });
       const retryParsed = safeJsonParse<any>(chunkToString(retryOut));
