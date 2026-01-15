@@ -157,7 +157,7 @@ export default function AssistantPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed by default
   const [editorOpen, setEditorOpen] = useState(false);
   const [ugcModalOpen, setUgcModalOpen] = useState(false);
-  const [ugcStoryboard, setUgcStoryboard] = useState<{ scenes: any[]; globalScript?: string } | null>(null);
+  const [ugcStoryboard, setUgcStoryboard] = useState<{ scenes: any[]; globalScript?: string; metadata?: any } | null>(null);
   const [ugcSelectedAvatarUrl, setUgcSelectedAvatarUrl] = useState<string>('');
   const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -412,8 +412,13 @@ export default function AssistantPage() {
 
       // UGC Builder Actions
       case 'ugc_avatar_select':
+        // Deprecated: selection is now handled locally in the avatar picker widget.
+        // Keep for backward compatibility (no-op).
+        break;
+
+      case 'ugc_avatar_continue':
         if (parameters?.selectedAvatarUrl) {
-          addUserMessage(`Selected avatar. Generating storyboard...`);
+          addUserMessage(`Generating storyboard...`);
           setPlanLoading(true);
           try {
             const res = await fetch('/api/ugc-builder/storyboard/generate', {
@@ -422,8 +427,11 @@ export default function AssistantPage() {
               body: JSON.stringify({
                 selectedAvatarUrl: parameters.selectedAvatarUrl,
                 avatarId: parameters.avatarId,
-                context: parameters.context // refinement prompt or original context
-              })
+                avatarPrompt: parameters.avatarPrompt,
+                sessionId: parameters.sessionId,
+                productImageUrl: parameters.productImageUrl,
+                context: parameters.context, // refinement prompt or original context
+              }),
             });
             if (!res.ok) {
               const errText = await res.text();
@@ -440,11 +448,37 @@ export default function AssistantPage() {
         }
         break;
 
+      case 'ugc_intake_submit':
+        if (parameters?.answers && typeof parameters.answers === 'object') {
+          // Convert structured answers into a single brief string to feed the UGC builder.
+          const answers = parameters.answers as Record<string, any>;
+          const brief = [
+            `UGC BRIEF`,
+            answers.product_or_service ? `Product/Service: ${answers.product_or_service}` : null,
+            answers.target_customer ? `Target customer: ${answers.target_customer}` : null,
+            answers.platform ? `Platform: ${answers.platform}` : null,
+            answers.offer_cta ? `Offer/CTA: ${answers.offer_cta}` : null,
+            answers.brand_vibe ? `Brand vibe: ${answers.brand_vibe}` : null,
+            answers.language ? `Language: ${answers.language}` : null,
+            answers.constraints ? `Constraints: ${answers.constraints}` : null,
+            answers.must_include ? `Must include: ${answers.must_include}` : null,
+          ]
+            .filter(Boolean)
+            .join('\n');
+
+          addUserMessage('Thanks — generating creators for this brief.');
+          await startUgcBuilder(brief);
+        }
+        break;
+
       case 'ugc_avatar_regenerate':
         if (parameters?.refinementPrompt) {
           const msg = `Regenerate avatars: ${parameters.refinementPrompt}`;
           addUserMessage(msg);
-          await startUgcBuilder(msg);
+          await startUgcBuilder(msg, {
+            sessionId: typeof parameters?.sessionId === 'string' ? parameters.sessionId : null,
+            productImageUrl: typeof parameters?.productImageUrl === 'string' ? parameters.productImageUrl : null,
+          });
         }
         break;
 
@@ -453,6 +487,32 @@ export default function AssistantPage() {
           setUgcStoryboard(parameters.storyboard);
           setUgcSelectedAvatarUrl(parameters.selectedAvatarUrl);
           setUgcModalOpen(true);
+        }
+        break;
+
+      case 'ugc_video_assemble':
+        if (Array.isArray(parameters?.clips) && parameters.clips.length > 0) {
+          addUserMessage('Assembling final video...');
+          setPlanLoading(true);
+          try {
+            const res = await fetch('/api/ugc-builder/video/assemble', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sessionId: parameters.sessionId,
+                clips: parameters.clips,
+                userId,
+              }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            addAssistantMessage(JSON.stringify(data));
+            await saveConversation();
+          } catch (e: any) {
+            addAssistantMessage(`Error assembling video: ${e.message}`, 'error');
+          } finally {
+            setPlanLoading(false);
+          }
         }
         break;
 
@@ -498,7 +558,10 @@ export default function AssistantPage() {
     await saveConversation();
   };
 
-  const startUgcBuilder = async (text: string) => {
+  const startUgcBuilder = async (
+    text: string,
+    opts?: { productImageUrl?: string | null; sessionId?: string | null }
+  ) => {
     setPlanLoading(true);
     setRunError(null);
     try {
@@ -507,8 +570,10 @@ export default function AssistantPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userRequest: text,
-          userId
-        })
+          userId,
+          productImageUrl: opts?.productImageUrl || undefined,
+          sessionId: opts?.sessionId || undefined,
+        }),
       });
       
       if (!res.ok) {
@@ -641,7 +706,9 @@ export default function AssistantPage() {
 
     try {
       if (wantsUgc) {
-        await startUgcBuilder(userText);
+        const productImageUrl =
+          (currentAttachments.find((a) => a.type === 'image')?.url as string | undefined) || undefined;
+        await startUgcBuilder(userText, { productImageUrl });
       } else if (wantsPlan) {
         await generatePlan(userText, currentAttachments, history);
       } else {
@@ -1239,10 +1306,11 @@ export default function AssistantPage() {
     // Send request to generate clips
     try {
       addAssistantMessage("Generating video clips for your storyboard scenes...");
+      const sessionId = ugcStoryboard?.metadata?.sessionId;
       const res = await fetch('/api/ugc-builder/video/scenes/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenes })
+        body: JSON.stringify({ scenes, sessionId })
       });
       const data = await res.json();
       addAssistantMessage(JSON.stringify(data));

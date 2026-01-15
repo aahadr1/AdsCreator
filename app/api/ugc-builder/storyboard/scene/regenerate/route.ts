@@ -9,9 +9,13 @@ const IMAGE_MODEL = 'google/nano-banana-pro';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { sceneId, description, selectedAvatarUrl } = body;
+    const { sceneId, description, imagePrompt, selectedAvatarUrl, productImageUrl } = body;
 
-    if (!sceneId || !description || !selectedAvatarUrl) {
+    const promptToUse = (typeof imagePrompt === 'string' && imagePrompt.trim())
+      ? imagePrompt
+      : description;
+
+    if (!sceneId || !promptToUse || !selectedAvatarUrl) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -23,10 +27,15 @@ export async function POST(req: NextRequest) {
     const prediction = await replicate.predictions.create({
       model: IMAGE_MODEL,
       input: {
-        prompt: `${description}, consistent character, UGC style, 9:16 vertical`,
-        image_input: [selectedAvatarUrl],
+        prompt: `${promptToUse}\n\nConstraints: consistent character identity, realistic UGC phone camera look, 9:16 vertical.`,
+        image_input:
+          typeof productImageUrl === 'string' && productImageUrl.trim()
+            ? [selectedAvatarUrl, productImageUrl.trim()]
+            : [selectedAvatarUrl],
         output_format: "png",
-        negative_prompt: "distorted, bad anatomy, different person, cartoon, sketch"
+        negative_prompt:
+          "distorted, bad anatomy, different person, identity change, child, teenager, underage, " +
+          "cartoon, anime, illustration, CGI, overprocessed, watermark, logo, text"
       }
     } as any);
 

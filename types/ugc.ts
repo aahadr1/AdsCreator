@@ -2,6 +2,9 @@ export type UgcAvatarPickerBlock = {
   blockType: 'ugc_avatar_picker';
   id: string;
   data: {
+    sessionId?: string;
+    brief?: Record<string, any>;
+    productImageUrl?: string;
     avatars: Array<{
       id: string;
       url?: string;
@@ -24,6 +27,12 @@ export type UgcStoryboardLinkBlock = {
         imageJobId?: string;
         imageUrl?: string;
         description: string;
+        imagePrompt?: string;
+        motionPrompt?: string;
+        beatType?: string;
+        shotType?: string;
+        onScreenText?: string;
+        actorAction?: string;
         script: string;
         status?: 'pending' | 'processing' | 'complete' | 'failed';
       }>;
@@ -39,6 +48,7 @@ export type UgcClipsResultBlock = {
   blockType: 'ugc_clips_result';
   id: string;
   data: {
+    sessionId?: string;
     clips: Array<{
       sceneId: string;
       url?: string;

@@ -8,6 +8,12 @@ type Scene = {
   imageJobId?: string;
   imageUrl?: string;
   description: string;
+  imagePrompt?: string;
+  motionPrompt?: string;
+  beatType?: string;
+  shotType?: string;
+  onScreenText?: string;
+  actorAction?: string;
   script: string;
   status?: 'pending' | 'processing' | 'complete' | 'failed';
 };
@@ -26,6 +32,7 @@ type Props = {
 export default function UgcStoryboardModal({ isOpen, onClose, storyboard, selectedAvatarUrl, onGenerateClips }: Props) {
   const [scenes, setScenes] = useState<Scene[]>(storyboard.scenes);
   const [generating, setGenerating] = useState(false);
+  const productImageUrl = (storyboard as any)?.metadata?.productImageUrl as string | undefined;
 
   // Update local state when prop changes
   useEffect(() => {
@@ -80,7 +87,9 @@ export default function UgcStoryboardModal({ isOpen, onClose, storyboard, select
         body: JSON.stringify({
           sceneId: scene.id,
           description: scene.description,
-          selectedAvatarUrl
+          imagePrompt: scene.imagePrompt || scene.description,
+          selectedAvatarUrl,
+          productImageUrl,
         })
       });
       const data = await res.json();
@@ -171,6 +180,8 @@ export default function UgcStoryboardModal({ isOpen, onClose, storyboard, select
                     onChange={(e) => {
                       const newScenes = [...scenes];
                       newScenes[idx].description = e.target.value;
+                      // Keep image prompt aligned with the user-edited visual description.
+                      newScenes[idx].imagePrompt = e.target.value;
                       setScenes(newScenes);
                     }}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-200 focus:ring-2 focus:ring-indigo-500/50 outline-none resize-none h-20"

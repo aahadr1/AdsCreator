@@ -53,6 +53,7 @@ export type QuestionBlock = BaseBlock<
     title?: string;
     description?: string;
     submitLabel?: string;
+    submitAction?: string;
   }
 >;
 
