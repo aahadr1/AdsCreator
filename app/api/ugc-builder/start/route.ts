@@ -246,9 +246,12 @@ export async function POST(req: NextRequest) {
       const prompt = `${p.imagePrompt}\n\nConstraints: realistic phone camera look, vertical 9:16, creator holds phone or is framed like a selfie, natural skin texture, believable environment.`;
       const jobId = await generateAvatarJob(replicate, prompt);
       return {
-        id: `avatar_${Math.random().toString(36).substr(2, 9)}`,
+        // Stable ID so we can regenerate a single variant later
+        id: p.id,
         jobId,
         prompt: prompt,
+        label: p.label,
+        description: typeof (p as any)?.whyFit === 'string' ? (p as any).whyFit : undefined,
         status: 'processing' as const
       };
     }));

@@ -443,6 +443,7 @@ function UgcAvatarPickerBlockComponent({ block, onAction }: { block: UgcAvatarPi
   const [submitting, setSubmitting] = useState(false);
   const [selectedAvatarId, setSelectedAvatarId] = useState<string | null>(block.data.selectedAvatarId || null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Poll for status
   useEffect(() => {
@@ -486,20 +487,49 @@ function UgcAvatarPickerBlockComponent({ block, onAction }: { block: UgcAvatarPi
   const selectedAvatar = selectedAvatarId ? avatars.find((a: any) => a.id === selectedAvatarId) : null;
   const canContinue = Boolean(selectedAvatar?.url) && !submitting;
 
-  const handleRefine = () => {
-    if (!onAction) return;
+  const handleRegenerateSelected = async () => {
+    setErrorMsg(null);
+    if (!selectedAvatarId || !block.data.sessionId) {
+      setErrorMsg('Select a creator first.');
+      return;
+    }
+    const prompt = refinement.trim();
+    if (!prompt) {
+      setErrorMsg('Type what you want to change, then send.');
+      return;
+    }
     setSubmitting(true);
-    onAction('ugc_avatar_regenerate', {
-      refinementPrompt: refinement,
-      sessionId: block.data.sessionId,
-      productImageUrl: block.data.productImageUrl,
-    });
-    // The backend will return a fresh block; unblock UI immediately.
-    setTimeout(() => setSubmitting(false), 300);
+    try {
+      const res = await fetch('/api/ugc-builder/avatar/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: block.data.sessionId,
+          avatarId: selectedAvatarId,
+          refinementPrompt: prompt,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to regenerate avatar');
+      }
+      setAvatars((prev: any[]) =>
+        prev.map((a) =>
+          a.id === data.avatarId
+            ? { ...a, jobId: data.jobId, prompt: data.prompt, status: 'processing', url: undefined }
+            : a
+        )
+      );
+      setRefinement('');
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'Failed to regenerate avatar');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div className="bg-gradient-to-br from-indigo-900/20 to-purple-900/20 border border-indigo-500/30 rounded-2xl p-4 space-y-3 shadow-lg shadow-black/20">
+    <div className="w-full max-w-[640px] bg-gradient-to-br from-gray-900/70 to-gray-800/50 border border-gray-700/60 rounded-2xl p-5 space-y-4 shadow-lg shadow-black/30">
       {/* Full-size preview modal */}
       {previewUrl && (
         <div
@@ -524,104 +554,15 @@ function UgcAvatarPickerBlockComponent({ block, onAction }: { block: UgcAvatarPi
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-white">Pick a creator</h3>
-          <p className="text-xs text-gray-400">Choose the best match for your product, then continue.</p>
+          <h3 className="text-sm font-semibold text-white">Choose your creator</h3>
+          <p className="text-xs text-gray-400">Pick one option, refine if needed, then continue.</p>
         </div>
-        <div className="text-[11px] text-gray-400">
-          {avatars.filter((a: any) => a.status === 'complete').length}/{avatars.length} ready
-        </div>
-      </div>
-
-      {/* Compact horizontal 3-up selector */}
-      <div className="flex gap-3 overflow-hidden">
-        {avatars.map((avatar: any, idx: number) => {
-          const selected = avatar.id === selectedAvatarId;
-          const ready = avatar.status === 'complete' && avatar.url;
-
-          return (
-            <button
-              key={avatar.id}
-              type="button"
-              disabled={!ready}
-              onClick={() => ready && setSelectedAvatarId(avatar.id)}
-              className={[
-                'relative group rounded-xl border transition-all overflow-hidden',
-                'w-[96px] sm:w-[110px] aspect-[9/16] bg-gray-900',
-                ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-80',
-                selected ? 'border-indigo-400 ring-2 ring-indigo-500/30' : 'border-gray-800 hover:border-gray-700',
-              ].join(' ')}
-              aria-label={`Creator option ${idx + 1}`}
-            >
-              {ready ? (
-                <>
-                  <img src={avatar.url} alt="Avatar" className="absolute inset-0 w-full h-full object-cover" />
-
-                  {/* Top overlays */}
-                  <div className="absolute inset-x-0 top-0 p-2 flex items-center justify-between">
-                    <div className="px-2 py-1 rounded-md bg-black/55 text-[10px] text-gray-200 border border-white/10">
-                      Option {idx + 1}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPreviewUrl(avatar.url);
-                      }}
-                      className="px-2 py-1 rounded-md bg-black/55 text-[10px] text-gray-200 border border-white/10 hover:bg-black/70 transition-colors"
-                      aria-label="Open full preview"
-                    >
-                      Expand
-                    </button>
-                  </div>
-
-                  {/* Selected indicator */}
-                  {selected && (
-                    <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md bg-indigo-600/90 text-[10px] font-semibold text-white border border-indigo-300/20">
-                      Selected
-                    </div>
-                  )}
-
-                  {/* Hover hint */}
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                </>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  {avatar.status === 'failed' ? (
-                    <span className="text-red-400 text-xs">Failed</span>
-                  ) : (
-                    <svg className="animate-spin h-6 w-6 text-indigo-400" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  )}
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Controls */}
-      <div className="pt-3 border-t border-gray-800/60 space-y-2">
-        <label className="text-[11px] text-gray-400 block">Refine (optional)</label>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={refinement}
-            onChange={(e) => setRefinement(e.target.value)}
-            placeholder="e.g. older, more professional, change to gym setting…"
-            className="flex-1 px-3 py-2 bg-gray-900 border border-gray-800 rounded-lg text-sm text-white focus:ring-2 focus:ring-indigo-500/50"
-          />
-          <button
-            type="button"
-            onClick={handleRefine}
-            disabled={submitting}
-            className="px-3 py-2 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-700 disabled:opacity-50"
-          >
-            Regenerate
-          </button>
+        <div className="flex items-center gap-3">
+          <div className="text-[11px] text-gray-400">
+            {avatars.filter((a: any) => a.status === 'complete').length}/{avatars.length} ready
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -637,11 +578,109 @@ function UgcAvatarPickerBlockComponent({ block, onAction }: { block: UgcAvatarPi
               });
             }}
             disabled={!canContinue}
-            className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+            className="px-3 py-2 bg-white/10 hover:bg-white/15 border border-white/10 text-white text-xs font-semibold rounded-xl disabled:opacity-50"
           >
             Continue
           </button>
         </div>
+      </div>
+
+      {/* 3-up cards (compact, like mock) */}
+      <div className="grid grid-cols-3 gap-4">
+        {avatars.map((avatar: any, idx: number) => {
+          const selected = avatar.id === selectedAvatarId;
+          const ready = avatar.status === 'complete' && avatar.url;
+          const label = (avatar.label as string | undefined) || `Option ${idx + 1}`;
+          const desc = (avatar.description as string | undefined) || '';
+
+          return (
+            <div key={avatar.id} className="space-y-2">
+              <button
+                type="button"
+                disabled={!ready}
+                onClick={() => ready && setSelectedAvatarId(avatar.id)}
+                className={[
+                  'relative w-full aspect-[9/16] rounded-2xl overflow-hidden border transition-all',
+                  ready ? 'cursor-pointer' : 'cursor-not-allowed opacity-80',
+                  selected ? 'border-white/80 ring-2 ring-white/10' : 'border-gray-700/70 hover:border-gray-600/90',
+                  selected ? 'scale-[1.02]' : '',
+                ].join(' ')}
+                aria-label={`Creator option ${idx + 1}`}
+              >
+                {ready ? (
+                  <>
+                    <img src={avatar.url} alt="UGC creator" className="absolute inset-0 w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/10" />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewUrl(avatar.url);
+                      }}
+                      className="absolute top-2 right-2 px-2 py-1 rounded-lg bg-black/55 text-[10px] text-gray-200 border border-white/10 hover:bg-black/70 transition-colors"
+                      aria-label="Open full preview"
+                    >
+                      Expand
+                    </button>
+                    {selected && (
+                      <div className="absolute inset-x-0 bottom-0 p-2">
+                        <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-black/60 border border-white/10 text-[10px] text-white">
+                          Selected
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full bg-gray-900">
+                    {avatar.status === 'failed' ? (
+                      <span className="text-red-400 text-xs">Failed</span>
+                    ) : (
+                      <svg className="animate-spin h-6 w-6 text-gray-300" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    )}
+                  </div>
+                )}
+              </button>
+
+              <div className="px-1">
+                <div className="text-xs font-medium text-gray-200 truncate">{label}</div>
+                {desc ? (
+                  <div className="text-[11px] text-gray-400 line-clamp-2">{desc}</div>
+                ) : (
+                  <div className="text-[11px] text-gray-500">UGC creator option {idx + 1}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Controls */}
+      <div className="pt-3 border-t border-gray-700/60 space-y-2">
+        <div className="text-[11px] text-gray-400">Refine the selected creator (optional)</div>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 flex items-center gap-2 bg-gray-950/40 border border-gray-700/70 rounded-full px-4 py-2">
+            <input
+              type="text"
+              value={refinement}
+              onChange={(e) => setRefinement(e.target.value)}
+              placeholder="Ask for regeneration of the selected image…"
+              className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleRegenerateSelected}
+              disabled={submitting}
+              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 text-white flex items-center justify-center disabled:opacity-50"
+              aria-label="Regenerate selected"
+            >
+              ↑
+            </button>
+          </div>
+        </div>
+        {errorMsg && <div className="text-[11px] text-red-300">{errorMsg}</div>}
         {!selectedAvatarId && <div className="text-[11px] text-gray-500">Select one creator to continue.</div>}
       </div>
     </div>

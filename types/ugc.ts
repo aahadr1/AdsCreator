@@ -10,6 +10,8 @@ export type UgcAvatarPickerBlock = {
       url?: string;
       jobId?: string;
       prompt: string;
+      label?: string;
+      description?: string;
       status: 'pending' | 'processing' | 'complete' | 'failed';
     }>;
     selectedAvatarId?: string;
