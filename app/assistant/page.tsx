@@ -425,6 +425,10 @@ export default function AssistantPage() {
                 context: parameters.context // refinement prompt or original context
               })
             });
+            if (!res.ok) {
+              const errText = await res.text();
+              throw new Error(errText || 'Failed to generate storyboard');
+            }
             const data = await res.json();
             addAssistantMessage(JSON.stringify(data));
             await saveConversation();
@@ -507,8 +511,11 @@ export default function AssistantPage() {
         })
       });
       
-      if (!res.ok) throw new Error(await res.text());
-      
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to start UGC builder');
+      }
+
       const data = await res.json();
       addAssistantMessage(JSON.stringify(data));
       await saveConversation();

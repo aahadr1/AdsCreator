@@ -82,10 +82,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { selectedAvatarUrl, context, avatarId } = body;
 
-    if (!selectedAvatarUrl) return new Response('Missing selectedAvatarUrl', { status: 400 });
+    if (!selectedAvatarUrl) return Response.json({ error: 'Missing selectedAvatarUrl' }, { status: 400 });
 
     const token = process.env.REPLICATE_API_TOKEN;
-    if (!token) return new Response('Missing REPLICATE_API_TOKEN', { status: 500 });
+    if (!token) return Response.json({ error: 'Missing REPLICATE_API_TOKEN' }, { status: 500 });
 
     const replicate = new Replicate({ auth: token });
 
@@ -138,6 +138,6 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     console.error('[UGC Storyboard] Error:', error);
-    return new Response(`Error: ${error.message}`, { status: 500 });
+    return Response.json({ error: error?.message || 'Unknown error' }, { status: 500 });
   }
 }

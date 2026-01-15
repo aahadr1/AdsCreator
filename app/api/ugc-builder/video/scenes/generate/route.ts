@@ -35,10 +35,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { scenes } = body; // Array of { id, imageUrl, description, script }
 
-    if (!scenes || !Array.isArray(scenes)) return new Response('Missing scenes', { status: 400 });
+    if (!scenes || !Array.isArray(scenes)) return Response.json({ error: 'Missing scenes' }, { status: 400 });
 
     const token = process.env.REPLICATE_API_TOKEN;
-    if (!token) return new Response('Missing REPLICATE_API_TOKEN', { status: 500 });
+    if (!token) return Response.json({ error: 'Missing REPLICATE_API_TOKEN' }, { status: 500 });
 
     const replicate = new Replicate({ auth: token });
 
@@ -83,6 +83,6 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     console.error('[UGC Video Gen] Error:', error);
-    return new Response(`Error: ${error.message}`, { status: 500 });
+    return Response.json({ error: error?.message || 'Unknown error' }, { status: 500 });
   }
 }
