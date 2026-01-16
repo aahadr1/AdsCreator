@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
 import { ASSISTANT_SYSTEM_PROMPT, buildConversationContext } from '../../../../lib/prompts/assistant/system';
-import type { Message, ScriptCreationInput, ImageGenerationInput } from '../../../../types/assistant';
+import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, Storyboard, StoryboardScene } from '../../../../types/assistant';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -30,6 +30,22 @@ function isImageGenerationInput(v: unknown): v is ImageGenerationInput {
   if (typeof v !== 'object' || v === null) return false;
   const prompt = (v as any).prompt;
   return typeof prompt === 'string' && prompt.trim().length > 0;
+}
+
+function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
+  if (typeof v !== 'object' || v === null) return false;
+  const obj = v as any;
+  if (typeof obj.title !== 'string' || obj.title.trim().length === 0) return false;
+  if (!Array.isArray(obj.scenes) || obj.scenes.length === 0) return false;
+  // Validate each scene has required fields
+  for (const scene of obj.scenes) {
+    if (typeof scene.scene_number !== 'number') return false;
+    if (typeof scene.scene_name !== 'string') return false;
+    if (typeof scene.description !== 'string') return false;
+    if (typeof scene.first_frame_prompt !== 'string') return false;
+    if (typeof scene.last_frame_prompt !== 'string') return false;
+  }
+  return true;
 }
 
 // Parse tool calls from assistant response
@@ -183,6 +199,112 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
     };
   } catch (e: any) {
     console.error('Image generation error:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+// Helper to generate a single image and return prediction ID
+async function generateSingleImage(prompt: string, aspectRatio?: string): Promise<{ id: string; status: string } | null> {
+  try {
+    const token = process.env.REPLICATE_API_TOKEN;
+    if (!token) return null;
+    
+    const model = 'google/nano-banana';
+    const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
+      headers: { Authorization: `Token ${token}` },
+      cache: 'no-store',
+    });
+    
+    if (!modelRes.ok) return null;
+    
+    const modelJson = await modelRes.json();
+    const versionId = modelJson?.latest_version?.id;
+    if (!versionId) return null;
+    
+    const predictionInput: Record<string, unknown> = {
+      prompt,
+      output_format: 'jpg',
+    };
+    
+    // Add aspect ratio hint to prompt if provided
+    if (aspectRatio && !prompt.includes(aspectRatio)) {
+      predictionInput.prompt = `${prompt}, ${aspectRatio} aspect ratio`;
+    }
+    
+    const res = await fetch(`${REPLICATE_API}/predictions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Token ${token}`,
+      },
+      body: JSON.stringify({ version: versionId, input: predictionInput }),
+    });
+    
+    if (!res.ok) return null;
+    
+    const prediction = await res.json();
+    return { id: prediction.id, status: prediction.status };
+  } catch {
+    return null;
+  }
+}
+
+// Execute storyboard creation tool
+async function executeStoryboardCreation(input: StoryboardCreationInput): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
+  try {
+    const storyboardId = crypto.randomUUID();
+    
+    // Build scenes with prediction IDs for image generation
+    const scenesWithPredictions: StoryboardScene[] = [];
+    
+    for (const scene of input.scenes) {
+      // Generate first frame image
+      const firstFramePrediction = await generateSingleImage(
+        scene.first_frame_prompt,
+        input.aspect_ratio
+      );
+      
+      // Generate last frame image
+      const lastFramePrediction = await generateSingleImage(
+        scene.last_frame_prompt,
+        input.aspect_ratio
+      );
+      
+      scenesWithPredictions.push({
+        scene_number: scene.scene_number,
+        scene_name: scene.scene_name,
+        description: scene.description,
+        duration_seconds: scene.duration_seconds,
+        first_frame_prompt: scene.first_frame_prompt,
+        last_frame_prompt: scene.last_frame_prompt,
+        transition_type: scene.transition_type,
+        audio_notes: scene.audio_notes,
+        first_frame_prediction_id: firstFramePrediction?.id,
+        last_frame_prediction_id: lastFramePrediction?.id,
+      });
+    }
+    
+    const storyboard: Storyboard = {
+      id: storyboardId,
+      title: input.title,
+      brand_name: input.brand_name,
+      product: input.product,
+      target_audience: input.target_audience,
+      platform: input.platform,
+      total_duration_seconds: input.total_duration_seconds,
+      style: input.style,
+      aspect_ratio: input.aspect_ratio,
+      scenes: scenesWithPredictions,
+      created_at: new Date().toISOString(),
+      status: 'generating',
+    };
+    
+    return {
+      success: true,
+      output: { storyboard }
+    };
+  } catch (e: any) {
+    console.error('Storyboard creation error:', e);
     return { success: false, error: e.message };
   }
 }
@@ -362,6 +484,11 @@ export async function POST(req: NextRequest) {
               result = isImageGenerationInput(safeInput)
                 ? await executeImageGeneration(safeInput)
                 : { success: false, error: 'Invalid image_generation input: missing prompt' };
+            } else if (toolCall.tool === 'storyboard_creation') {
+              const safeInput: unknown = toolCall.input;
+              result = isStoryboardCreationInput(safeInput)
+                ? await executeStoryboardCreation(safeInput)
+                : { success: false, error: 'Invalid storyboard_creation input: missing title or scenes' };
             }
             
             if (result) {

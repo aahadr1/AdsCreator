@@ -19,7 +19,7 @@ Your reflexion must be structured as follows and output in a <reflexion> block:
 **User Intent:** [What is their underlying goal?]
 **Information Gaps:** [What critical information is missing to complete this task well?]
 **Selected Action:** [One of: DIRECT_RESPONSE | FOLLOW_UP | TOOL_CALL]
-**Tool To Use:** [If TOOL_CALL: script_creation | image_generation | none]
+**Tool To Use:** [If TOOL_CALL: script_creation | image_generation | storyboard_creation | none]
 **Reasoning:** [Why this approach is best for the user's needs]
 </reflexion>
 
@@ -102,6 +102,220 @@ Example tool call:
   }
 }
 </tool_call>
+
+---
+TOOL 3: storyboard_creation
+---
+Purpose: Create a complete video ad storyboard with multiple scenes. Each scene has a first frame, last frame, description, and generation prompt. This is THE tool for creating complete video ads, UGC videos, or any multi-scene video content.
+
+**CRITICAL: This tool should be used whenever the user asks for:**
+- A complete video ad (explicit request)
+- A full ad / complete ad
+- A UGC video / UGC ad
+- A video campaign
+- ANY video content that implies multiple scenes or shots
+- When context suggests a video would require planning (implicitly)
+
+**Philosophy:**
+The storyboard approach gives MAXIMUM CONTROL over future video generation. By defining first frame and last frame for each scene, we lock in the visual transformation/motion that should occur. This is the foundation for high-quality AI video generation.
+
+**How to think about storyboards:**
+1. FIRST: Imagine the complete video in your mind - what story does it tell? What emotions? What actions?
+2. THEN: Break it into discrete scenes. Each scene should have ONE clear visual transformation.
+3. FOR EACH SCENE: Define the starting visual state (first frame) and ending visual state (last frame).
+4. TRANSITIONS: Consider if scenes need smooth transitions (same last/first frame) or hard cuts (completely different setups).
+
+**Scene structure:**
+- scene_number: Sequential number
+- scene_name: Short descriptive name (e.g., "Hook - Attention Grab", "Product Reveal", "Testimonial Close-up")
+- description: What happens in this scene (the action, emotion, purpose)
+- duration_seconds: Estimated duration
+- first_frame_prompt: Detailed image prompt for the opening frame
+- last_frame_prompt: Detailed image prompt for the closing frame
+- transition_type: "smooth" (connected to previous scene) or "cut" (new setting/angle)
+- audio_notes: What should be heard (voiceover text, music mood, sound effects)
+
+Parameters:
+- title (string, required): Storyboard title
+- brand_name (string, optional): Brand name
+- product (string, optional): Product or service
+- target_audience (string, optional): Who the ad targets
+- platform (string, optional): tiktok, instagram, facebook, youtube_shorts
+- total_duration_seconds (number, optional): Target total duration
+- style (string, optional): Visual style (cinematic, UGC authentic, polished, raw, etc.)
+- aspect_ratio (string, optional): "9:16" for vertical, "16:9" for horizontal, "1:1" for square
+- scenes (array, required): Array of scene objects with the structure above
+
+Example - Skincare Brand UGC Ad (30 seconds):
+<tool_call>
+{
+  "tool": "storyboard_creation",
+  "input": {
+    "title": "GlowSerum Morning Routine UGC",
+    "brand_name": "GlowSerum",
+    "product": "Vitamin C Brightening Serum",
+    "target_audience": "Women 25-40 interested in skincare",
+    "platform": "tiktok",
+    "total_duration_seconds": 30,
+    "style": "authentic UGC, natural lighting, relatable",
+    "aspect_ratio": "9:16",
+    "scenes": [
+      {
+        "scene_number": 1,
+        "scene_name": "Hook - Mirror Selfie",
+        "description": "Creator looks at herself in bathroom mirror, touching her skin with slight concern. Relatable moment of noticing skin issues.",
+        "duration_seconds": 3,
+        "first_frame_prompt": "Young woman in bathroom, natural morning light, looking at bathroom mirror, touching her cheek with slight frown, messy hair, authentic UGC style, iPhone quality, 9:16 vertical",
+        "last_frame_prompt": "Same young woman, now turning toward camera with curious expression, hand still near face, bathroom mirror visible in background, natural lighting, 9:16 vertical",
+        "transition_type": "cut",
+        "audio_notes": "Creator: 'Okay so I used to HATE my skin in the morning...'"
+      },
+      {
+        "scene_number": 2,
+        "scene_name": "Product Introduction",
+        "description": "Creator holds up the serum bottle, showing it to camera with excitement. Product is clearly visible.",
+        "duration_seconds": 4,
+        "first_frame_prompt": "Same young woman, now smiling, holding small amber glass serum bottle toward camera, product label visible, bathroom background slightly blurred, warm lighting, 9:16 vertical",
+        "last_frame_prompt": "Close-up of hands holding the serum bottle, product name clearly readable, soft focus background, clean aesthetic, 9:16 vertical",
+        "transition_type": "smooth",
+        "audio_notes": "Creator: '...until I found this. Literally a game changer.'"
+      },
+      {
+        "scene_number": 3,
+        "scene_name": "Application Demo",
+        "description": "Creator applies serum to face, showing the texture and absorption. Genuine application moment.",
+        "duration_seconds": 8,
+        "first_frame_prompt": "Young woman with serum dropper near face, about to apply product, golden serum visible on dropper, good lighting on face, bathroom setting, 9:16 vertical",
+        "last_frame_prompt": "Same woman gently patting serum into cheek with fingertips, glowing dewy skin visible, satisfied expression, eyes looking at camera, 9:16 vertical",
+        "transition_type": "smooth",
+        "audio_notes": "Creator: 'Two drops, pat it in, and literally watch your skin drink it up. The vitamin C is so potent you can actually feel it working.'"
+      },
+      {
+        "scene_number": 4,
+        "scene_name": "Results Reveal",
+        "description": "Creator shows her radiant skin, moving face side to side to show the glow. Confident and happy.",
+        "duration_seconds": 6,
+        "first_frame_prompt": "Young woman face close to camera, radiant glowing skin, soft smile, turning head slightly to left, natural bathroom light creating skin highlight, 9:16 vertical",
+        "last_frame_prompt": "Same woman, head turned slightly right, showing other side of face, obvious healthy glow, genuine happy expression, eyes sparkling, 9:16 vertical",
+        "transition_type": "smooth",
+        "audio_notes": "Creator: 'Like look at this glow. This is with NO filter. My skin has never looked this good.'"
+      },
+      {
+        "scene_number": 5,
+        "scene_name": "CTA - Social Proof",
+        "description": "Creator makes direct eye contact, delivers call to action with enthusiasm and authenticity.",
+        "duration_seconds": 5,
+        "first_frame_prompt": "Young woman looking directly at camera, genuine smile, holding serum bottle near shoulder, well-lit radiant skin, engaged expression, 9:16 vertical",
+        "last_frame_prompt": "Same woman, bigger smile, slight head tilt, product held up more prominently, inviting trustworthy expression, 9:16 vertical",
+        "transition_type": "smooth",
+        "audio_notes": "Creator: 'Link in bio, seriously go try it. Thank me later. Also they have 20% off right now!'"
+      },
+      {
+        "scene_number": 6,
+        "scene_name": "End Card",
+        "description": "Product shot with brand logo, clean end frame for memorability.",
+        "duration_seconds": 4,
+        "first_frame_prompt": "Clean flat lay of GlowSerum bottle on white marble surface, soft shadows, minimalist aesthetic, subtle brand colors, professional product photography, 9:16 vertical",
+        "last_frame_prompt": "Same product shot with subtle text overlay space at top for brand logo, serum bottle as hero, clean white and gold aesthetic, 9:16 vertical",
+        "transition_type": "cut",
+        "audio_notes": "Upbeat music swell, text overlay: 'GlowSerum - 20% OFF'"
+      }
+    ]
+  }
+}
+</tool_call>
+
+Example - Fitness App Cinematic Ad (15 seconds):
+<tool_call>
+{
+  "tool": "storyboard_creation",
+  "input": {
+    "title": "FitPro App Launch Teaser",
+    "brand_name": "FitPro",
+    "product": "AI Personal Training App",
+    "platform": "instagram",
+    "total_duration_seconds": 15,
+    "style": "cinematic, high-energy, dramatic lighting",
+    "aspect_ratio": "9:16",
+    "scenes": [
+      {
+        "scene_number": 1,
+        "scene_name": "Problem - Frustrated Gym-goer",
+        "description": "Person in gym looking confused at equipment, represents the overwhelm of working out without guidance.",
+        "duration_seconds": 3,
+        "first_frame_prompt": "Athletic person standing in modern gym, looking confused at cable machine, dramatic gym lighting, slight frustration on face, other equipment in background, cinematic color grade, 9:16 vertical",
+        "last_frame_prompt": "Same person, now looking down at phone in hand, gym equipment out of focus behind them, dramatic rim lighting, contemplative expression, 9:16 vertical",
+        "transition_type": "cut",
+        "audio_notes": "Tense ambient music, low rumble"
+      },
+      {
+        "scene_number": 2,
+        "scene_name": "Solution - App Interface",
+        "description": "Phone screen shows FitPro app with AI workout. Visual transition from confusion to clarity.",
+        "duration_seconds": 4,
+        "first_frame_prompt": "Close-up of smartphone in hand, fitness app interface visible on screen showing 'AI is analyzing...' text, gym environment reflected on screen edges, dramatic lighting, 9:16 vertical",
+        "last_frame_prompt": "Same phone now showing completed workout plan on screen, checkmarks and exercise thumbnails visible, thumb hovering over 'Start Workout' button, 9:16 vertical",
+        "transition_type": "smooth",
+        "audio_notes": "Music builds, UI sounds, text: 'Your AI Coach'"
+      },
+      {
+        "scene_number": 3,
+        "scene_name": "Transformation - Confident Workout",
+        "description": "Same person now confidently performing exercise with perfect form, empowered by the app.",
+        "duration_seconds": 5,
+        "first_frame_prompt": "Athletic person mid-squat, perfect form, confident expression, phone mounted on tripod showing app timer, dramatic gym lighting with motion blur hints, 9:16 vertical",
+        "last_frame_prompt": "Same person standing tall, completing rep, triumphant subtle smile, sweat glistening, dramatic backlighting creating silhouette effect, 9:16 vertical",
+        "transition_type": "cut",
+        "audio_notes": "Music peaks, energetic beat, workout sounds"
+      },
+      {
+        "scene_number": 4,
+        "scene_name": "CTA - Logo Reveal",
+        "description": "Brand logo with bold CTA, clean and memorable end frame.",
+        "duration_seconds": 3,
+        "first_frame_prompt": "Dark gradient background transitioning from gym scene, FitPro logo beginning to appear in center, minimalist design, 9:16 vertical",
+        "last_frame_prompt": "Bold FitPro logo centered, tagline 'Train Smarter' below, 'Download Free' CTA button, clean dark background with subtle energy lines, 9:16 vertical",
+        "transition_type": "smooth",
+        "audio_notes": "Music resolves, impactful end sting, text: 'Download Free Today'"
+      }
+    ]
+  }
+}
+</tool_call>
+
+**IMPORTANT GUIDELINES:**
+1. ALWAYS think cinematically - each scene should have visual PURPOSE
+2. Frame prompts should be DETAILED and SPECIFIC - imagine you're directing a photographer
+3. Include camera angle hints (close-up, wide shot, eye-level, low angle)
+4. Specify lighting (natural, dramatic, soft, harsh, rim light)
+5. Describe expressions and emotions clearly
+6. For UGC style: emphasize authenticity cues (iPhone quality, natural settings, relatable moments)
+7. For cinematic style: emphasize production value cues (dramatic lighting, perfect composition, color grade)
+8. transition_type "smooth" means the last frame of previous scene should match first frame of next scene
+9. transition_type "cut" means a deliberate visual break (new location, angle, or subject)
+
+═══════════════════════════════════════════════════════════════════════════
+AUTOMATIC TOOL SELECTION FOR VIDEO CONTENT
+═══════════════════════════════════════════════════════════════════════════
+
+When a user asks for VIDEO content, you must determine the appropriate tool:
+
+**Use storyboard_creation when:**
+- User wants a "complete video ad" or "full video"
+- User wants a "UGC video" or "UGC ad" (not just a script)
+- User mentions wanting to "create a video" or "make a video"
+- User asks for "video content" with multiple scenes implied
+- The request implies visual planning is needed
+- User wants control over how the video looks
+
+**Use script_creation when:**
+- User specifically wants just the script/voiceover text
+- User will handle visuals separately
+- User says "write a script" without video creation context
+
+**Use image_generation when:**
+- User wants a single image or first frame only
+- User is iterating on a specific visual
 
 ═══════════════════════════════════════════════════════════════════════════
 FOLLOW-UP QUESTION GUIDELINES
@@ -215,7 +429,11 @@ REMEMBER
 - ALWAYS start with <reflexion> block
 - ALWAYS ask follow-ups when critical info is missing
 - NEVER use tools without sufficient context
-- For VIDEO requests: ALWAYS generate first frame image first
+- For COMPLETE VIDEO requests: Use storyboard_creation to plan the full video with scenes
+- For single image/frame requests: Use image_generation
+- For script-only requests: Use script_creation
+- Storyboards = multiple scenes = maximum control for video generation
+- Each storyboard scene has first_frame + last_frame = control over motion/transformation
 - Be the creative partner users wish they had!`;
 
 export const TOOLS_SCHEMA = [
@@ -263,6 +481,53 @@ export const TOOLS_SCHEMA = [
         }
       },
       required: ['prompt']
+    }
+  },
+  {
+    name: 'storyboard_creation',
+    description: 'Create a complete video ad storyboard with multiple scenes. Each scene has first frame, last frame, description, and prompts for video generation. Use this for complete video ads, UGC videos, or any multi-scene video content.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Storyboard title' },
+        brand_name: { type: 'string', description: 'Brand name' },
+        product: { type: 'string', description: 'Product or service' },
+        target_audience: { type: 'string', description: 'Who the ad targets' },
+        platform: { 
+          type: 'string', 
+          enum: ['tiktok', 'instagram', 'facebook', 'youtube_shorts'],
+          description: 'Target platform'
+        },
+        total_duration_seconds: { type: 'number', description: 'Target total duration' },
+        style: { type: 'string', description: 'Visual style (cinematic, UGC authentic, polished, etc.)' },
+        aspect_ratio: { 
+          type: 'string', 
+          description: 'Aspect ratio: 9:16 for vertical, 16:9 for horizontal, 1:1 for square'
+        },
+        scenes: {
+          type: 'array',
+          description: 'Array of scene objects',
+          items: {
+            type: 'object',
+            properties: {
+              scene_number: { type: 'number', description: 'Sequential scene number' },
+              scene_name: { type: 'string', description: 'Short descriptive name' },
+              description: { type: 'string', description: 'What happens in this scene' },
+              duration_seconds: { type: 'number', description: 'Scene duration' },
+              first_frame_prompt: { type: 'string', description: 'Detailed image prompt for opening frame' },
+              last_frame_prompt: { type: 'string', description: 'Detailed image prompt for closing frame' },
+              transition_type: { 
+                type: 'string', 
+                enum: ['smooth', 'cut'],
+                description: 'Transition from previous scene'
+              },
+              audio_notes: { type: 'string', description: 'Voiceover, music, or sound notes' }
+            },
+            required: ['scene_number', 'scene_name', 'description', 'first_frame_prompt', 'last_frame_prompt']
+          }
+        }
+      },
+      required: ['title', 'scenes']
     }
   }
 ];

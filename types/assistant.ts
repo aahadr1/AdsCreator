@@ -43,7 +43,7 @@ export interface PlanStep {
 }
 
 // Tool Definitions
-export type ToolName = 'script_creation' | 'image_generation';
+export type ToolName = 'script_creation' | 'image_generation' | 'storyboard_creation';
 
 export interface Tool {
   name: ToolName;
@@ -149,4 +149,61 @@ export interface ImageGenerationOutput {
   prediction_id: string;
   status: string;
   output_url?: string;
+}
+
+// Storyboard specific types
+export interface StoryboardScene {
+  scene_number: number;
+  scene_name: string;
+  description: string;
+  duration_seconds?: number;
+  first_frame_prompt: string;
+  last_frame_prompt: string;
+  transition_type?: 'smooth' | 'cut';
+  audio_notes?: string;
+  // Generated image URLs (populated after generation)
+  first_frame_url?: string;
+  last_frame_url?: string;
+  first_frame_prediction_id?: string;
+  last_frame_prediction_id?: string;
+}
+
+export interface Storyboard {
+  id: string;
+  title: string;
+  brand_name?: string;
+  product?: string;
+  target_audience?: string;
+  platform?: 'tiktok' | 'instagram' | 'facebook' | 'youtube_shorts';
+  total_duration_seconds?: number;
+  style?: string;
+  aspect_ratio?: string;
+  scenes: StoryboardScene[];
+  created_at: string;
+  status: 'draft' | 'generating' | 'ready' | 'failed';
+}
+
+export interface StoryboardCreationInput {
+  title: string;
+  brand_name?: string;
+  product?: string;
+  target_audience?: string;
+  platform?: 'tiktok' | 'instagram' | 'facebook' | 'youtube_shorts';
+  total_duration_seconds?: number;
+  style?: string;
+  aspect_ratio?: string;
+  scenes: Array<{
+    scene_number: number;
+    scene_name: string;
+    description: string;
+    duration_seconds?: number;
+    first_frame_prompt: string;
+    last_frame_prompt: string;
+    transition_type?: 'smooth' | 'cut';
+    audio_notes?: string;
+  }>;
+}
+
+export interface StoryboardCreationOutput {
+  storyboard: Storyboard;
 }

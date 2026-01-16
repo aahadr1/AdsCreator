@@ -18,8 +18,13 @@ import {
   Check,
   Plus,
   Trash2,
+  Film,
+  Play,
+  ChevronRight,
+  Clock,
+  Volume2,
 } from 'lucide-react';
-import type { Message, Conversation } from '../../types/assistant';
+import type { Message, Conversation, Storyboard, StoryboardScene } from '../../types/assistant';
 import styles from './assistant.module.css';
 
 type StreamEvent = {
@@ -509,6 +514,201 @@ export default function AssistantPage() {
     );
   }
 
+  // Scene frame image component with polling
+  function SceneFrameImage({
+    predictionId,
+    label,
+    initialUrl,
+  }: {
+    predictionId?: string;
+    label: string;
+    initialUrl?: string;
+  }) {
+    const [url, setUrl] = useState<string | null>(initialUrl || null);
+    const [status, setStatus] = useState<string>(initialUrl ? 'succeeded' : 'starting');
+
+    useEffect(() => {
+      if (url || !predictionId) return;
+      
+      let mounted = true;
+      let timeout: ReturnType<typeof setTimeout>;
+
+      async function poll() {
+        if (!predictionId) return;
+        try {
+          const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(predictionId)}`, { cache: 'no-store' });
+          if (!res.ok || !mounted) return;
+          const json = await res.json();
+          
+          setStatus(json.status || 'processing');
+          if (json.outputUrl) {
+            setUrl(String(json.outputUrl));
+            return;
+          }
+          
+          if (!['succeeded', 'failed', 'canceled'].includes(json.status || '')) {
+            timeout = setTimeout(poll, 2000);
+          }
+        } catch {
+          if (mounted) timeout = setTimeout(poll, 3000);
+        }
+      }
+
+      poll();
+      return () => { mounted = false; clearTimeout(timeout); };
+    }, [predictionId, url]);
+
+    return (
+      <div className={styles.sceneFrame}>
+        <div className={styles.sceneFrameLabel}>{label}</div>
+        <div className={styles.sceneFrameImage}>
+          {url ? (
+            <a href={url} target="_blank" rel="noreferrer">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={label} />
+            </a>
+          ) : (
+            <div className={styles.sceneFramePlaceholder}>
+              <Loader2 size={18} className={styles.spinner} />
+              <span>{status === 'starting' ? 'Starting...' : 'Generating...'}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Individual scene card component
+  function SceneCard({ scene, aspectRatio }: { scene: StoryboardScene; aspectRatio?: string }) {
+    const [expanded, setExpanded] = useState(true);
+
+    return (
+      <div className={styles.sceneCard}>
+        <button
+          type="button"
+          className={styles.sceneHeader}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className={styles.sceneNumber}>{scene.scene_number}</div>
+          <div className={styles.sceneInfo}>
+            <div className={styles.sceneName}>{scene.scene_name}</div>
+            <div className={styles.sceneMeta}>
+              {scene.duration_seconds && (
+                <span className={styles.sceneMetaItem}>
+                  <Clock size={12} />
+                  {scene.duration_seconds}s
+                </span>
+              )}
+              {scene.transition_type && (
+                <span className={styles.sceneMetaItem}>
+                  <ChevronRight size={12} />
+                  {scene.transition_type}
+                </span>
+              )}
+            </div>
+          </div>
+          <ChevronRight
+            size={16}
+            className={styles.sceneChevron}
+            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          />
+        </button>
+        
+        {expanded && (
+          <div className={styles.sceneBody}>
+            <div className={styles.sceneDescription}>
+              <p>{scene.description}</p>
+            </div>
+            
+            <div className={styles.sceneFrames}>
+              <SceneFrameImage
+                predictionId={scene.first_frame_prediction_id}
+                label="First Frame"
+                initialUrl={scene.first_frame_url}
+              />
+              <div className={styles.sceneFrameArrow}>
+                <Play size={16} />
+              </div>
+              <SceneFrameImage
+                predictionId={scene.last_frame_prediction_id}
+                label="Last Frame"
+                initialUrl={scene.last_frame_url}
+              />
+            </div>
+            
+            {scene.audio_notes && (
+              <div className={styles.sceneAudio}>
+                <Volume2 size={14} />
+                <span>{scene.audio_notes}</span>
+              </div>
+            )}
+            
+            <div className={styles.scenePrompts}>
+              <details className={styles.promptDetails}>
+                <summary>First Frame Prompt</summary>
+                <pre>{scene.first_frame_prompt}</pre>
+              </details>
+              <details className={styles.promptDetails}>
+                <summary>Last Frame Prompt</summary>
+                <pre>{scene.last_frame_prompt}</pre>
+              </details>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Full storyboard card component
+  function StoryboardCard({ storyboard }: { storyboard: Storyboard }) {
+    const totalDuration = storyboard.total_duration_seconds || 
+      storyboard.scenes.reduce((sum, s) => sum + (s.duration_seconds || 0), 0);
+
+    return (
+      <div className={styles.storyboardCard}>
+        <div className={styles.storyboardHeader}>
+          <div className={styles.storyboardIcon}>
+            <Film size={20} />
+          </div>
+          <div className={styles.storyboardTitleArea}>
+            <h3 className={styles.storyboardTitle}>{storyboard.title}</h3>
+            <div className={styles.storyboardMeta}>
+              {storyboard.platform && <span className={styles.storyboardTag}>{storyboard.platform}</span>}
+              {storyboard.style && <span className={styles.storyboardTag}>{storyboard.style}</span>}
+              {storyboard.aspect_ratio && <span className={styles.storyboardTag}>{storyboard.aspect_ratio}</span>}
+              {totalDuration > 0 && <span className={styles.storyboardTag}>{totalDuration}s total</span>}
+            </div>
+          </div>
+          <span className={`${styles.pill} ${storyboard.status === 'ready' ? styles.pillOk : ''}`}>
+            {storyboard.status}
+          </span>
+        </div>
+        
+        {(storyboard.brand_name || storyboard.product || storyboard.target_audience) && (
+          <div className={styles.storyboardInfo}>
+            {storyboard.brand_name && <div><strong>Brand:</strong> {storyboard.brand_name}</div>}
+            {storyboard.product && <div><strong>Product:</strong> {storyboard.product}</div>}
+            {storyboard.target_audience && <div><strong>Audience:</strong> {storyboard.target_audience}</div>}
+          </div>
+        )}
+        
+        <div className={styles.storyboardScenes}>
+          <div className={styles.scenesLabel}>
+            <Play size={14} />
+            <span>{storyboard.scenes.length} Scenes</span>
+          </div>
+          {storyboard.scenes.map((scene) => (
+            <SceneCard 
+              key={scene.scene_number} 
+              scene={scene} 
+              aspectRatio={storyboard.aspect_ratio}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -536,6 +736,20 @@ export default function AssistantPage() {
     }
 
     if (isToolCall) {
+      const getToolIcon = () => {
+        switch (message.tool_name) {
+          case 'script_creation': return <FileText size={16} />;
+          case 'storyboard_creation': return <Film size={16} />;
+          default: return <ImageIcon size={16} />;
+        }
+      };
+      const getToolLabel = () => {
+        switch (message.tool_name) {
+          case 'script_creation': return 'Generating script…';
+          case 'storyboard_creation': return 'Creating storyboard…';
+          default: return 'Generating image…';
+        }
+      };
       return (
         <div key={message.id} className={styles.row}>
           <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
@@ -543,8 +757,8 @@ export default function AssistantPage() {
           </div>
           <div className={styles.bubble}>
             <div className={styles.toolHeader}>
-              {message.tool_name === 'script_creation' ? <FileText size={16} /> : <ImageIcon size={16} />}
-              <span>{message.tool_name === 'script_creation' ? 'Generating script…' : 'Generating image…'}</span>
+              {getToolIcon()}
+              <span>{getToolLabel()}</span>
               <Loader2 size={14} className={styles.spinner} />
             </div>
           </div>
@@ -573,13 +787,21 @@ export default function AssistantPage() {
         message.tool_name === 'image_generation'
           ? (message.tool_output as any)?.output?.status || (message.tool_output as any)?.status
           : undefined;
+      
+      // Extract storyboard data
+      const storyboardData =
+        message.tool_name === 'storyboard_creation'
+          ? (message.tool_output as any)?.output?.storyboard ||
+            (message.tool_output as any)?.storyboard ||
+            null
+          : null;
 
       return (
         <div key={message.id} className={styles.row}>
           <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
             {success ? <Check size={16} /> : <AlertCircle size={16} />}
           </div>
-          <div className={styles.bubble}>
+          <div className={`${styles.bubble} ${message.tool_name === 'storyboard_creation' ? styles.bubbleWide : ''}`}>
             {message.tool_name === 'image_generation' && predictionId ? (
               <ImagePredictionCard
                 messageId={message.id}
@@ -589,6 +811,8 @@ export default function AssistantPage() {
               />
             ) : message.tool_name === 'script_creation' ? (
               <ScriptCard content={message.content} />
+            ) : message.tool_name === 'storyboard_creation' && storyboardData ? (
+              <StoryboardCard storyboard={storyboardData as Storyboard} />
             ) : (
               <Markdown content={message.content} />
             )}
@@ -703,9 +927,12 @@ export default function AssistantPage() {
               <div className={styles.welcome}>
                 <h2 className={styles.welcomeTitle}>What are we making today?</h2>
                 <div className={styles.welcomeSub}>
-                  Ask for ad scripts, UGC concepts, or image prompts. I’ll ask precise follow‑ups when needed.
+                  Ask for ad scripts, complete video storyboards, or image prompts. I&apos;ll ask precise follow‑ups when needed.
                 </div>
                 <div className={styles.chips}>
+                  <button className={styles.chip} type="button" onClick={() => setInput('Create a complete UGC video ad storyboard for a vitamin C serum targeting women 25-35, 30 seconds for TikTok.')}>
+                    🎬 Complete UGC Storyboard
+                  </button>
                   <button className={styles.chip} type="button" onClick={() => setInput('Create a UGC TikTok script for a mascara brand with a strong hook and CTA.')}>
                     UGC script (TikTok)
                   </button>
