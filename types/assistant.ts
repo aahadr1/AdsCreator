@@ -31,6 +31,13 @@ export interface AssistantPlan {
   steps: PlanStep[];
   current_step: number;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  // Optional: server-side persisted avatar selection for storyboards
+  selected_avatar?: {
+    url: string;
+    prediction_id?: string;
+    description?: string;
+    selected_at?: string;
+  };
 }
 
 export interface PlanStep {

@@ -651,6 +651,7 @@ export async function POST(req: NextRequest) {
     // Get or create conversation
     let conversationId = body.conversation_id;
     let existingMessages: Message[] = [];
+    let existingPlan: any = null;
     
     if (conversationId) {
       const { data: existing } = await supabase
@@ -662,6 +663,7 @@ export async function POST(req: NextRequest) {
       
       if (existing) {
         existingMessages = (existing.messages || []) as Message[];
+        existingPlan = (existing as any).plan || null;
       } else {
         conversationId = undefined;
       }
@@ -686,6 +688,7 @@ export async function POST(req: NextRequest) {
       }
       
       conversationId = newConv.id;
+      existingPlan = newConv.plan || null;
     }
     
     // Add user message
@@ -706,6 +709,38 @@ export async function POST(req: NextRequest) {
   const confirmedAvatarDescription = userConfirmedAvatar ? avatarCandidate?.description : undefined;
   const confirmedAvatarPredictionId = userConfirmedAvatar ? avatarCandidate?.predictionId : undefined;
   const confirmedAvatarStatus = userConfirmedAvatar ? avatarCandidate?.status : undefined;
+
+    // Read previously selected avatar from plan (server-side persisted)
+    const planSelectedAvatarUrl =
+      typeof existingPlan?.selected_avatar?.url === 'string' && isHttpUrl(existingPlan.selected_avatar.url)
+        ? String(existingPlan.selected_avatar.url).trim()
+        : undefined;
+    const planSelectedAvatarDescription =
+      typeof existingPlan?.selected_avatar?.description === 'string'
+        ? String(existingPlan.selected_avatar.description)
+        : undefined;
+
+    // If user confirmed, persist selection server-side (so we never rely on model-supplied URLs)
+    let selectedAvatarUrl: string | undefined = planSelectedAvatarUrl;
+    let selectedAvatarDescription: string | undefined = planSelectedAvatarDescription;
+    if (userConfirmedAvatar && confirmedAvatarUrl) {
+      selectedAvatarUrl = confirmedAvatarUrl;
+      selectedAvatarDescription = confirmedAvatarDescription || selectedAvatarDescription;
+      const nextPlan = {
+        ...(existingPlan || {}),
+        selected_avatar: {
+          url: confirmedAvatarUrl,
+          prediction_id: confirmedAvatarPredictionId,
+          description: confirmedAvatarDescription,
+          selected_at: new Date().toISOString(),
+        },
+      };
+      await supabase
+        .from('assistant_conversations')
+        .update({ plan: nextPlan, updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+      existingPlan = nextPlan;
+    }
   
     // Build conversation context for Claude
     const conversationContext = buildConversationContext(existingMessages);
@@ -787,7 +822,7 @@ export async function POST(req: NextRequest) {
             const storyboardCall = toolCalls.find(tc => tc.tool === 'storyboard_creation');
             const input = (storyboardCall as any)?.input || {};
             const avatarUrlInCall = typeof input.avatar_image_url === 'string' ? input.avatar_image_url.trim() : '';
-            const avatarUrlAvailable = isHttpUrl(avatarUrlInCall) || Boolean(confirmedAvatarUrl);
+            const avatarUrlAvailable = isHttpUrl(avatarUrlInCall) || Boolean(selectedAvatarUrl);
             const usesAvatarScene = Array.isArray(input?.scenes)
               ? input.scenes.some((s: any) => s?.uses_avatar === true)
               : false;
@@ -823,15 +858,22 @@ export async function POST(req: NextRequest) {
           const toolResults: Array<{ tool: string; result: unknown }> = [];
           
           for (const toolCall of filteredToolCalls) {
-            // Inject confirmed avatar URL if user just confirmed
-            if (toolCall.tool === 'storyboard_creation' && confirmedAvatarUrl) {
+            // Enforce server-tracked avatar URL for storyboard creation.
+            // Never trust model-supplied random URLs.
+            if (toolCall.tool === 'storyboard_creation') {
               const input = toolCall.input as any;
-              // Only override when the model did NOT already provide a real URL
-              if (!isHttpUrl(input.avatar_image_url)) {
+              // If we have a selected avatar stored server-side, force it.
+              if (selectedAvatarUrl) {
+                input.avatar_image_url = selectedAvatarUrl;
+                if (!input.avatar_description && selectedAvatarDescription) {
+                  input.avatar_description = selectedAvatarDescription;
+                }
+              } else if (confirmedAvatarUrl && !isHttpUrl(input.avatar_image_url)) {
+                // Fallback: user confirmed in this same message, but we don't have a plan-selected avatar yet
                 input.avatar_image_url = confirmedAvatarUrl;
-              }
-              if (!input.avatar_description && confirmedAvatarDescription) {
-                input.avatar_description = confirmedAvatarDescription;
+                if (!input.avatar_description && confirmedAvatarDescription) {
+                  input.avatar_description = confirmedAvatarDescription;
+                }
               }
             }
             
