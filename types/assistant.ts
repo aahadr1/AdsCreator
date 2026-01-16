@@ -162,6 +162,7 @@ export interface StoryboardScene {
   transition_type?: 'smooth' | 'cut';
   camera_angle?: string;
   setting_change?: boolean;
+  uses_avatar?: boolean;
   video_generation_prompt?: string;
   audio_notes?: string;
   // Generated image URLs and status (populated after generation)
@@ -215,6 +216,7 @@ export interface StoryboardCreationInput {
     transition_type?: 'smooth' | 'cut';
     camera_angle?: string;
     setting_change?: boolean;
+    uses_avatar?: boolean;
     video_generation_prompt?: string;
     audio_notes?: string;
   }>;

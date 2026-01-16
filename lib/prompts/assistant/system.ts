@@ -135,6 +135,11 @@ Before creating a storyboard with an actor/person:
    - Every scene frame MUST use this avatar as image_input for consistency
    - This is how we maintain: same actor, same face, same setting, same camera angle
 
+4. **Explicit Confirmation Required:**
+   - If user did NOT explicitly provide an avatar image OR a precise avatar description, you MUST ask.
+   - You may ONLY proceed to storyboard_creation after the user confirms: 
+     "Yes, use this avatar" OR provides their own avatar image.
+
 **Philosophy:**
 The storyboard approach gives MAXIMUM CONTROL over future video generation. By defining first frame and last frame for each scene, we lock in the visual transformation/motion that should occur. This is the foundation for high-quality AI video generation.
 
@@ -194,6 +199,11 @@ Scene 1 Last Frame: "Different brunette woman in kitchen"
    - "mouth open mid-speech"
    - "applying mascara to eyelashes"
 
+4. **Mark Scene Avatar Usage Explicitly:**
+    - If the scene shows the avatar talking, holding product, or reacting → `"uses_avatar": true`
+    - If the scene is product-only, b-roll, packaging, text card → `"uses_avatar": false`
+    - Only scenes with `uses_avatar: true` should send `avatar_image_url` as image_input
+
 **Scene structure:**
 - scene_number: Sequential number
 - scene_name: Short descriptive name (e.g., "Hook - Attention Grab", "Product Reveal", "Testimonial Close-up")
@@ -204,6 +214,7 @@ Scene 1 Last Frame: "Different brunette woman in kitchen"
 - transition_type: "smooth" (connected to previous scene) or "cut" (new setting/angle)
 - camera_angle: "same" (matches avatar), "close-up", "wide", or specific description
 - setting_change: true/false - whether this scene has a different setting than avatar base
+- uses_avatar: true/false - whether this scene MUST use the avatar reference image
 - audio_notes: What should be heard (voiceover text, music mood, sound effects)
 - video_generation_prompt: The prompt that will be used to generate the video between first and last frame
 
@@ -248,6 +259,7 @@ NOTE: This example assumes an avatar was already generated. The avatar_image_url
         "transition_type": "cut",
         "camera_angle": "same",
         "setting_change": false,
+        "uses_avatar": true,
         "video_generation_prompt": "Woman turns from looking at mirror to face camera, curious expression, smooth natural movement",
         "audio_notes": "Creator: 'Okay so I used to HATE my skin in the morning...'"
       },
@@ -261,6 +273,7 @@ NOTE: This example assumes an avatar was already generated. The avatar_image_url
         "transition_type": "smooth",
         "camera_angle": "same",
         "setting_change": false,
+        "uses_avatar": true,
         "video_generation_prompt": "Woman reaches for bottle and holds it up to camera with growing smile, natural excited movement",
         "audio_notes": "Creator: '...until I found this. Literally a game changer.'"
       },
@@ -274,6 +287,7 @@ NOTE: This example assumes an avatar was already generated. The avatar_image_url
         "transition_type": "smooth",
         "camera_angle": "same",
         "setting_change": false,
+        "uses_avatar": true,
         "video_generation_prompt": "Woman applies serum drops to face and pats them in, natural skincare application motion, satisfied expression",
         "audio_notes": "Creator: 'Two drops, pat it in, and literally watch your skin drink it up. The vitamin C is so potent you can actually feel it working.'"
       },
@@ -287,6 +301,7 @@ NOTE: This example assumes an avatar was already generated. The avatar_image_url
         "transition_type": "smooth",
         "camera_angle": "same",
         "setting_change": false,
+        "uses_avatar": true,
         "video_generation_prompt": "Woman turns head slowly side to side showing off glowing skin, proud happy expression",
         "audio_notes": "Creator: 'Like look at this glow. This is with NO filter. My skin has never looked this good.'"
       },
@@ -300,6 +315,7 @@ NOTE: This example assumes an avatar was already generated. The avatar_image_url
         "transition_type": "smooth",
         "camera_angle": "same",
         "setting_change": false,
+        "uses_avatar": true,
         "video_generation_prompt": "Woman speaks enthusiastically to camera while holding up product, natural talking head motion",
         "audio_notes": "Creator: 'Link in bio, seriously go try it. Thank me later. Also they have 20% off right now!'"
       },
@@ -313,6 +329,7 @@ NOTE: This example assumes an avatar was already generated. The avatar_image_url
         "transition_type": "cut",
         "camera_angle": "overhead_product",
         "setting_change": true,
+        "uses_avatar": false,
         "video_generation_prompt": "Subtle slow zoom into product bottle, professional product shot, clean minimal motion",
         "audio_notes": "Upbeat music swell, text overlay: 'GlowSerum - 20% OFF'"
       }
@@ -613,7 +630,7 @@ export const TOOLS_SCHEMA = [
           type: 'string', 
           description: 'Aspect ratio: 9:16 for vertical, 16:9 for horizontal, 1:1 for square'
         },
-        avatar_image_url: { type: 'string', description: 'URL of the avatar/actor reference image for consistency' },
+        avatar_image_url: { type: 'string', description: 'URL of the avatar/actor reference image for consistency (required if any scene uses_avatar = true)' },
         avatar_description: { type: 'string', description: 'Description of the avatar for prompt consistency' },
         scenes: {
           type: 'array',
@@ -634,6 +651,7 @@ export const TOOLS_SCHEMA = [
               },
               camera_angle: { type: 'string', description: 'Camera angle: same, close-up, wide, etc.' },
               setting_change: { type: 'boolean', description: 'Whether this scene has a different setting' },
+              uses_avatar: { type: 'boolean', description: 'Whether this scene must use the avatar reference image' },
               video_generation_prompt: { type: 'string', description: 'Prompt for video generation describing motion between frames' },
               audio_notes: { type: 'string', description: 'Voiceover, music, or sound notes' }
             },

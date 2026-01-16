@@ -37,6 +37,7 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
   const obj = v as any;
   if (typeof obj.title !== 'string' || obj.title.trim().length === 0) return false;
   if (!Array.isArray(obj.scenes) || obj.scenes.length === 0) return false;
+  const avatarUrl = typeof obj.avatar_image_url === 'string' ? obj.avatar_image_url.trim() : '';
   // Validate each scene has required fields
   for (const scene of obj.scenes) {
     if (typeof scene.scene_number !== 'number') return false;
@@ -44,6 +45,7 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
     if (typeof scene.description !== 'string') return false;
     if (typeof scene.first_frame_prompt !== 'string') return false;
     if (typeof scene.last_frame_prompt !== 'string') return false;
+    if (scene.uses_avatar === true && !avatarUrl) return false;
   }
   return true;
 }
@@ -337,8 +339,8 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
     
     for (const scene of input.scenes) {
       // Determine if this scene should use the avatar reference
-      // Use avatar for scenes that don't have setting_change = true
-      const useAvatarReference = avatarUrl && !scene.setting_change;
+      // Only use avatar when explicitly marked as uses_avatar
+      const useAvatarReference = avatarUrl && scene.uses_avatar === true;
       
       // Generate first frame image with optional avatar reference
       const firstFramePrediction = await generateSingleImage(
@@ -369,6 +371,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         transition_type: scene.transition_type,
         camera_angle: scene.camera_angle,
         setting_change: scene.setting_change,
+        uses_avatar: scene.uses_avatar,
         video_generation_prompt: scene.video_generation_prompt,
         audio_notes: scene.audio_notes,
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
@@ -586,7 +589,7 @@ export async function POST(req: NextRequest) {
               const safeInput: unknown = toolCall.input;
               result = isStoryboardCreationInput(safeInput)
                 ? await executeStoryboardCreation(safeInput)
-                : { success: false, error: 'Invalid storyboard_creation input: missing title or scenes' };
+                : { success: false, error: 'Invalid storyboard_creation input: missing title/scenes or avatar_image_url required for scenes using avatar' };
             }
             
             if (result) {
