@@ -38,6 +38,7 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
   if (typeof obj.title !== 'string' || obj.title.trim().length === 0) return false;
   if (!Array.isArray(obj.scenes) || obj.scenes.length === 0) return false;
   const avatarUrl = typeof obj.avatar_image_url === 'string' ? obj.avatar_image_url.trim() : '';
+  const avatarUrlIsValid = isHttpUrl(avatarUrl);
   // Validate each scene has required fields
   for (const scene of obj.scenes) {
     if (typeof scene.scene_number !== 'number') return false;
@@ -45,7 +46,11 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
     if (typeof scene.description !== 'string') return false;
     if (typeof scene.first_frame_prompt !== 'string') return false;
     if (typeof scene.last_frame_prompt !== 'string') return false;
-    if (scene.uses_avatar === true && !avatarUrl) return false;
+    // If any scene explicitly needs avatar, require a REAL url (not a placeholder)
+    if (scene.uses_avatar === true && !avatarUrlIsValid) return false;
+    // If prompts explicitly reference avatar, require a real url too
+    const p = `${scene.first_frame_prompt} ${scene.last_frame_prompt}`.toLowerCase();
+    if ((p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar')) && !avatarUrlIsValid) return false;
   }
   return true;
 }
@@ -77,6 +82,24 @@ function parseReflexion(content: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+function isHttpUrl(u: string | undefined | null): boolean {
+  if (!u) return false;
+  return /^https?:\/\//i.test(String(u).trim());
+}
+
+function extractPredictionIdFromToolResult(message: Message): string | null {
+  if (!message?.tool_output) return null;
+  const toolOutput = message.tool_output as any;
+  const id =
+    toolOutput?.output?.id ||
+    toolOutput?.id ||
+    toolOutput?.prediction_id ||
+    toolOutput?.predictionId ||
+    toolOutput?.output?.prediction_id ||
+    null;
+  return typeof id === 'string' && id.trim() ? id.trim() : null;
+}
+
 function extractImageUrlFromToolResult(message: Message): string | null {
   if (!message?.tool_output) return null;
   const toolOutput = message.tool_output as any;
@@ -89,19 +112,48 @@ function extractImageUrlFromToolResult(message: Message): string | null {
   return typeof direct === 'string' && direct.startsWith('http') ? direct : null;
 }
 
-function getLastAvatarFromConversation(messages: Message[]): { url: string; description?: string } | null {
+async function resolveReplicateOutputUrl(predictionId: string): Promise<{ status: string | null; outputUrl: string | null; error: string | null }> {
+  try {
+    const token = process.env.REPLICATE_API_TOKEN;
+    if (!token) return { status: null, outputUrl: null, error: 'missing REPLICATE_API_TOKEN' };
+    const res = await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}`, {
+      headers: { Authorization: `Token ${token}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) return { status: null, outputUrl: null, error: await res.text() };
+    const json: any = await res.json();
+    let outputUrl: string | null = null;
+    const out = json.output;
+    if (typeof out === 'string') outputUrl = out;
+    else if (Array.isArray(out)) outputUrl = typeof out[0] === 'string' ? out[0] : null;
+    else if (out && typeof out === 'object' && typeof out.url === 'string') outputUrl = out.url;
+    return { status: String(json.status || ''), outputUrl, error: json.error || json.logs || null };
+  } catch (e: any) {
+    return { status: null, outputUrl: null, error: e?.message || 'resolveReplicateOutputUrl failed' };
+  }
+}
+
+async function getLastAvatarFromConversation(messages: Message[]): Promise<{ url?: string; predictionId?: string; status?: string; description?: string } | null> {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'tool_result' || msg.tool_name !== 'image_generation') continue;
-    const url = extractImageUrlFromToolResult(msg);
-    if (!url) continue;
     // Find the closest previous tool_call to determine if it was an avatar generation
     for (let j = i - 1; j >= 0; j--) {
       const prev = messages[j];
       if (prev.role === 'tool_call' && prev.tool_name === 'image_generation') {
         const input = prev.tool_input as any;
         if (input?.purpose === 'avatar') {
-          return { url, description: input?.avatar_description || undefined };
+          const url = extractImageUrlFromToolResult(msg);
+          const predictionId = extractPredictionIdFromToolResult(msg);
+          if (url) return { url, predictionId: predictionId || undefined, status: 'succeeded', description: input?.avatar_description || undefined };
+          if (predictionId) {
+            const resolved = await resolveReplicateOutputUrl(predictionId);
+            if (resolved.outputUrl) {
+              return { url: resolved.outputUrl, predictionId, status: resolved.status || undefined, description: input?.avatar_description || undefined };
+            }
+            return { predictionId, status: resolved.status || undefined, description: input?.avatar_description || undefined };
+          }
+          return { description: input?.avatar_description || undefined };
         }
         break;
       }
@@ -560,10 +612,12 @@ export async function POST(req: NextRequest) {
     existingMessages.push(userMessage);
     
   // Check if user is confirming avatar usage
-  const avatarCandidate = getLastAvatarFromConversation(existingMessages);
+  const avatarCandidate = await getLastAvatarFromConversation(existingMessages);
   const userConfirmedAvatar = isAvatarConfirmation(body.message);
-  const confirmedAvatarUrl = userConfirmedAvatar ? avatarCandidate?.url : undefined;
+  const confirmedAvatarUrl = userConfirmedAvatar && avatarCandidate?.url && isHttpUrl(avatarCandidate.url) ? avatarCandidate.url : undefined;
   const confirmedAvatarDescription = userConfirmedAvatar ? avatarCandidate?.description : undefined;
+  const confirmedAvatarPredictionId = userConfirmedAvatar ? avatarCandidate?.predictionId : undefined;
+  const confirmedAvatarStatus = userConfirmedAvatar ? avatarCandidate?.status : undefined;
   
     // Build conversation context for Claude
     const conversationContext = buildConversationContext(existingMessages);
@@ -653,7 +707,12 @@ export async function POST(req: NextRequest) {
           let cleanedResponse = cleanResponse(fullResponse);
           
           if (!cleanedResponse.trim() && storyboardBlockedByAvatar) {
-            if (hasAvatarImageCall) {
+            if (userConfirmedAvatar && !confirmedAvatarUrl) {
+              cleanedResponse =
+                confirmedAvatarStatus && !['succeeded', 'failed', 'canceled'].includes(String(confirmedAvatarStatus).toLowerCase())
+                  ? `Your avatar is still generating (status: ${confirmedAvatarStatus}). Please wait a moment, then reply again: "Use this avatar".`
+                  : 'I could not access the avatar image URL yet. Please wait for the avatar image to finish generating, then reply: "Use this avatar".';
+            } else if (hasAvatarImageCall) {
               cleanedResponse = 'Avatar created. Please confirm with "Use this avatar" to proceed with the storyboard.';
             } else {
               cleanedResponse = 'Before I can build the storyboard, I need an approved avatar. Say "Use this avatar" after you confirm one.';
@@ -668,7 +727,7 @@ export async function POST(req: NextRequest) {
             // Inject confirmed avatar URL if user just confirmed
             if (toolCall.tool === 'storyboard_creation' && confirmedAvatarUrl) {
               const input = toolCall.input as any;
-              if (!input.avatar_image_url) {
+              if (!isHttpUrl(input.avatar_image_url)) {
                 input.avatar_image_url = confirmedAvatarUrl;
               }
               if (!input.avatar_description && confirmedAvatarDescription) {
