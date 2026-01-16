@@ -26,6 +26,13 @@ type StreamEvent = {
   data?: unknown;
 };
 
+type ReplicateStatusResponse = {
+  id: string;
+  status: string;
+  outputUrl: string | null;
+  error: string | null;
+};
+
 export default function AssistantPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -107,6 +114,25 @@ export default function AssistantPage() {
       return next;
     });
   };
+
+  const persistMessages = useCallback(async (nextMessages: Message[]) => {
+    if (!authToken || !activeConversationId) return;
+    try {
+      await fetch('/api/assistant/conversations', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          conversation_id: activeConversationId,
+          messages: nextMessages,
+        }),
+      });
+    } catch {
+      // ignore persistence errors; UI still shows the image
+    }
+  }, [authToken, activeConversationId]);
 
   const startNewConversation = () => {
     setActiveConversationId(null);
@@ -324,6 +350,105 @@ export default function AssistantPage() {
     }
   }, [input, isLoading, authToken, activeConversationId]);
 
+  function ImagePredictionCard({
+    messageId,
+    predictionId,
+    initialStatus,
+    initialUrl,
+  }: {
+    messageId: string;
+    predictionId: string;
+    initialStatus?: string;
+    initialUrl?: string | null;
+  }) {
+    const [status, setStatus] = useState<string>(initialStatus || 'starting');
+    const [outputUrl, setOutputUrl] = useState<string | null>(typeof initialUrl === 'string' ? initialUrl : null);
+    const [pollError, setPollError] = useState<string | null>(null);
+
+    useEffect(() => {
+      let mounted = true;
+      let timeout: any = null;
+
+      const isTerminal = (s: string) => ['succeeded', 'failed', 'canceled'].includes((s || '').toLowerCase());
+
+      async function poll() {
+        if (!predictionId) return;
+        try {
+          const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(predictionId)}`, { cache: 'no-store' });
+          if (!res.ok) throw new Error(await res.text());
+          const json = (await res.json()) as ReplicateStatusResponse;
+          if (!mounted) return;
+
+          setStatus(json.status || status);
+          if (json.outputUrl) {
+            const finalUrl = String(json.outputUrl);
+            setOutputUrl(finalUrl);
+            setPollError(null);
+            // Persist outputUrl back into the stored conversation message so it stays permanent
+            setMessages(prev => {
+              const next = prev.map((m) => {
+                if (m.id !== messageId) return m;
+                const tool_output = { ...(m.tool_output || {}) } as any;
+                tool_output.outputUrl = finalUrl;
+                tool_output.status = json.status;
+                return { ...m, tool_output, content: finalUrl };
+              });
+              void persistMessages(next);
+              return next;
+            });
+            return;
+          }
+          if (json.error) setPollError(json.error);
+
+          if (!isTerminal(json.status || '')) {
+            timeout = setTimeout(poll, 2000);
+          }
+        } catch (e: any) {
+          if (!mounted) return;
+          setPollError(e?.message || 'Failed to fetch image status');
+          timeout = setTimeout(poll, 3000);
+        }
+      }
+
+      // If we already have URL, no need to poll
+      if (!outputUrl) void poll();
+
+      return () => {
+        mounted = false;
+        if (timeout) clearTimeout(timeout);
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [predictionId]);
+
+    return (
+      <div className="assistant-image-card">
+        <div className="assistant-image-card-header">
+          <ImageIcon size={16} />
+          <span>Image</span>
+          <span className={`assistant-pill ${String(status).toLowerCase()}`}>
+            {String(status)}
+          </span>
+          {!outputUrl && <Loader2 size={14} className="assistant-spinner" />}
+        </div>
+
+        {outputUrl ? (
+          <a href={outputUrl} target="_blank" rel="noreferrer" className="assistant-image-link">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="assistant-image" src={outputUrl} alt="Generated image" />
+          </a>
+        ) : (
+          <div className="assistant-image-placeholder">
+            <div className="assistant-image-placeholder-inner">
+              <Loader2 size={18} className="assistant-spinner" />
+              <span>Generating image…</span>
+            </div>
+            {pollError && <div className="assistant-image-error">{pollError}</div>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -378,16 +503,49 @@ export default function AssistantPage() {
 
     if (isToolResult) {
       const success = message.tool_output && (message.tool_output as any).success !== false;
+      const predictionId =
+        message.tool_name === 'image_generation'
+          ? (message.tool_output as any)?.output?.id ||
+            (message.tool_output as any)?.id ||
+            (message.tool_output as any)?.prediction_id ||
+            (message.tool_output as any)?.predictionId ||
+            null
+          : null;
+      const persistedUrl =
+        message.tool_name === 'image_generation'
+          ? (message.tool_output as any)?.outputUrl ||
+            (message.tool_output as any)?.output_url ||
+            (message.tool_output as any)?.output?.outputUrl ||
+            (typeof message.content === 'string' && message.content.startsWith('http') ? message.content : null)
+          : null;
+      const initialStatus =
+        message.tool_name === 'image_generation'
+          ? (message.tool_output as any)?.output?.status || (message.tool_output as any)?.status
+          : undefined;
+
       return (
         <div key={message.id} className={`assistant-tool-result ${success ? 'success' : 'error'}`}>
           <div className="assistant-tool-result-header">
             {success ? <Check size={16} /> : <AlertCircle size={16} />}
             <span>
-              {message.tool_name === 'script_creation' ? 'Script Generated' : 'Image Generation Started'}
+              {message.tool_name === 'script_creation'
+                ? 'Script Generated'
+                : message.tool_name === 'image_generation'
+                  ? 'Image'
+                  : 'Tool Result'}
             </span>
           </div>
           <div className="assistant-tool-result-content">
-            <pre>{message.content}</pre>
+            {message.tool_name === 'image_generation' && predictionId ? (
+              <ImagePredictionCard
+                messageId={message.id}
+                predictionId={String(predictionId)}
+                initialStatus={initialStatus}
+                initialUrl={persistedUrl}
+              />
+            ) : (
+              <pre>{message.content}</pre>
+            )}
           </div>
         </div>
       );
@@ -1017,6 +1175,85 @@ export default function AssistantPage() {
           white-space: pre-wrap;
           word-break: break-word;
           line-height: 1.5;
+        }
+
+        .assistant-image-card {
+          display: grid;
+          gap: var(--space-2);
+          padding: var(--space-3);
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+        }
+
+        .assistant-image-card-header {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          color: var(--text-secondary);
+          font-size: var(--font-sm);
+          font-weight: 600;
+        }
+
+        .assistant-pill {
+          margin-left: auto;
+          padding: 2px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--panel);
+          color: var(--text-muted);
+          font-size: var(--font-xs);
+          font-weight: 600;
+          text-transform: capitalize;
+        }
+
+        .assistant-pill.succeeded {
+          border-color: rgba(16, 185, 129, 0.45);
+          color: #10b981;
+          background: rgba(16, 185, 129, 0.08);
+        }
+
+        .assistant-pill.failed,
+        .assistant-pill.canceled {
+          border-color: rgba(239, 68, 68, 0.45);
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.08);
+        }
+
+        .assistant-image-link {
+          display: block;
+          border-radius: var(--radius-md);
+          overflow: hidden;
+          border: 1px solid var(--border);
+          background: var(--panel);
+        }
+
+        .assistant-image {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
+
+        .assistant-image-placeholder {
+          border: 1px dashed var(--border);
+          border-radius: var(--radius-md);
+          padding: var(--space-4);
+          color: var(--text-muted);
+          background: var(--panel);
+        }
+
+        .assistant-image-placeholder-inner {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+        }
+
+        .assistant-image-error {
+          margin-top: var(--space-2);
+          color: #ef4444;
+          font-size: var(--font-xs);
+          line-height: 1.4;
+          white-space: pre-wrap;
         }
 
         .assistant-loading {
