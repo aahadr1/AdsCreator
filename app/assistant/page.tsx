@@ -3,12 +3,12 @@
 import '../globals.css';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Send,
   Paperclip,
   Brain,
-  ChevronDown,
-  ChevronRight,
   Loader2,
   MessageSquare,
   Sparkles,
@@ -20,6 +20,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { Message, Conversation } from '../../types/assistant';
+import styles from './assistant.module.css';
 
 type StreamEvent = {
   type: string;
@@ -350,6 +351,40 @@ export default function AssistantPage() {
     }
   }, [input, isLoading, authToken, activeConversationId]);
 
+  function Markdown({ content }: { content: string }) {
+    return (
+      <div className={styles.markdown}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  function ReflexionBlock({ id, text, isStreaming }: { id: string; text: string; isStreaming?: boolean }) {
+    const expanded = expandedReflexions.has(id) || Boolean(isStreaming);
+    return (
+      <div>
+        <button
+          className={styles.reflexionToggle}
+          onClick={() => toggleReflexion(id)}
+          type="button"
+          aria-expanded={expanded}
+          title="Show/hide reflexion"
+        >
+          <Brain size={14} />
+          <span>Reflexion</span>
+          <span>{expanded ? '▾' : '▸'}</span>
+        </button>
+        {expanded && (
+          <div className={styles.reflexionBox}>
+            {text}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function ImagePredictionCard({
     messageId,
     predictionId,
@@ -421,30 +456,55 @@ export default function AssistantPage() {
     }, [predictionId]);
 
     return (
-      <div className="assistant-image-card">
-        <div className="assistant-image-card-header">
+      <div className={styles.toolCard}>
+        <div className={styles.toolHeader}>
           <ImageIcon size={16} />
-          <span>Image</span>
-          <span className={`assistant-pill ${String(status).toLowerCase()}`}>
+          <span>Image generation</span>
+          <span className={`${styles.pill} ${String(status).toLowerCase() === 'succeeded' ? styles.pillOk : ''} ${['failed','canceled'].includes(String(status).toLowerCase()) ? styles.pillBad : ''}`}>
             {String(status)}
           </span>
-          {!outputUrl && <Loader2 size={14} className="assistant-spinner" />}
+          {!outputUrl && <Loader2 size={14} className={styles.spinner} />}
         </div>
-
-        {outputUrl ? (
-          <a href={outputUrl} target="_blank" rel="noreferrer" className="assistant-image-link">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="assistant-image" src={outputUrl} alt="Generated image" />
-          </a>
-        ) : (
-          <div className="assistant-image-placeholder">
-            <div className="assistant-image-placeholder-inner">
-              <Loader2 size={18} className="assistant-spinner" />
-              <span>Generating image…</span>
+        <div className={styles.toolBody}>
+          {outputUrl ? (
+            <a href={outputUrl} target="_blank" rel="noreferrer" style={{ display: 'block', borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.10)' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={outputUrl} alt="Generated image" style={{ width: '100%', height: 'auto', display: 'block' }} />
+            </a>
+          ) : (
+            <div style={{ border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 16, padding: 14, color: 'rgba(231,233,238,0.65)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Loader2 size={16} className={styles.spinner} />
+                <span>Generating image…</span>
+              </div>
+              {pollError && <div style={{ marginTop: 8, color: 'rgba(239,68,68,0.95)', fontSize: 12, whiteSpace: 'pre-wrap' }}>{pollError}</div>}
             </div>
-            {pollError && <div className="assistant-image-error">{pollError}</div>}
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function ScriptCard({ content }: { content: string }) {
+    return (
+      <div className={styles.toolCard}>
+        <div className={styles.toolHeader}>
+          <FileText size={16} />
+          <span>Script</span>
+          <span className={`${styles.pill} ${styles.pillOk}`}>ready</span>
+        </div>
+        <div className={styles.toolBody}>
+          <Markdown content={content} />
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className={styles.btnGhost}
+              onClick={() => navigator.clipboard.writeText(content)}
+            >
+              Copy
+            </button>
           </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -461,41 +521,32 @@ export default function AssistantPage() {
     const isReflexion = message.role === 'reflexion';
     const isToolCall = message.role === 'tool_call';
     const isToolResult = message.role === 'tool_result';
-    const isExpanded = expandedReflexions.has(message.id);
 
     if (isReflexion) {
       return (
-        <div key={message.id} className="assistant-reflexion-container">
-          <button
-            className="assistant-reflexion-toggle"
-            onClick={() => toggleReflexion(message.id)}
-          >
-            <Brain size={14} />
-            <span>See AI thinking</span>
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
-          {isExpanded && (
-            <div className="assistant-reflexion-content">
-              <pre>{message.content}</pre>
-            </div>
-          )}
+        <div key={message.id} className={styles.row}>
+          <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
+            <Brain size={16} />
+          </div>
+          <div className={styles.bubble}>
+            <ReflexionBlock id={message.id} text={message.content} />
+          </div>
         </div>
       );
     }
 
     if (isToolCall) {
       return (
-        <div key={message.id} className="assistant-tool-card">
-          <div className="assistant-tool-header">
-            {message.tool_name === 'script_creation' ? (
-              <FileText size={16} />
-            ) : (
-              <ImageIcon size={16} />
-            )}
-            <span>
-              {message.tool_name === 'script_creation' ? 'Generating Script' : 'Generating Image'}
-            </span>
-            <Loader2 size={14} className="assistant-spinner" />
+        <div key={message.id} className={styles.row}>
+          <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
+            <Sparkles size={16} />
+          </div>
+          <div className={styles.bubble}>
+            <div className={styles.toolHeader}>
+              {message.tool_name === 'script_creation' ? <FileText size={16} /> : <ImageIcon size={16} />}
+              <span>{message.tool_name === 'script_creation' ? 'Generating script…' : 'Generating image…'}</span>
+              <Loader2 size={14} className={styles.spinner} />
+            </div>
           </div>
         </div>
       );
@@ -524,18 +575,11 @@ export default function AssistantPage() {
           : undefined;
 
       return (
-        <div key={message.id} className={`assistant-tool-result ${success ? 'success' : 'error'}`}>
-          <div className="assistant-tool-result-header">
+        <div key={message.id} className={styles.row}>
+          <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
             {success ? <Check size={16} /> : <AlertCircle size={16} />}
-            <span>
-              {message.tool_name === 'script_creation'
-                ? 'Script Generated'
-                : message.tool_name === 'image_generation'
-                  ? 'Image'
-                  : 'Tool Result'}
-            </span>
           </div>
-          <div className="assistant-tool-result-content">
+          <div className={styles.bubble}>
             {message.tool_name === 'image_generation' && predictionId ? (
               <ImagePredictionCard
                 messageId={message.id}
@@ -543,8 +587,10 @@ export default function AssistantPage() {
                 initialStatus={initialStatus}
                 initialUrl={persistedUrl}
               />
+            ) : message.tool_name === 'script_creation' ? (
+              <ScriptCard content={message.content} />
             ) : (
-              <pre>{message.content}</pre>
+              <Markdown content={message.content} />
             )}
           </div>
         </div>
@@ -554,27 +600,17 @@ export default function AssistantPage() {
     return (
       <div
         key={message.id}
-        className={`assistant-message ${isUser ? 'user' : 'assistant'}`}
+        className={`${styles.row} ${isUser ? styles.rowUser : ''}`}
       >
-        <div className="assistant-message-avatar">
-          {isUser ? (
-            <span>{userEmail ? userEmail.charAt(0).toUpperCase() : 'U'}</span>
-          ) : (
-            <Sparkles size={18} />
-          )}
+        <div className={`${styles.avatar} ${isUser ? '' : styles.avatarAssistant}`}>
+          {isUser ? <span>{userEmail ? userEmail.charAt(0).toUpperCase() : 'U'}</span> : <Sparkles size={16} />}
         </div>
-        <div className="assistant-message-content">
-          <div className="assistant-message-header">
-            <span className="assistant-message-role">
-              {isUser ? 'You' : 'Assistant'}
-            </span>
-            <span className="assistant-message-time">
-              {new Date(message.timestamp).toLocaleTimeString()}
-            </span>
+        <div className={`${styles.bubble} ${isUser ? styles.bubbleUser : ''}`}>
+          <div className={styles.metaLine}>
+            <span className={styles.metaRole}>{isUser ? 'You' : 'Assistant'}</span>
+            <span className={styles.metaTime}>{new Date(message.timestamp).toLocaleTimeString()}</span>
           </div>
-          <div className="assistant-message-text">
-            {message.content}
-          </div>
+          <Markdown content={message.content} />
         </div>
       </div>
     );
@@ -582,839 +618,193 @@ export default function AssistantPage() {
 
   if (!authToken) {
     return (
-      <div className="assistant-auth-gate">
-        <div className="assistant-auth-card">
-          <MessageSquare size={48} />
-          <h1>AI Assistant</h1>
-          <p>Sign in to start chatting with your creative AI assistant.</p>
-          <a href="/auth" className="btn">Sign In</a>
+      <div style={{ minHeight: 'calc(100vh - 60px)', display: 'grid', placeItems: 'center', background: '#0b0c0f', color: '#e7e9ee', padding: 20 }}>
+        <div style={{ maxWidth: 420, width: '100%', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 22, padding: 18, background: 'rgba(255,255,255,0.03)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700 }}>
+            <MessageSquare size={18} />
+            <span>AI Assistant</span>
+          </div>
+          <p style={{ marginTop: 10, color: 'rgba(231,233,238,0.65)', lineHeight: 1.6 }}>
+            Sign in to start chatting with your creative AI assistant.
+          </p>
+          <a href="/auth" className="btn" style={{ marginTop: 10, display: 'inline-flex' }}>Sign In</a>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="assistant-container">
-      {/* Sidebar with conversations */}
-      <aside className="assistant-sidebar">
-        <div className="assistant-sidebar-header">
-          <h2>Conversations</h2>
-          <button
-            className="assistant-new-chat-btn"
-            onClick={startNewConversation}
-            title="New conversation"
-          >
+    <div className={styles.shell}>
+      <aside className={styles.sidebar}>
+        <div className={styles.sidebarHeader}>
+          <div>
+            <div className={styles.brand}>
+              <span className={styles.iconChip}><Sparkles size={16} /></span>
+              <span>AI Assistant</span>
+            </div>
+            <div className={styles.brandSub}>Minimal, pro chat</div>
+          </div>
+          <button className={styles.newBtn} onClick={startNewConversation} type="button" title="New chat">
             <Plus size={18} />
           </button>
         </div>
-        <div className="assistant-conversations-list">
+        <div className={styles.sidebarBody}>
           {conversations.length === 0 ? (
-            <div className="assistant-no-conversations">
-              <MessageSquare size={24} />
-              <span>No conversations yet</span>
+            <div style={{ padding: 10, color: 'rgba(231,233,238,0.6)', fontSize: 13 }}>
+              No conversations yet.
             </div>
           ) : (
-            conversations.map(conv => (
-              <div
-                key={conv.id}
-                className={`assistant-conversation-item ${activeConversationId === conv.id ? 'active' : ''}`}
-              >
-                <button
-                  className="assistant-conversation-btn"
+            conversations.map((conv) => {
+              const isActive = activeConversationId === conv.id;
+              const lastMsg = (conv.messages || []).slice(-1)[0];
+              const preview = lastMsg?.content ? String(lastMsg.content).slice(0, 46) : '…';
+              return (
+                <div
+                  key={conv.id}
+                  className={`${styles.convItem} ${isActive ? styles.convItemActive : ''}`}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => loadConversation(conv)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') loadConversation(conv); }}
                 >
-                  <MessageSquare size={16} />
-                  <span className="assistant-conversation-title">
-                    {conv.title || 'Untitled conversation'}
-                  </span>
-                </button>
-                <button
-                  className="assistant-conversation-delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteConversation(conv.id);
-                  }}
-                  title="Delete conversation"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))
+                  <div>
+                    <div className={styles.convTitle}>{conv.title || 'Untitled'}</div>
+                    <div className={styles.convMeta}>{preview}</div>
+                  </div>
+                  <button
+                    className={styles.trashBtn}
+                    type="button"
+                    title="Delete"
+                    onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
       </aside>
 
-      {/* Main chat area */}
-      <main className="assistant-main">
-        <div className="assistant-chat-header">
-          <div className="assistant-chat-title">
-            <Sparkles size={24} />
-            <h1>AI Assistant</h1>
+      <main className={styles.main}>
+        <div className={styles.topbar}>
+          <div className={styles.topbarTitle}>
+            <span className={styles.iconChip}><MessageSquare size={16} /></span>
+            <span>Chat</span>
           </div>
-          <span className="assistant-chat-subtitle">
-            Your creative partner for ads, scripts, and visuals
-          </span>
+          <div className={styles.topbarHint}>
+            {isLoading ? 'Generating…' : 'Enter to send · Shift+Enter for newline'}
+          </div>
         </div>
 
-        <div className="assistant-messages">
-          {messages.length === 0 && !isLoading ? (
-            <div className="assistant-welcome">
-              <div className="assistant-welcome-icon">
-                <Sparkles size={48} />
-              </div>
-              <h2>How can I help you today?</h2>
-              <p>I can help you create ad scripts, generate images, and more.</p>
-              <div className="assistant-suggestions">
-                <button onClick={() => setInput('Create a TikTok script for a cooling blanket targeting hot sleepers')}>
-                  Create a TikTok ad script
-                </button>
-                <button onClick={() => setInput('Generate an image for a product ad')}>
-                  Generate a product image
-                </button>
-                <button onClick={() => setInput('Help me with a UGC-style video concept')}>
-                  UGC video concept
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {messages.map(renderMessage)}
-              
-              {/* Current reflexion being streamed */}
-              {isThinking && currentReflexion && (
-                <div className="assistant-reflexion-container streaming">
-                  <div className="assistant-reflexion-toggle active">
-                    <Brain size={14} />
-                    <span>AI is thinking...</span>
-                    <Loader2 size={14} className="assistant-spinner" />
-                  </div>
-                  <div className="assistant-reflexion-content">
-                    <pre>{currentReflexion}</pre>
-                  </div>
+        <div className={styles.scroll}>
+          <div className={styles.content}>
+            {messages.length === 0 && !isLoading ? (
+              <div className={styles.welcome}>
+                <h2 className={styles.welcomeTitle}>What are we making today?</h2>
+                <div className={styles.welcomeSub}>
+                  Ask for ad scripts, UGC concepts, or image prompts. I’ll ask precise follow‑ups when needed.
                 </div>
-              )}
-              
-              {/* Current response being streamed */}
-              {!isThinking && currentResponse && (
-                <div className="assistant-message assistant streaming">
-                  <div className="assistant-message-avatar">
-                    <Sparkles size={18} />
-                  </div>
-                  <div className="assistant-message-content">
-                    <div className="assistant-message-header">
-                      <span className="assistant-message-role">Assistant</span>
+                <div className={styles.chips}>
+                  <button className={styles.chip} type="button" onClick={() => setInput('Create a UGC TikTok script for a mascara brand with a strong hook and CTA.')}>
+                    UGC script (TikTok)
+                  </button>
+                  <button className={styles.chip} type="button" onClick={() => setInput('Generate a first-frame image for a UGC product ad in a clean bathroom setting, vertical 9:16.')}>
+                    First-frame image (9:16)
+                  </button>
+                  <button className={styles.chip} type="button" onClick={() => setInput('Help me brainstorm 5 ad angles for a new skincare product.')}>
+                    5 ad angles
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {messages.map(renderMessage)}
+
+                {/* Streaming reflexion: show live, then user can collapse via Reflexion button */}
+                {currentReflexion && (
+                  <div className={styles.row}>
+                    <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
+                      <Brain size={16} />
                     </div>
-                    <div className="assistant-message-text">
-                      {currentResponse.replace(/<reflexion>[\s\S]*?<\/reflexion>/g, '').replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')}
+                    <div className={styles.bubble}>
+                      <ReflexionBlock
+                        id="__streaming_reflexion__"
+                        text={currentReflexion.replace(/<\/?reflexion>/g, '').trim()}
+                        isStreaming={isThinking}
+                      />
                     </div>
                   </div>
-                </div>
-              )}
-              
-              {/* Loading indicator */}
-              {isLoading && !currentReflexion && !currentResponse && (
-                <div className="assistant-loading">
-                  <Loader2 size={24} className="assistant-spinner" />
-                  <span>Thinking...</span>
-                </div>
-              )}
-            </>
-          )}
-          
-          {error && (
-            <div className="assistant-error">
-              <AlertCircle size={18} />
-              <span>{error}</span>
-            </div>
-          )}
-          
-          <div ref={messagesEndRef} />
+                )}
+
+                {/* Streaming response (formatted) */}
+                {currentResponse && (
+                  <div className={styles.row}>
+                    <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
+                      <Sparkles size={16} />
+                    </div>
+                    <div className={styles.bubble}>
+                      <div className={styles.metaLine}>
+                        <span className={styles.metaRole}>Assistant</span>
+                        <span className={styles.metaTime}>now</span>
+                      </div>
+                      <Markdown
+                        content={currentResponse
+                          .replace(/<reflexion>[\s\S]*?<\/reflexion>/g, '')
+                          .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+                          .trim()}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div className={styles.toolCard}>
+                    <div className={styles.toolHeader}>
+                      <AlertCircle size={16} />
+                      <span>Error</span>
+                      <span className={`${styles.pill} ${styles.pillBad}`}>failed</span>
+                    </div>
+                    <div className={styles.toolBody}>
+                      <div style={{ color: 'rgba(239,68,68,0.95)', whiteSpace: 'pre-wrap', fontSize: 13 }}>{error}</div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
-        {/* Input area */}
-        <div className="assistant-input-area">
-          <div className="assistant-input-container">
-            <button className="assistant-attach-btn" title="Attach file">
-              <Paperclip size={20} />
+        <div className={styles.composerWrap}>
+          <div className={styles.composer}>
+            <button className={styles.iconBtn} type="button" title="Attach (coming soon)">
+              <Paperclip size={18} />
             </button>
             <textarea
               ref={inputRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Ask me anything about creating ads..."
+              placeholder="Message the assistant…"
               rows={1}
               disabled={isLoading}
             />
             <button
-              className="assistant-send-btn"
+              className={`${styles.iconBtn} ${styles.sendBtn}`}
               onClick={sendMessage}
               disabled={!input.trim() || isLoading}
-              title="Send message"
+              type="button"
+              title="Send"
             >
-              {isLoading ? <Loader2 size={20} className="assistant-spinner" /> : <Send size={20} />}
+              {isLoading ? <Loader2 size={18} className={styles.spinner} /> : <Send size={18} />}
             </button>
           </div>
-          <div className="assistant-input-hint">
-            Press Enter to send, Shift+Enter for new line
+          <div className={styles.statusLine}>
+            {isThinking ? 'Reflexion running…' : isLoading ? 'Generating response…' : ' '}
           </div>
         </div>
       </main>
-
-      <style jsx>{`
-        .assistant-container {
-          display: flex;
-          height: calc(100vh - 60px);
-          background: var(--bg);
-        }
-
-        .assistant-sidebar {
-          width: 280px;
-          background: var(--panel);
-          border-right: 1px solid var(--border);
-          display: flex;
-          flex-direction: column;
-          flex-shrink: 0;
-        }
-
-        .assistant-sidebar-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: var(--space-4);
-          border-bottom: 1px solid var(--border);
-        }
-
-        .assistant-sidebar-header h2 {
-          font-size: var(--font-base);
-          font-weight: 600;
-          color: var(--text);
-          margin: 0;
-        }
-
-        .assistant-new-chat-btn {
-          background: var(--accent);
-          color: var(--bg);
-          border: none;
-          border-radius: var(--radius-md);
-          width: 32px;
-          height: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: opacity 0.15s;
-        }
-
-        .assistant-new-chat-btn:hover {
-          opacity: 0.9;
-        }
-
-        .assistant-conversations-list {
-          flex: 1;
-          overflow-y: auto;
-          padding: var(--space-2);
-        }
-
-        .assistant-no-conversations {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-6);
-          color: var(--text-muted);
-          text-align: center;
-        }
-
-        .assistant-conversation-item {
-          display: flex;
-          align-items: center;
-          gap: var(--space-1);
-          margin-bottom: var(--space-1);
-        }
-
-        .assistant-conversation-btn {
-          flex: 1;
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-2) var(--space-3);
-          background: transparent;
-          border: none;
-          border-radius: var(--radius-md);
-          color: var(--text-secondary);
-          cursor: pointer;
-          transition: background 0.15s;
-          text-align: left;
-        }
-
-        .assistant-conversation-btn:hover {
-          background: var(--panel-hover);
-        }
-
-        .assistant-conversation-item.active .assistant-conversation-btn {
-          background: var(--accent-muted);
-          color: var(--text);
-        }
-
-        .assistant-conversation-title {
-          flex: 1;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-size: var(--font-sm);
-        }
-
-        .assistant-conversation-delete {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          padding: var(--space-1);
-          cursor: pointer;
-          opacity: 0;
-          transition: opacity 0.15s, color 0.15s;
-        }
-
-        .assistant-conversation-item:hover .assistant-conversation-delete {
-          opacity: 1;
-        }
-
-        .assistant-conversation-delete:hover {
-          color: #ef4444;
-        }
-
-        .assistant-main {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          min-width: 0;
-        }
-
-        .assistant-chat-header {
-          padding: var(--space-4) var(--space-6);
-          border-bottom: 1px solid var(--border);
-          background: var(--panel);
-        }
-
-        .assistant-chat-title {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          color: var(--text);
-        }
-
-        .assistant-chat-title h1 {
-          font-size: var(--font-lg);
-          font-weight: 600;
-          margin: 0;
-        }
-
-        .assistant-chat-subtitle {
-          font-size: var(--font-sm);
-          color: var(--text-muted);
-          margin-top: var(--space-1);
-          display: block;
-        }
-
-        .assistant-messages {
-          flex: 1;
-          overflow-y: auto;
-          padding: var(--space-4) var(--space-6);
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-        }
-
-        .assistant-welcome {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          padding: var(--space-8);
-        }
-
-        .assistant-welcome-icon {
-          width: 80px;
-          height: 80px;
-          background: linear-gradient(135deg, var(--accent-muted), transparent);
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: var(--space-4);
-          color: var(--accent);
-        }
-
-        .assistant-welcome h2 {
-          font-size: var(--font-xl);
-          color: var(--text);
-          margin: 0 0 var(--space-2);
-        }
-
-        .assistant-welcome p {
-          color: var(--text-muted);
-          margin: 0 0 var(--space-6);
-        }
-
-        .assistant-suggestions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: var(--space-2);
-          justify-content: center;
-        }
-
-        .assistant-suggestions button {
-          background: var(--panel-elevated);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          padding: var(--space-2) var(--space-4);
-          color: var(--text-secondary);
-          font-size: var(--font-sm);
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-
-        .assistant-suggestions button:hover {
-          background: var(--panel-hover);
-          border-color: var(--accent);
-          color: var(--text);
-        }
-
-        .assistant-message {
-          display: flex;
-          gap: var(--space-3);
-          max-width: 85%;
-        }
-
-        .assistant-message.user {
-          align-self: flex-end;
-          flex-direction: row-reverse;
-        }
-
-        .assistant-message.assistant {
-          align-self: flex-start;
-        }
-
-        .assistant-message-avatar {
-          width: 36px;
-          height: 36px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          font-size: var(--font-sm);
-          font-weight: 600;
-        }
-
-        .assistant-message.user .assistant-message-avatar {
-          background: var(--accent);
-          color: var(--bg);
-        }
-
-        .assistant-message.assistant .assistant-message-avatar {
-          background: linear-gradient(135deg, #8b5cf6, #6366f1);
-          color: white;
-        }
-
-        .assistant-message-content {
-          background: var(--panel-elevated);
-          border-radius: var(--radius-lg);
-          padding: var(--space-3) var(--space-4);
-          border: 1px solid var(--border);
-        }
-
-        .assistant-message.user .assistant-message-content {
-          background: var(--accent);
-          border-color: var(--accent);
-        }
-
-        .assistant-message.user .assistant-message-content,
-        .assistant-message.user .assistant-message-header,
-        .assistant-message.user .assistant-message-text {
-          color: var(--bg);
-        }
-
-        .assistant-message-header {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          margin-bottom: var(--space-1);
-        }
-
-        .assistant-message-role {
-          font-size: var(--font-sm);
-          font-weight: 600;
-          color: var(--text);
-        }
-
-        .assistant-message-time {
-          font-size: var(--font-xs);
-          color: var(--text-muted);
-        }
-
-        .assistant-message.user .assistant-message-time {
-          color: rgba(0, 0, 0, 0.5);
-        }
-
-        .assistant-message-text {
-          color: var(--text-secondary);
-          line-height: 1.6;
-          white-space: pre-wrap;
-          word-break: break-word;
-        }
-
-        .assistant-reflexion-container {
-          align-self: flex-start;
-          max-width: 85%;
-        }
-
-        .assistant-reflexion-toggle {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          background: transparent;
-          border: 1px dashed var(--border);
-          border-radius: var(--radius-md);
-          padding: var(--space-2) var(--space-3);
-          color: var(--text-muted);
-          font-size: var(--font-sm);
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-
-        .assistant-reflexion-toggle:hover,
-        .assistant-reflexion-toggle.active {
-          background: var(--panel-elevated);
-          border-style: solid;
-          color: var(--text-secondary);
-        }
-
-        .assistant-reflexion-content {
-          margin-top: var(--space-2);
-          padding: var(--space-3);
-          background: var(--panel-elevated);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-        }
-
-        .assistant-reflexion-content pre {
-          margin: 0;
-          font-size: var(--font-sm);
-          color: var(--text-muted);
-          white-space: pre-wrap;
-          word-break: break-word;
-          font-family: var(--font-mono);
-          line-height: 1.5;
-        }
-
-        .assistant-tool-card {
-          align-self: flex-start;
-          background: var(--panel-elevated);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: var(--space-3) var(--space-4);
-        }
-
-        .assistant-tool-header {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          color: var(--text-secondary);
-          font-size: var(--font-sm);
-        }
-
-        .assistant-tool-result {
-          align-self: flex-start;
-          max-width: 85%;
-          background: var(--panel-elevated);
-          border-radius: var(--radius-md);
-          border: 1px solid var(--border);
-          overflow: hidden;
-        }
-
-        .assistant-tool-result.success {
-          border-color: #10b981;
-        }
-
-        .assistant-tool-result.error {
-          border-color: #ef4444;
-        }
-
-        .assistant-tool-result-header {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-2) var(--space-3);
-          font-size: var(--font-sm);
-          font-weight: 500;
-        }
-
-        .assistant-tool-result.success .assistant-tool-result-header {
-          background: rgba(16, 185, 129, 0.1);
-          color: #10b981;
-        }
-
-        .assistant-tool-result.error .assistant-tool-result-header {
-          background: rgba(239, 68, 68, 0.1);
-          color: #ef4444;
-        }
-
-        .assistant-tool-result-content {
-          padding: var(--space-3);
-          max-height: 300px;
-          overflow-y: auto;
-        }
-
-        .assistant-tool-result-content pre {
-          margin: 0;
-          font-size: var(--font-sm);
-          color: var(--text-secondary);
-          white-space: pre-wrap;
-          word-break: break-word;
-          line-height: 1.5;
-        }
-
-        .assistant-image-card {
-          display: grid;
-          gap: var(--space-2);
-          padding: var(--space-3);
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-        }
-
-        .assistant-image-card-header {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          color: var(--text-secondary);
-          font-size: var(--font-sm);
-          font-weight: 600;
-        }
-
-        .assistant-pill {
-          margin-left: auto;
-          padding: 2px 8px;
-          border-radius: 999px;
-          border: 1px solid var(--border);
-          background: var(--panel);
-          color: var(--text-muted);
-          font-size: var(--font-xs);
-          font-weight: 600;
-          text-transform: capitalize;
-        }
-
-        .assistant-pill.succeeded {
-          border-color: rgba(16, 185, 129, 0.45);
-          color: #10b981;
-          background: rgba(16, 185, 129, 0.08);
-        }
-
-        .assistant-pill.failed,
-        .assistant-pill.canceled {
-          border-color: rgba(239, 68, 68, 0.45);
-          color: #ef4444;
-          background: rgba(239, 68, 68, 0.08);
-        }
-
-        .assistant-image-link {
-          display: block;
-          border-radius: var(--radius-md);
-          overflow: hidden;
-          border: 1px solid var(--border);
-          background: var(--panel);
-        }
-
-        .assistant-image {
-          width: 100%;
-          height: auto;
-          display: block;
-        }
-
-        .assistant-image-placeholder {
-          border: 1px dashed var(--border);
-          border-radius: var(--radius-md);
-          padding: var(--space-4);
-          color: var(--text-muted);
-          background: var(--panel);
-        }
-
-        .assistant-image-placeholder-inner {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-        }
-
-        .assistant-image-error {
-          margin-top: var(--space-2);
-          color: #ef4444;
-          font-size: var(--font-xs);
-          line-height: 1.4;
-          white-space: pre-wrap;
-        }
-
-        .assistant-loading {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-4);
-          color: var(--text-muted);
-        }
-
-        .assistant-spinner {
-          animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .assistant-error {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-3) var(--space-4);
-          background: rgba(239, 68, 68, 0.1);
-          border: 1px solid rgba(239, 68, 68, 0.3);
-          border-radius: var(--radius-md);
-          color: #ef4444;
-          font-size: var(--font-sm);
-        }
-
-        .assistant-input-area {
-          padding: var(--space-4) var(--space-6);
-          border-top: 1px solid var(--border);
-          background: var(--panel);
-        }
-
-        .assistant-input-container {
-          display: flex;
-          align-items: flex-end;
-          gap: var(--space-2);
-          background: var(--panel-elevated);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          padding: var(--space-2);
-          transition: border-color 0.15s;
-        }
-
-        .assistant-input-container:focus-within {
-          border-color: var(--accent);
-        }
-
-        .assistant-attach-btn,
-        .assistant-send-btn {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          width: 40px;
-          height: 40px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          border-radius: var(--radius-md);
-          transition: all 0.15s;
-          flex-shrink: 0;
-        }
-
-        .assistant-attach-btn:hover {
-          background: var(--panel-hover);
-          color: var(--text);
-        }
-
-        .assistant-send-btn {
-          background: var(--accent);
-          color: var(--bg);
-        }
-
-        .assistant-send-btn:hover:not(:disabled) {
-          opacity: 0.9;
-        }
-
-        .assistant-send-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .assistant-input-container textarea {
-          flex: 1;
-          background: transparent;
-          border: none;
-          color: var(--text);
-          font-size: var(--font-base);
-          resize: none;
-          padding: var(--space-2);
-          line-height: 1.5;
-          min-height: 24px;
-          max-height: 200px;
-        }
-
-        .assistant-input-container textarea:focus {
-          outline: none;
-        }
-
-        .assistant-input-container textarea::placeholder {
-          color: var(--text-muted);
-        }
-
-        .assistant-input-hint {
-          font-size: var(--font-xs);
-          color: var(--text-muted);
-          text-align: center;
-          margin-top: var(--space-2);
-        }
-
-        .assistant-auth-gate {
-          flex: 1;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: var(--space-8);
-        }
-
-        .assistant-auth-card {
-          text-align: center;
-          padding: var(--space-8);
-          background: var(--panel);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-xl);
-          max-width: 400px;
-        }
-
-        .assistant-auth-card h1 {
-          font-size: var(--font-xl);
-          color: var(--text);
-          margin: var(--space-4) 0 var(--space-2);
-        }
-
-        .assistant-auth-card p {
-          color: var(--text-muted);
-          margin: 0 0 var(--space-6);
-        }
-
-        @media (max-width: 768px) {
-          .assistant-sidebar {
-            display: none;
-          }
-
-          .assistant-messages {
-            padding: var(--space-3);
-          }
-
-          .assistant-message {
-            max-width: 95%;
-          }
-
-          .assistant-input-area {
-            padding: var(--space-3);
-          }
-        }
-      `}</style>
     </div>
   );
 }
