@@ -783,12 +783,16 @@ export async function POST(req: NextRequest) {
           }
           
           // If storyboard uses avatar but no confirmed avatar URL, block storyboard execution
-          if (hasStoryboardCall && !confirmedAvatarUrl) {
+          if (hasStoryboardCall) {
             const storyboardCall = toolCalls.find(tc => tc.tool === 'storyboard_creation');
-            const usesAvatarScene = Array.isArray((storyboardCall as any)?.input?.scenes)
-              ? (storyboardCall as any).input.scenes.some((s: any) => s?.uses_avatar === true)
+            const input = (storyboardCall as any)?.input || {};
+            const avatarUrlInCall = typeof input.avatar_image_url === 'string' ? input.avatar_image_url.trim() : '';
+            const avatarUrlAvailable = isHttpUrl(avatarUrlInCall) || Boolean(confirmedAvatarUrl);
+            const usesAvatarScene = Array.isArray(input?.scenes)
+              ? input.scenes.some((s: any) => s?.uses_avatar === true)
               : false;
-            if (usesAvatarScene) {
+            // Only block if scenes need avatar AND we don't have any usable avatar URL (from tool call or confirmed avatar)
+            if (usesAvatarScene && !avatarUrlAvailable) {
               filteredToolCalls = filteredToolCalls.filter(tc => tc.tool !== 'storyboard_creation');
               storyboardBlockedByAvatar = true;
             }
@@ -822,6 +826,7 @@ export async function POST(req: NextRequest) {
             // Inject confirmed avatar URL if user just confirmed
             if (toolCall.tool === 'storyboard_creation' && confirmedAvatarUrl) {
               const input = toolCall.input as any;
+              // Only override when the model did NOT already provide a real URL
               if (!isHttpUrl(input.avatar_image_url)) {
                 input.avatar_image_url = confirmedAvatarUrl;
               }
