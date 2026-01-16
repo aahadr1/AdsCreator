@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
 import { ASSISTANT_SYSTEM_PROMPT, buildConversationContext } from '../../../../lib/prompts/assistant/system';
+import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, Storyboard, StoryboardScene } from '../../../../types/assistant';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -258,6 +259,64 @@ function isAvatarConfirmation(text: string): boolean {
   );
 }
 
+async function maybeCacheAvatarToR2({
+  sourceUrl,
+  conversationId,
+}: {
+  sourceUrl: string;
+  conversationId: string;
+}): Promise<{ url: string; cached: boolean; error?: string }> {
+  try {
+    const src = sourceUrl.trim();
+    if (!isHttpUrl(src)) return { url: sourceUrl, cached: false, error: 'sourceUrl is not http(s)' };
+
+    const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+    const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+    const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+    const r2Endpoint = process.env.R2_S3_ENDPOINT || null;
+    const bucket = process.env.R2_BUCKET || 'assets';
+    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL || null;
+
+    // If R2 isn't configured with a public base URL, we cannot produce a stable public URL for Replicate
+    if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey || !publicBaseUrl) {
+      return { url: sourceUrl, cached: false, error: 'R2 not configured (missing R2_* or R2_PUBLIC_BASE_URL)' };
+    }
+
+    const res = await fetch(src, { cache: 'no-store' });
+    if (!res.ok) return { url: sourceUrl, cached: false, error: `Failed to download avatar: ${await res.text()}` };
+    const arrayBuffer = await res.arrayBuffer();
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+
+    // Keep extension consistent; default to jpg for maximum compatibility
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const key = `avatars/${conversationId}/${crypto.randomUUID()}.${ext}`;
+
+    const r2 = createR2Client({
+      accountId: r2AccountId,
+      accessKeyId: r2AccessKeyId,
+      secretAccessKey: r2SecretAccessKey,
+      bucket,
+      endpoint: r2Endpoint,
+      publicBaseUrl,
+    });
+    await ensureR2Bucket(r2, bucket);
+    await r2PutObject({
+      client: r2,
+      bucket,
+      key,
+      body: new Uint8Array(arrayBuffer),
+      contentType,
+      cacheControl: '31536000',
+    });
+
+    const publicUrl = r2PublicUrl({ publicBaseUrl, bucket, key });
+    if (!publicUrl) return { url: sourceUrl, cached: false, error: 'Could not compute R2 public URL' };
+    return { url: publicUrl, cached: true };
+  } catch (e: any) {
+    return { url: sourceUrl, cached: false, error: e?.message || 'maybeCacheAvatarToR2 failed' };
+  }
+}
+
 // Remove tool calls and reflexion from visible response
 function cleanResponse(content: string): string {
   return content
@@ -473,54 +532,13 @@ async function generateSingleImage(
       ? `Maintain exact same person, same face, same setting, same camera angle, same lighting as reference image. Only change: ${enhancedPrompt}`
       : enhancedPrompt;
 
-    // Helper: treat "created but immediately failed" as an input failure and fall back.
-    async function isImmediateInvalidFailure(id: string, status: string, maybeError: unknown): Promise<boolean> {
-      const s = String(status || '').toLowerCase();
-      if (s !== 'failed') return false;
-      const errText =
-        typeof maybeError === 'string' && maybeError.trim()
-          ? maybeError
-          : (await resolveReplicateOutputUrl(id))?.error || '';
-      const e = String(errText || '');
-      return e.includes('(E006)') || e.toLowerCase().includes('input was invalid');
-    }
-
-    // When we have a reference image, nano-banana has been flaky with E006 (even after accepting the request).
-    // So we start with more reliable models first.
-    if (hasRef) {
-      // Attempt A: nano-banana-pro
-      const modelA = 'google/nano-banana-pro';
-      const inputA: Record<string, unknown> = { ...baseInput, prompt: refPrompt, image_input: [String(referenceImageUrl)] };
-      if (aspectRatio) inputA.aspect_ratio = aspectRatio;
-      console.log('[Storyboard] Creating prediction (img2img):', modelA);
-      const resA = await createPrediction(modelA, inputA);
-      if (resA.ok) {
-        const id = String(resA.json.id);
-        const status = String(resA.json.status);
-        const immediateInvalid = await isImmediateInvalidFailure(id, status, (resA.json as any).error || (resA.json as any).logs);
-        if (!immediateInvalid) return { id, status };
-      }
-
-      // Attempt B: flux-kontext-max (most robust for img2img)
-      const modelB = 'black-forest-labs/flux-kontext-max';
-      const inputB: Record<string, unknown> = {
-        prompt: refPrompt,
-        input_image: String(referenceImageUrl),
-        aspect_ratio: 'match_input_image',
-        output_format: 'jpg',
-        safety_tolerance: 2,
-      };
-      console.log('[Storyboard] Creating prediction (img2img):', modelB);
-      const resB = await createPrediction(modelB, inputB);
-      if (resB.ok) return { id: String(resB.json.id), status: String(resB.json.status) };
-
-      return { id: '', status: 'failed', error: `Image-to-image failed. Tried ${modelA} and ${modelB}. Last error: ${String((resB as any).text || '')}` };
-    }
-
-    // No reference image: use nano-banana normally
+    // Use nano-banana for BOTH text-to-image and image-to-image.
+    // The primary failure mode we observed (E006) is usually a bad/unreachable reference URL,
+    // so we ensure avatar URLs are cached to our own R2 public URL on approval.
     const model = 'google/nano-banana';
-    const input: Record<string, unknown> = { ...baseInput, prompt: enhancedPrompt };
-    console.log('[Storyboard] Creating prediction:', model);
+    const input: Record<string, unknown> = { ...baseInput, prompt: hasRef ? refPrompt : enhancedPrompt };
+    if (hasRef) input.image_input = [String(referenceImageUrl)];
+    console.log('[Storyboard] Creating prediction:', model, hasRef ? '(img2img)' : '(t2i)');
     const res = await createPrediction(model, input);
     if (res.ok) return { id: String(res.json.id), status: String(res.json.status) };
     return { id: '', status: 'failed', error: String((res as any).text || '') || 'Prediction failed' };
@@ -749,12 +767,13 @@ export async function POST(req: NextRequest) {
     let selectedAvatarUrl: string | undefined = planSelectedAvatarUrl;
     let selectedAvatarDescription: string | undefined = planSelectedAvatarDescription;
     if (userConfirmedAvatar && confirmedAvatarUrl) {
-      selectedAvatarUrl = confirmedAvatarUrl;
+      const cached = await maybeCacheAvatarToR2({ sourceUrl: confirmedAvatarUrl, conversationId: String(conversationId) });
+      selectedAvatarUrl = cached.url;
       selectedAvatarDescription = confirmedAvatarDescription || selectedAvatarDescription;
       const nextPlan = {
         ...(existingPlan || {}),
         selected_avatar: {
-          url: confirmedAvatarUrl,
+          url: selectedAvatarUrl,
           prediction_id: confirmedAvatarPredictionId,
           description: confirmedAvatarDescription,
           selected_at: new Date().toISOString(),
