@@ -631,10 +631,12 @@ export async function POST(req: NextRequest) {
           const hasAvatarImageCall = toolCalls.some(tc => 
             tc.tool === 'image_generation' && (tc.input as any)?.purpose === 'avatar'
           );
+          let storyboardBlockedByAvatar = false;
           
           if (hasStoryboardCall && hasAvatarImageCall) {
             // If avatar is being generated, do NOT execute storyboard in same turn
             filteredToolCalls = toolCalls.filter(tc => tc.tool !== 'storyboard_creation');
+            storyboardBlockedByAvatar = true;
           }
           
           // If storyboard uses avatar but no confirmed avatar URL, block storyboard execution
@@ -645,9 +647,19 @@ export async function POST(req: NextRequest) {
               : false;
             if (usesAvatarScene) {
               filteredToolCalls = filteredToolCalls.filter(tc => tc.tool !== 'storyboard_creation');
+              storyboardBlockedByAvatar = true;
             }
           }
-          const cleanedResponse = cleanResponse(fullResponse);
+          let cleanedResponse = cleanResponse(fullResponse);
+          
+          if (!cleanedResponse.trim() && storyboardBlockedByAvatar) {
+            if (hasAvatarImageCall) {
+              cleanedResponse = 'Avatar created. Please confirm with "Use this avatar" to proceed with the storyboard.';
+            } else {
+              cleanedResponse = 'Before I can build the storyboard, I need an approved avatar. Say "Use this avatar" after you confirm one.';
+            }
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: cleanedResponse })}\n\n`));
+          }
           
           // Execute tool calls if any
           const toolResults: Array<{ tool: string; result: unknown }> = [];
@@ -709,13 +721,15 @@ export async function POST(req: NextRequest) {
             });
           }
           
-          // Add assistant response
-          messagesToSave.push({
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: cleanedResponse,
-            timestamp: new Date().toISOString(),
-          });
+          // Add assistant response (only if non-empty)
+          if (cleanedResponse.trim()) {
+            messagesToSave.push({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: cleanedResponse,
+              timestamp: new Date().toISOString(),
+            });
+          }
           
           // Add tool calls and results
           for (let i = 0; i < filteredToolCalls.length; i++) {

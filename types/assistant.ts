@@ -143,6 +143,8 @@ export interface ImageGenerationInput {
   output_format?: 'jpg' | 'png';
   model?: string;
   image_input?: string[];
+  purpose?: 'avatar' | 'scene_frame' | 'product' | 'b_roll' | 'other';
+  avatar_description?: string;
 }
 
 export interface ImageGenerationOutput {

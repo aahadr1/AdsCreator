@@ -90,6 +90,8 @@ Parameters:
 - prompt (string, required): Detailed image description
 - aspect_ratio (string, optional): "1:1", "16:9", "9:16", "4:3", "3:4", etc.
 - output_format (string, optional): "jpg" or "png"
+- purpose (string, optional): "avatar", "scene_frame", "product", "b_roll", "other"
+- avatar_description (string, optional): Short description of the avatar (required if purpose = "avatar")
 
 Example tool call:
 <tool_call>
@@ -98,7 +100,8 @@ Example tool call:
   "input": {
     "prompt": "Professional product photo of a light blue cooling blanket draped over a bed, soft morning light, minimalist bedroom, photorealistic, 8k",
     "aspect_ratio": "16:9",
-    "output_format": "png"
+    "output_format": "png",
+    "purpose": "product"
   }
 }
 </tool_call>
@@ -609,6 +612,15 @@ export const TOOLS_SCHEMA = [
           type: 'string', 
           enum: ['jpg', 'png'],
           description: 'Output format'
+        },
+        purpose: {
+          type: 'string',
+          enum: ['avatar', 'scene_frame', 'product', 'b_roll', 'other'],
+          description: 'Purpose of the image'
+        },
+        avatar_description: {
+          type: 'string',
+          description: 'Short description of avatar (required if purpose = avatar)'
         }
       },
       required: ['prompt']
