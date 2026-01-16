@@ -200,9 +200,9 @@ Scene 1 Last Frame: "Different brunette woman in kitchen"
    - "applying mascara to eyelashes"
 
 4. **Mark Scene Avatar Usage Explicitly:**
-    - If the scene shows the avatar talking, holding product, or reacting → `"uses_avatar": true`
-    - If the scene is product-only, b-roll, packaging, text card → `"uses_avatar": false`
-    - Only scenes with `uses_avatar: true` should send `avatar_image_url` as image_input
+    - If the scene shows the avatar talking, holding product, or reacting → "uses_avatar: true"
+    - If the scene is product-only, b-roll, packaging, text card → "uses_avatar: false"
+    - Only scenes with uses_avatar = true should send avatar_image_url as image_input
 
 **Scene structure:**
 - scene_number: Sequential number
