@@ -473,53 +473,57 @@ async function generateSingleImage(
       ? `Maintain exact same person, same face, same setting, same camera angle, same lighting as reference image. Only change: ${enhancedPrompt}`
       : enhancedPrompt;
 
-    // Primary attempt: google/nano-banana with image_input array
-    const primaryModel = 'google/nano-banana';
-    const primaryInput: Record<string, unknown> = { ...baseInput, prompt: refPrompt };
-    if (hasRef) primaryInput.image_input = [String(referenceImageUrl)];
-
-    console.log('[Storyboard] Creating prediction (primary):', primaryModel);
-    let res1 = await createPrediction(primaryModel, primaryInput);
-    if (res1.ok) return { id: String(res1.json.id), status: String(res1.json.status) };
-
-    const err1 = String(res1.text || '');
-    // Retry on transient failures
-    if (res1.status === 429 || (res1.status >= 500 && res1.status < 600)) {
-      await delay(700);
-      res1 = await createPrediction(primaryModel, primaryInput);
-      if (res1.ok) return { id: String(res1.json.id), status: String(res1.json.status) };
+    // Helper: treat "created but immediately failed" as an input failure and fall back.
+    async function isImmediateInvalidFailure(id: string, status: string, maybeError: unknown): Promise<boolean> {
+      const s = String(status || '').toLowerCase();
+      if (s !== 'failed') return false;
+      const errText =
+        typeof maybeError === 'string' && maybeError.trim()
+          ? maybeError
+          : (await resolveReplicateOutputUrl(id))?.error || '';
+      const e = String(errText || '');
+      return e.includes('(E006)') || e.toLowerCase().includes('input was invalid');
     }
 
-    // If invalid input (E006) or schema mismatch, try fallbacks.
-    const isInvalidInput = err1.includes('(E006)') || err1.toLowerCase().includes('input was invalid');
-
-    if (hasRef && isInvalidInput) {
-      // Fallback A: nano-banana-pro (often more permissive)
+    // When we have a reference image, nano-banana has been flaky with E006 (even after accepting the request).
+    // So we start with more reliable models first.
+    if (hasRef) {
+      // Attempt A: nano-banana-pro
       const modelA = 'google/nano-banana-pro';
       const inputA: Record<string, unknown> = { ...baseInput, prompt: refPrompt, image_input: [String(referenceImageUrl)] };
-      // Some versions may accept aspect_ratio explicitly
       if (aspectRatio) inputA.aspect_ratio = aspectRatio;
-      console.log('[Storyboard] Fallback prediction:', modelA);
+      console.log('[Storyboard] Creating prediction (img2img):', modelA);
       const resA = await createPrediction(modelA, inputA);
-      if (resA.ok) return { id: String(resA.json.id), status: String(resA.json.status) };
+      if (resA.ok) {
+        const id = String(resA.json.id);
+        const status = String(resA.json.status);
+        const immediateInvalid = await isImmediateInvalidFailure(id, status, (resA.json as any).error || (resA.json as any).logs);
+        if (!immediateInvalid) return { id, status };
+      }
 
-      // Fallback B: flux-kontext-max (input_image img2img)
+      // Attempt B: flux-kontext-max (most robust for img2img)
       const modelB = 'black-forest-labs/flux-kontext-max';
       const inputB: Record<string, unknown> = {
         prompt: refPrompt,
         input_image: String(referenceImageUrl),
         aspect_ratio: 'match_input_image',
         output_format: 'jpg',
-        // conservative safety; some configs require <=2 with input_image
         safety_tolerance: 2,
       };
-      console.log('[Storyboard] Fallback prediction:', modelB);
+      console.log('[Storyboard] Creating prediction (img2img):', modelB);
       const resB = await createPrediction(modelB, inputB);
       if (resB.ok) return { id: String(resB.json.id), status: String(resB.json.status) };
-      return { id: '', status: 'failed', error: `E006 invalid input. Tried nano-banana, nano-banana-pro, flux-kontext-max. Last error: ${String((resB as any).text || (resB as any).status || '')}` };
+
+      return { id: '', status: 'failed', error: `Image-to-image failed. Tried ${modelA} and ${modelB}. Last error: ${String((resB as any).text || '')}` };
     }
 
-    return { id: '', status: 'failed', error: `${res1.status || ''} ${err1}`.trim() || 'Prediction failed' };
+    // No reference image: use nano-banana normally
+    const model = 'google/nano-banana';
+    const input: Record<string, unknown> = { ...baseInput, prompt: enhancedPrompt };
+    console.log('[Storyboard] Creating prediction:', model);
+    const res = await createPrediction(model, input);
+    if (res.ok) return { id: String(res.json.id), status: String(res.json.status) };
+    return { id: '', status: 'failed', error: String((res as any).text || '') || 'Prediction failed' };
   } catch (e: any) {
     console.error('[Storyboard] generateSingleImage error:', e.message || e);
     return { id: '', status: 'failed', error: e.message || 'Unknown error' };
