@@ -4,21 +4,17 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 
 /**
- * Legacy run endpoint - redirects to UGC agent
- * 
- * The assistant is now UGC-only. This endpoint now redirects
- * to the UGC video generation pipeline.
+ * Legacy run endpoint.
+ *
+ * The UGC Creator assistant feature has been removed.
+ * This endpoint is kept only to avoid breaking older clients.
  */
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    
-    // For UGC-only, we don't need this multi-step runner
-    // Video generation is handled by the UGC agent pipeline
     return Response.json({
-      error: 'This endpoint is deprecated. Use /api/ugc-builder/agent instead.',
-      message: 'The assistant is now UGC-only. Please use the UGC Creator interface.',
+      error: 'Assistant execution is no longer available.',
+      message: 'The UGC Creator assistant feature was removed. Use the tool pages in the sidebar instead.',
     }, { status: 410 });
     
   } catch (error: any) {

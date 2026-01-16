@@ -5,7 +5,15 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   Home,
-  Sparkles,
+  Wand2,
+  Image as ImageIcon,
+  Video,
+  Mic,
+  Captions,
+  Scissors,
+  Download,
+  Shield,
+  Search,
   LogIn,
   Settings,
   Zap,
@@ -29,10 +37,21 @@ type NavSection = {
 const navSections: NavSection[] = [
   {
     title: 'Create',
-    description: 'AI-powered UGC video creation',
+    description: 'All tools',
     items: [
-      { href: '/assistant', label: 'UGC Creator', icon: <Sparkles size={18} />, description: 'Create viral UGC ads', badge: 'New' },
+      { href: '/', label: 'Home', icon: <Home size={18} />, description: 'Dashboard' },
+      { href: '/image', label: 'Image', icon: <ImageIcon size={18} />, description: 'Generate images' },
+      { href: '/veo', label: 'Video', icon: <Video size={18} />, description: 'Generate videos' },
+      { href: '/tts', label: 'TTS', icon: <Mic size={18} />, description: 'Text to speech' },
+      { href: '/transcription', label: 'Transcription', icon: <Captions size={18} />, description: 'Audio → text' },
+      { href: '/lipsync', label: 'Lipsync', icon: <Wand2 size={18} />, description: 'Sync lips to audio' },
+      { href: '/enhance', label: 'Enhance', icon: <Scissors size={18} />, description: 'Upscale / enhance' },
+      { href: '/background-remove', label: 'BG Remove', icon: <Shield size={18} />, description: 'Remove background' },
+      { href: '/download', label: 'Download', icon: <Download size={18} />, description: 'Grab videos/assets' },
+      { href: '/spy', label: 'Spy', icon: <Search size={18} />, description: 'Ad research' },
       { href: '/tasks', label: 'Tasks', icon: <Activity size={18} />, description: 'Track progress' },
+      { href: '/adscript', label: 'Ad Script', icon: <Wand2 size={18} />, description: 'Generate scripts' },
+      { href: '/editor', label: 'Editor', icon: <Wand2 size={18} />, description: 'Edit assets' },
     ],
   },
   {
@@ -54,12 +73,12 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-inner">
         <div className="sidebar-brand-card">
-          <a className="sidebar-logo" title="UGC Creator" href="/">
+          <a className="sidebar-logo" title="AdsCreator" href="/">
             <div className="brand-chip">
-              <Sparkles size={20} style={{ color: '#a78bfa' }} />
+              <Wand2 size={20} style={{ color: '#a78bfa' }} />
             </div>
             <div className="sidebar-logo-text">
-              <span>UGC Creator</span>
+              <span>AdsCreator</span>
             </div>
           </a>
         </div>
@@ -67,13 +86,13 @@ export function Sidebar() {
         <div className="sidebar-scroll">
           {/* Main CTA */}
           <div className="sidebar-quick-actions">
-            <a href="/assistant" className="sidebar-quick-card sidebar-quick-main">
+            <a href="/image" className="sidebar-quick-card sidebar-quick-main">
               <div className="sidebar-quick-icon">
-                <Sparkles size={22} />
+                <ImageIcon size={22} />
               </div>
               <div className="sidebar-quick-copy">
-                <span>Create UGC Ad</span>
-                <p>AI-powered video creation</p>
+                <span>Generate Image</span>
+                <p>Start with an image</p>
               </div>
             </a>
           </div>
@@ -123,8 +142,8 @@ export function Sidebar() {
         </div>
 
         <div className="sidebar-footer-meta">
-          <span>© {year} UGC Creator</span>
-          <span>Create viral ads in minutes</span>
+          <span>© {year} AdsCreator</span>
+          <span>All-in-one creative tools</span>
         </div>
       </div>
     </aside>
