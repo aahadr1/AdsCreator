@@ -58,8 +58,8 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
 // Parse tool calls from assistant response
 function parseToolCalls(content: string): Array<{ tool: string; input: Record<string, unknown> }> {
   const toolCalls: Array<{ tool: string; input: Record<string, unknown> }> = [];
-  const toolCallRegex = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
-  let match;
+  const toolCallOpen = '<tool_call>';
+  const toolCallClose = '</tool_call>';
   
   function normalizeToolCallJson(raw: string): string {
     let s = raw.trim();
@@ -137,15 +137,21 @@ function parseToolCalls(content: string): Array<{ tool: string; input: Record<st
     }
   }
 
-  while ((match = toolCallRegex.exec(content)) !== null) {
-    try {
-      const parsed = tryParseJson(match[1]);
-      if (parsed.tool && parsed.input) {
-        toolCalls.push(parsed);
-      }
-    } catch (e) {
-      console.error('Failed to parse tool call:', e);
+  // Scan for <tool_call> blocks; tolerate missing closing tag (common model failure)
+  let idx = 0;
+  while (idx < content.length) {
+    const start = content.indexOf(toolCallOpen, idx);
+    if (start === -1) break;
+    const afterOpen = start + toolCallOpen.length;
+    const end = content.indexOf(toolCallClose, afterOpen);
+    const rawJson = end === -1 ? content.slice(afterOpen) : content.slice(afterOpen, end);
+    const parsed = tryParseJson(rawJson);
+    if (parsed && parsed.tool && parsed.input) {
+      toolCalls.push(parsed);
+    } else {
+      console.error('Failed to parse tool call payload');
     }
+    idx = end === -1 ? content.length : end + toolCallClose.length;
   }
   
   return toolCalls;
@@ -155,7 +161,10 @@ function parseToolCalls(content: string): Array<{ tool: string; input: Record<st
 function parseReflexion(content: string): string | null {
   const reflexionRegex = /<reflexion>([\s\S]*?)<\/reflexion>/;
   const match = content.match(reflexionRegex);
-  return match ? match[1].trim() : null;
+  const raw = match ? match[1].trim() : null;
+  if (!raw) return null;
+  // Redact URLs in reflexion to avoid hallucinated links being shown to user
+  return raw.replace(/https?:\/\/\S+/g, '[redacted]');
 }
 
 function isHttpUrl(u: string | undefined | null): boolean {
@@ -253,7 +262,10 @@ function isAvatarConfirmation(text: string): boolean {
 function cleanResponse(content: string): string {
   return content
     .replace(/<reflexion>[\s\S]*?<\/reflexion>/g, '')
+    // Remove proper tool_call blocks
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+    // Remove dangling tool_call without a closing tag
+    .replace(/<tool_call>[\s\S]*$/g, '')
     .trim();
 }
 
@@ -732,12 +744,13 @@ export async function POST(req: NextRequest) {
           for await (const event of stream) {
             const chunk = String(event);
             fullResponse += chunk;
+            const safeChunk = chunk.replace(/https?:\/\/\S+/g, '[redacted]');
             
             // Track if we're in reflexion block
             if (fullResponse.includes('<reflexion>') && !fullResponse.includes('</reflexion>')) {
               inReflexion = true;
               reflexionBuffer += chunk;
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_chunk', data: chunk })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_chunk', data: safeChunk })}\n\n`));
             } else if (inReflexion && fullResponse.includes('</reflexion>')) {
               inReflexion = false;
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_end' })}\n\n`));
