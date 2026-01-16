@@ -203,8 +203,12 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
   }
 }
 
-// Helper to generate a single image and return prediction ID
-async function generateSingleImage(prompt: string, aspectRatio?: string): Promise<{ id: string; status: string } | null> {
+// Helper to generate a single image with optional image-to-image reference
+async function generateSingleImage(
+  prompt: string, 
+  aspectRatio?: string,
+  referenceImageUrl?: string
+): Promise<{ id: string; status: string } | null> {
   try {
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return null;
@@ -221,14 +225,25 @@ async function generateSingleImage(prompt: string, aspectRatio?: string): Promis
     const versionId = modelJson?.latest_version?.id;
     if (!versionId) return null;
     
-    const predictionInput: Record<string, unknown> = {
-      prompt,
-      output_format: 'jpg',
-    };
+    // Build the enhanced prompt
+    let enhancedPrompt = prompt;
     
     // Add aspect ratio hint to prompt if provided
     if (aspectRatio && !prompt.includes(aspectRatio)) {
-      predictionInput.prompt = `${prompt}, ${aspectRatio} aspect ratio`;
+      enhancedPrompt = `${enhancedPrompt}, ${aspectRatio} aspect ratio`;
+    }
+    
+    const predictionInput: Record<string, unknown> = {
+      prompt: enhancedPrompt,
+      output_format: 'jpg',
+    };
+    
+    // If reference image is provided, use it for image-to-image generation
+    // This ensures consistency - same actor, same setting, same style
+    if (referenceImageUrl) {
+      predictionInput.image_input = [referenceImageUrl];
+      // Add consistency instructions to the prompt
+      predictionInput.prompt = `Maintain exact same person, same face, same setting, same camera angle, same lighting as reference image. Only change: ${enhancedPrompt}`;
     }
     
     const res = await fetch(`${REPLICATE_API}/predictions`, {
@@ -254,20 +269,29 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
   try {
     const storyboardId = crypto.randomUUID();
     
+    // Avatar reference URL for image-to-image consistency
+    const avatarUrl = input.avatar_image_url;
+    
     // Build scenes with prediction IDs for image generation
     const scenesWithPredictions: StoryboardScene[] = [];
     
     for (const scene of input.scenes) {
-      // Generate first frame image
+      // Determine if this scene should use the avatar reference
+      // Use avatar for scenes that don't have setting_change = true
+      const useAvatarReference = avatarUrl && !scene.setting_change;
+      
+      // Generate first frame image with optional avatar reference
       const firstFramePrediction = await generateSingleImage(
         scene.first_frame_prompt,
-        input.aspect_ratio
+        input.aspect_ratio,
+        useAvatarReference ? avatarUrl : undefined
       );
       
-      // Generate last frame image
+      // Generate last frame image with optional avatar reference
       const lastFramePrediction = await generateSingleImage(
         scene.last_frame_prompt,
-        input.aspect_ratio
+        input.aspect_ratio,
+        useAvatarReference ? avatarUrl : undefined
       );
       
       scenesWithPredictions.push({
@@ -278,9 +302,14 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         first_frame_prompt: scene.first_frame_prompt,
         last_frame_prompt: scene.last_frame_prompt,
         transition_type: scene.transition_type,
+        camera_angle: scene.camera_angle,
+        setting_change: scene.setting_change,
+        video_generation_prompt: scene.video_generation_prompt,
         audio_notes: scene.audio_notes,
         first_frame_prediction_id: firstFramePrediction?.id,
         last_frame_prediction_id: lastFramePrediction?.id,
+        first_frame_status: firstFramePrediction ? 'generating' : 'failed',
+        last_frame_status: lastFramePrediction ? 'generating' : 'failed',
       });
     }
     
@@ -294,6 +323,8 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       total_duration_seconds: input.total_duration_seconds,
       style: input.style,
       aspect_ratio: input.aspect_ratio,
+      avatar_image_url: input.avatar_image_url,
+      avatar_description: input.avatar_description,
       scenes: scenesWithPredictions,
       created_at: new Date().toISOString(),
       status: 'generating',

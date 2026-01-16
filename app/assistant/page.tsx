@@ -514,18 +514,20 @@ export default function AssistantPage() {
     );
   }
 
-  // Scene frame image component with polling
+  // Scene frame image component with polling - Production Ready
   function SceneFrameImage({
     predictionId,
     label,
     initialUrl,
+    initialStatus,
   }: {
     predictionId?: string;
     label: string;
     initialUrl?: string;
+    initialStatus?: string;
   }) {
     const [url, setUrl] = useState<string | null>(initialUrl || null);
-    const [status, setStatus] = useState<string>(initialUrl ? 'succeeded' : 'starting');
+    const [status, setStatus] = useState<string>(initialUrl ? 'succeeded' : (initialStatus || 'pending'));
 
     useEffect(() => {
       if (url || !predictionId) return;
@@ -558,19 +560,51 @@ export default function AssistantPage() {
       return () => { mounted = false; clearTimeout(timeout); };
     }, [predictionId, url]);
 
+    const isGenerating = !url && status !== 'failed';
+    const isFailed = status === 'failed';
+
     return (
-      <div className={styles.sceneFrame}>
-        <div className={styles.sceneFrameLabel}>{label}</div>
-        <div className={styles.sceneFrameImage}>
+      <div className={styles.frameCard}>
+        <div className={styles.frameHeader}>
+          <span className={styles.frameLabel}>{label}</span>
+          {isGenerating && (
+            <span className={styles.frameStatus}>
+              <Loader2 size={12} className={styles.spinner} />
+              <span>Generating</span>
+            </span>
+          )}
+          {url && (
+            <span className={styles.frameStatusDone}>
+              <Check size={12} />
+            </span>
+          )}
+          {isFailed && (
+            <span className={styles.frameStatusFailed}>
+              <AlertCircle size={12} />
+            </span>
+          )}
+        </div>
+        <div className={styles.frameImageWrap}>
           {url ? (
-            <a href={url} target="_blank" rel="noreferrer">
+            <a href={url} target="_blank" rel="noreferrer" className={styles.frameImageLink}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={label} />
+              <img src={url} alt={label} className={styles.frameImage} />
             </a>
           ) : (
-            <div className={styles.sceneFramePlaceholder}>
-              <Loader2 size={18} className={styles.spinner} />
-              <span>{status === 'starting' ? 'Starting...' : 'Generating...'}</span>
+            <div className={styles.frameImagePlaceholder}>
+              {isGenerating ? (
+                <>
+                  <div className={styles.frameImageLoader}>
+                    <Loader2 size={24} className={styles.spinner} />
+                  </div>
+                  <span>Generating {label.toLowerCase()}...</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle size={24} />
+                  <span>Generation failed</span>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -578,125 +612,167 @@ export default function AssistantPage() {
     );
   }
 
-  // Individual scene card component
+  // Individual scene card component - Production Ready
   function SceneCard({ scene, aspectRatio }: { scene: StoryboardScene; aspectRatio?: string }) {
-    const [expanded, setExpanded] = useState(true);
-
     return (
       <div className={styles.sceneCard}>
-        <button
-          type="button"
-          className={styles.sceneHeader}
-          onClick={() => setExpanded(!expanded)}
-        >
-          <div className={styles.sceneNumber}>{scene.scene_number}</div>
-          <div className={styles.sceneInfo}>
-            <div className={styles.sceneName}>{scene.scene_name}</div>
-            <div className={styles.sceneMeta}>
+        {/* Scene Header */}
+        <div className={styles.sceneHeader}>
+          <div className={styles.sceneNumberBadge}>{scene.scene_number}</div>
+          <div className={styles.sceneHeaderContent}>
+            <h4 className={styles.sceneName}>{scene.scene_name}</h4>
+            <div className={styles.sceneTags}>
               {scene.duration_seconds && (
-                <span className={styles.sceneMetaItem}>
-                  <Clock size={12} />
+                <span className={styles.sceneTag}>
+                  <Clock size={10} />
                   {scene.duration_seconds}s
                 </span>
               )}
               {scene.transition_type && (
-                <span className={styles.sceneMetaItem}>
-                  <ChevronRight size={12} />
-                  {scene.transition_type}
+                <span className={styles.sceneTag}>
+                  {scene.transition_type === 'smooth' ? '↔️' : '✂️'} {scene.transition_type}
                 </span>
+              )}
+              {scene.camera_angle && scene.camera_angle !== 'same' && (
+                <span className={styles.sceneTag}>📷 {scene.camera_angle}</span>
               )}
             </div>
           </div>
-          <ChevronRight
-            size={16}
-            className={styles.sceneChevron}
-            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+        </div>
+
+        {/* Scene Description */}
+        <div className={styles.sceneDescription}>
+          {scene.description}
+        </div>
+
+        {/* Frames Grid */}
+        <div className={styles.framesGrid}>
+          <SceneFrameImage
+            predictionId={scene.first_frame_prediction_id}
+            label="First Frame"
+            initialUrl={scene.first_frame_url}
+            initialStatus={scene.first_frame_status}
           />
-        </button>
-        
-        {expanded && (
-          <div className={styles.sceneBody}>
-            <div className={styles.sceneDescription}>
-              <p>{scene.description}</p>
+          <div className={styles.framesArrow}>
+            <div className={styles.arrowLine} />
+            <Play size={14} />
+            <div className={styles.arrowLine} />
+          </div>
+          <SceneFrameImage
+            predictionId={scene.last_frame_prediction_id}
+            label="Last Frame"
+            initialUrl={scene.last_frame_url}
+            initialStatus={scene.last_frame_status}
+          />
+        </div>
+
+        {/* Video Generation Prompt */}
+        {scene.video_generation_prompt && (
+          <div className={styles.videoPromptBox}>
+            <div className={styles.videoPromptLabel}>
+              <Film size={12} />
+              <span>Video Generation Prompt</span>
             </div>
-            
-            <div className={styles.sceneFrames}>
-              <SceneFrameImage
-                predictionId={scene.first_frame_prediction_id}
-                label="First Frame"
-                initialUrl={scene.first_frame_url}
-              />
-              <div className={styles.sceneFrameArrow}>
-                <Play size={16} />
-              </div>
-              <SceneFrameImage
-                predictionId={scene.last_frame_prediction_id}
-                label="Last Frame"
-                initialUrl={scene.last_frame_url}
-              />
+            <p className={styles.videoPromptText}>{scene.video_generation_prompt}</p>
+          </div>
+        )}
+
+        {/* Audio Notes */}
+        {scene.audio_notes && (
+          <div className={styles.audioNotesBox}>
+            <div className={styles.audioNotesLabel}>
+              <Volume2 size={12} />
+              <span>Audio</span>
             </div>
-            
-            {scene.audio_notes && (
-              <div className={styles.sceneAudio}>
-                <Volume2 size={14} />
-                <span>{scene.audio_notes}</span>
-              </div>
-            )}
-            
-            <div className={styles.scenePrompts}>
-              <details className={styles.promptDetails}>
-                <summary>First Frame Prompt</summary>
-                <pre>{scene.first_frame_prompt}</pre>
-              </details>
-              <details className={styles.promptDetails}>
-                <summary>Last Frame Prompt</summary>
-                <pre>{scene.last_frame_prompt}</pre>
-              </details>
-            </div>
+            <p className={styles.audioNotesText}>{scene.audio_notes}</p>
           </div>
         )}
       </div>
     );
   }
 
-  // Full storyboard card component
+  // Full storyboard card component - Production Ready
   function StoryboardCard({ storyboard }: { storyboard: Storyboard }) {
     const totalDuration = storyboard.total_duration_seconds || 
       storyboard.scenes.reduce((sum, s) => sum + (s.duration_seconds || 0), 0);
+    
+    const generatingCount = storyboard.scenes.filter(s => 
+      s.first_frame_status === 'generating' || s.last_frame_status === 'generating'
+    ).length;
 
     return (
       <div className={styles.storyboardCard}>
+        {/* Header */}
         <div className={styles.storyboardHeader}>
-          <div className={styles.storyboardIcon}>
-            <Film size={20} />
-          </div>
-          <div className={styles.storyboardTitleArea}>
-            <h3 className={styles.storyboardTitle}>{storyboard.title}</h3>
-            <div className={styles.storyboardMeta}>
-              {storyboard.platform && <span className={styles.storyboardTag}>{storyboard.platform}</span>}
-              {storyboard.style && <span className={styles.storyboardTag}>{storyboard.style}</span>}
-              {storyboard.aspect_ratio && <span className={styles.storyboardTag}>{storyboard.aspect_ratio}</span>}
-              {totalDuration > 0 && <span className={styles.storyboardTag}>{totalDuration}s total</span>}
+          <div className={styles.storyboardHeaderLeft}>
+            <div className={styles.storyboardIcon}>
+              <Film size={18} />
+            </div>
+            <div>
+              <h3 className={styles.storyboardTitle}>{storyboard.title}</h3>
+              <div className={styles.storyboardSubtitle}>
+                {storyboard.scenes.length} scenes • {totalDuration}s total
+                {generatingCount > 0 && (
+                  <span className={styles.generatingBadge}>
+                    <Loader2 size={10} className={styles.spinner} />
+                    {generatingCount * 2} frames generating
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-          <span className={`${styles.pill} ${storyboard.status === 'ready' ? styles.pillOk : ''}`}>
-            {storyboard.status}
-          </span>
+          <div className={styles.storyboardTags}>
+            {storyboard.platform && (
+              <span className={styles.storyboardTag}>{storyboard.platform}</span>
+            )}
+            {storyboard.aspect_ratio && (
+              <span className={styles.storyboardTag}>{storyboard.aspect_ratio}</span>
+            )}
+          </div>
         </div>
-        
-        {(storyboard.brand_name || storyboard.product || storyboard.target_audience) && (
-          <div className={styles.storyboardInfo}>
-            {storyboard.brand_name && <div><strong>Brand:</strong> {storyboard.brand_name}</div>}
-            {storyboard.product && <div><strong>Product:</strong> {storyboard.product}</div>}
-            {storyboard.target_audience && <div><strong>Audience:</strong> {storyboard.target_audience}</div>}
+
+        {/* Meta Info */}
+        {(storyboard.brand_name || storyboard.product || storyboard.style) && (
+          <div className={styles.storyboardMeta}>
+            {storyboard.brand_name && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Brand</span>
+                <span className={styles.metaValue}>{storyboard.brand_name}</span>
+              </div>
+            )}
+            {storyboard.product && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Product</span>
+                <span className={styles.metaValue}>{storyboard.product}</span>
+              </div>
+            )}
+            {storyboard.style && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Style</span>
+                <span className={styles.metaValue}>{storyboard.style}</span>
+              </div>
+            )}
           </div>
         )}
-        
-        <div className={styles.storyboardScenes}>
-          <div className={styles.scenesLabel}>
-            <Play size={14} />
-            <span>{storyboard.scenes.length} Scenes</span>
+
+        {/* Avatar Reference (if exists) */}
+        {storyboard.avatar_image_url && (
+          <div className={styles.avatarReference}>
+            <div className={styles.avatarLabel}>
+              <span>🎭 Avatar Reference</span>
+              {storyboard.avatar_description && (
+                <span className={styles.avatarDesc}>{storyboard.avatar_description}</span>
+              )}
+            </div>
+            <div className={styles.avatarThumb}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={storyboard.avatar_image_url} alt="Avatar reference" />
+            </div>
           </div>
+        )}
+
+        {/* Scenes */}
+        <div className={styles.scenesContainer}>
           {storyboard.scenes.map((scene) => (
             <SceneCard 
               key={scene.scene_number} 

@@ -116,6 +116,25 @@ Purpose: Create a complete video ad storyboard with multiple scenes. Each scene 
 - ANY video content that implies multiple scenes or shots
 - When context suggests a video would require planning (implicitly)
 
+**🎭 AVATAR WORKFLOW - CONSISTENCY IS EVERYTHING:**
+
+Before creating a storyboard with an actor/person:
+
+1. **Check for Avatar:**
+   - Does the user have an existing avatar/actor image? If NO → STOP and ask first.
+   - "I notice this video needs an actor. Would you like me to first generate an avatar for your ad? This ensures consistency across all scenes."
+
+2. **Generate Avatar First (if needed):**
+   - Use image_generation to create the base avatar
+   - Describe the avatar clearly: age, gender, ethnicity, style, setting, camera angle
+   - Example prompt: "Young woman, 28 years old, friendly smile, natural makeup, white t-shirt, clean minimalist bathroom background, eye-level camera, natural window light, 9:16 vertical portrait"
+   - WAIT for user approval before proceeding
+
+3. **Use Avatar as Reference:**
+   - Once avatar exists, it becomes the BASE IMAGE for all scene frames
+   - Every scene frame MUST use this avatar as image_input for consistency
+   - This is how we maintain: same actor, same face, same setting, same camera angle
+
 **Philosophy:**
 The storyboard approach gives MAXIMUM CONTROL over future video generation. By defining first frame and last frame for each scene, we lock in the visual transformation/motion that should occur. This is the foundation for high-quality AI video generation.
 
@@ -125,15 +144,68 @@ The storyboard approach gives MAXIMUM CONTROL over future video generation. By d
 3. FOR EACH SCENE: Define the starting visual state (first frame) and ending visual state (last frame).
 4. TRANSITIONS: Consider if scenes need smooth transitions (same last/first frame) or hard cuts (completely different setups).
 
+**🎬 FRAME GENERATION LOGIC - SMART CONSISTENCY:**
+
+For videos with actors (UGC, testimonials, demos):
+
+**DEFAULT BEHAVIOR (unless user specifies otherwise):**
+- **Same Actor** across all scenes (using avatar as base)
+- **Same Setting** (background, location) across talking head scenes
+- **Same Camera Angle** (eye-level, slightly above, etc.) for consistency
+- **Same Lighting** (natural, studio, etc.)
+
+**What SHOULD Change Between Frames:**
+- **Actor's expression** (talking → smiling, surprised → content)
+- **Actor's hand position** (empty hand → holding product)
+- **Product interaction** (closed bottle → open bottle, no mascara → mascara applied)
+- **Subtle body position** (facing forward → slight turn)
+
+**When to Use DIFFERENT Settings/Angles:**
+- User explicitly requests different shots ("include a close-up of the product", "show a different angle")
+- Scene requires different context (unboxing shot, product-only shot, before/after comparison)
+- Creative variety is explicitly requested
+
+**Examples of Smart Frame Logic:**
+
+✅ GOOD - Consistent Actor, Natural Progression:
+Scene 1 First Frame: "Woman in bathroom, natural light, eye-level camera, looking at mirror"
+Scene 1 Last Frame: "Same woman, same bathroom, same angle, now turning toward camera with interest"
+Scene 2 First Frame: "Same woman, same bathroom, same angle, holding serum bottle toward camera"
+Scene 2 Last Frame: "Same woman, same bathroom, same angle, applying serum to cheek with dropper"
+
+❌ BAD - Inconsistent Actor/Setting:
+Scene 1 First Frame: "Young blonde woman in bright bathroom"
+Scene 1 Last Frame: "Different brunette woman in kitchen"
+(Different person, different location = jarring, unusable)
+
+**When Creating Scene Frame Prompts:**
+
+1. **Always Reference the Base Avatar:**
+   - Start prompts with "Same woman from avatar," or "Base avatar character,"
+   - Maintain core descriptors (age, ethnicity, hair, style)
+
+2. **Specify What Stays the Same:**
+   - "same bathroom setting"
+   - "same eye-level camera angle"
+   - "same natural window lighting"
+
+3. **Specify Only What Changes:**
+   - "now holding product in right hand"
+   - "mouth open mid-speech"
+   - "applying mascara to eyelashes"
+
 **Scene structure:**
 - scene_number: Sequential number
 - scene_name: Short descriptive name (e.g., "Hook - Attention Grab", "Product Reveal", "Testimonial Close-up")
 - description: What happens in this scene (the action, emotion, purpose)
 - duration_seconds: Estimated duration
-- first_frame_prompt: Detailed image prompt for the opening frame
-- last_frame_prompt: Detailed image prompt for the closing frame
+- first_frame_prompt: Detailed image prompt for the opening frame (MUST reference avatar for consistency)
+- last_frame_prompt: Detailed image prompt for the closing frame (MUST reference avatar for consistency)
 - transition_type: "smooth" (connected to previous scene) or "cut" (new setting/angle)
+- camera_angle: "same" (matches avatar), "close-up", "wide", or specific description
+- setting_change: true/false - whether this scene has a different setting than avatar base
 - audio_notes: What should be heard (voiceover text, music mood, sound effects)
+- video_generation_prompt: The prompt that will be used to generate the video between first and last frame
 
 Parameters:
 - title (string, required): Storyboard title
@@ -144,9 +216,13 @@ Parameters:
 - total_duration_seconds (number, optional): Target total duration
 - style (string, optional): Visual style (cinematic, UGC authentic, polished, raw, etc.)
 - aspect_ratio (string, optional): "9:16" for vertical, "16:9" for horizontal, "1:1" for square
+- avatar_image_url (string, required if actor-based): URL of the avatar/actor reference image
+- avatar_description (string, optional): Description of the avatar for prompt consistency
 - scenes (array, required): Array of scene objects with the structure above
 
 Example - Skincare Brand UGC Ad (30 seconds):
+NOTE: This example assumes an avatar was already generated. The avatar_image_url references that generated avatar.
+
 <tool_call>
 {
   "tool": "storyboard_creation",
@@ -159,15 +235,20 @@ Example - Skincare Brand UGC Ad (30 seconds):
     "total_duration_seconds": 30,
     "style": "authentic UGC, natural lighting, relatable",
     "aspect_ratio": "9:16",
+    "avatar_image_url": "[URL of the previously generated avatar]",
+    "avatar_description": "Young woman, 28 years old, light brown hair in messy bun, minimal makeup, friendly approachable face, wearing white tank top, in bright clean bathroom with window light",
     "scenes": [
       {
         "scene_number": 1,
         "scene_name": "Hook - Mirror Selfie",
         "description": "Creator looks at herself in bathroom mirror, touching her skin with slight concern. Relatable moment of noticing skin issues.",
         "duration_seconds": 3,
-        "first_frame_prompt": "Young woman in bathroom, natural morning light, looking at bathroom mirror, touching her cheek with slight frown, messy hair, authentic UGC style, iPhone quality, 9:16 vertical",
-        "last_frame_prompt": "Same young woman, now turning toward camera with curious expression, hand still near face, bathroom mirror visible in background, natural lighting, 9:16 vertical",
+        "first_frame_prompt": "Base avatar character, SAME bathroom setting, SAME eye-level camera angle, SAME natural window lighting, touching her cheek with slight frown, looking at bathroom mirror reflection, authentic UGC style, 9:16 vertical",
+        "last_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, now turning toward camera with curious interested expression, hand still near face, mirror visible in background, 9:16 vertical",
         "transition_type": "cut",
+        "camera_angle": "same",
+        "setting_change": false,
+        "video_generation_prompt": "Woman turns from looking at mirror to face camera, curious expression, smooth natural movement",
         "audio_notes": "Creator: 'Okay so I used to HATE my skin in the morning...'"
       },
       {
@@ -175,9 +256,12 @@ Example - Skincare Brand UGC Ad (30 seconds):
         "scene_name": "Product Introduction",
         "description": "Creator holds up the serum bottle, showing it to camera with excitement. Product is clearly visible.",
         "duration_seconds": 4,
-        "first_frame_prompt": "Same young woman, now smiling, holding small amber glass serum bottle toward camera, product label visible, bathroom background slightly blurred, warm lighting, 9:16 vertical",
-        "last_frame_prompt": "Close-up of hands holding the serum bottle, product name clearly readable, soft focus background, clean aesthetic, 9:16 vertical",
+        "first_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, now smiling, reaching for amber glass serum bottle on counter, bathroom background, warm lighting, 9:16 vertical",
+        "last_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, holding serum bottle toward camera proudly, excited smile, product label clearly visible, 9:16 vertical",
         "transition_type": "smooth",
+        "camera_angle": "same",
+        "setting_change": false,
+        "video_generation_prompt": "Woman reaches for bottle and holds it up to camera with growing smile, natural excited movement",
         "audio_notes": "Creator: '...until I found this. Literally a game changer.'"
       },
       {
@@ -185,9 +269,12 @@ Example - Skincare Brand UGC Ad (30 seconds):
         "scene_name": "Application Demo",
         "description": "Creator applies serum to face, showing the texture and absorption. Genuine application moment.",
         "duration_seconds": 8,
-        "first_frame_prompt": "Young woman with serum dropper near face, about to apply product, golden serum visible on dropper, good lighting on face, bathroom setting, 9:16 vertical",
-        "last_frame_prompt": "Same woman gently patting serum into cheek with fingertips, glowing dewy skin visible, satisfied expression, eyes looking at camera, 9:16 vertical",
+        "first_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, holding serum dropper near face, golden serum drop visible on dropper tip, focused expression, 9:16 vertical",
+        "last_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, gently patting serum into cheek with fingertips, dewy glowing skin visible, satisfied content expression, 9:16 vertical",
         "transition_type": "smooth",
+        "camera_angle": "same",
+        "setting_change": false,
+        "video_generation_prompt": "Woman applies serum drops to face and pats them in, natural skincare application motion, satisfied expression",
         "audio_notes": "Creator: 'Two drops, pat it in, and literally watch your skin drink it up. The vitamin C is so potent you can actually feel it working.'"
       },
       {
@@ -195,9 +282,12 @@ Example - Skincare Brand UGC Ad (30 seconds):
         "scene_name": "Results Reveal",
         "description": "Creator shows her radiant skin, moving face side to side to show the glow. Confident and happy.",
         "duration_seconds": 6,
-        "first_frame_prompt": "Young woman face close to camera, radiant glowing skin, soft smile, turning head slightly to left, natural bathroom light creating skin highlight, 9:16 vertical",
-        "last_frame_prompt": "Same woman, head turned slightly right, showing other side of face, obvious healthy glow, genuine happy expression, eyes sparkling, 9:16 vertical",
+        "first_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, radiant glowing skin, soft smile, head turned slightly left to show skin, natural light highlighting dewy finish, 9:16 vertical",
+        "last_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, head turned slightly right, showing other cheek, obvious healthy glow, genuine happy proud expression, 9:16 vertical",
         "transition_type": "smooth",
+        "camera_angle": "same",
+        "setting_change": false,
+        "video_generation_prompt": "Woman turns head slowly side to side showing off glowing skin, proud happy expression",
         "audio_notes": "Creator: 'Like look at this glow. This is with NO filter. My skin has never looked this good.'"
       },
       {
@@ -205,19 +295,25 @@ Example - Skincare Brand UGC Ad (30 seconds):
         "scene_name": "CTA - Social Proof",
         "description": "Creator makes direct eye contact, delivers call to action with enthusiasm and authenticity.",
         "duration_seconds": 5,
-        "first_frame_prompt": "Young woman looking directly at camera, genuine smile, holding serum bottle near shoulder, well-lit radiant skin, engaged expression, 9:16 vertical",
-        "last_frame_prompt": "Same woman, bigger smile, slight head tilt, product held up more prominently, inviting trustworthy expression, 9:16 vertical",
+        "first_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, looking directly at camera, genuine smile, holding serum bottle near shoulder, radiant skin, engaged expression, 9:16 vertical",
+        "last_frame_prompt": "Base avatar character, SAME bathroom setting, SAME camera angle, bigger enthusiastic smile, slight head tilt, product held up more prominently toward camera, inviting trustworthy expression, 9:16 vertical",
         "transition_type": "smooth",
+        "camera_angle": "same",
+        "setting_change": false,
+        "video_generation_prompt": "Woman speaks enthusiastically to camera while holding up product, natural talking head motion",
         "audio_notes": "Creator: 'Link in bio, seriously go try it. Thank me later. Also they have 20% off right now!'"
       },
       {
         "scene_number": 6,
         "scene_name": "End Card",
-        "description": "Product shot with brand logo, clean end frame for memorability.",
+        "description": "Product shot with brand logo, clean end frame for memorability. NO ACTOR - product only.",
         "duration_seconds": 4,
-        "first_frame_prompt": "Clean flat lay of GlowSerum bottle on white marble surface, soft shadows, minimalist aesthetic, subtle brand colors, professional product photography, 9:16 vertical",
-        "last_frame_prompt": "Same product shot with subtle text overlay space at top for brand logo, serum bottle as hero, clean white and gold aesthetic, 9:16 vertical",
+        "first_frame_prompt": "Clean flat lay of GlowSerum amber bottle on white marble surface, soft shadows, minimalist aesthetic, professional product photography, no people, 9:16 vertical",
+        "last_frame_prompt": "Same product flat lay, subtle zoom effect closer to bottle, space at top for text overlay, clean white and gold aesthetic, 9:16 vertical",
         "transition_type": "cut",
+        "camera_angle": "overhead_product",
+        "setting_change": true,
+        "video_generation_prompt": "Subtle slow zoom into product bottle, professional product shot, clean minimal motion",
         "audio_notes": "Upbeat music swell, text overlay: 'GlowSerum - 20% OFF'"
       }
     ]
@@ -293,6 +389,19 @@ Example - Fitness App Cinematic Ad (15 seconds):
 7. For cinematic style: emphasize production value cues (dramatic lighting, perfect composition, color grade)
 8. transition_type "smooth" means the last frame of previous scene should match first frame of next scene
 9. transition_type "cut" means a deliberate visual break (new location, angle, or subject)
+
+**🚨 CRITICAL - AVATAR WORKFLOW:**
+10. BEFORE creating any storyboard with actors: Check if user has provided an avatar image
+11. If NO avatar exists: ASK the user first: "Would you like me to generate an avatar for this video? This ensures the actor looks consistent across all scenes."
+12. If user says yes: Generate avatar using image_generation FIRST, wait for approval
+13. ONLY THEN proceed with storyboard_creation, passing the avatar URL
+14. EVERY frame prompt MUST start with "Base avatar character," or "Same actor from avatar," to ensure consistency
+15. EVERY frame prompt MUST include "SAME [setting/angle/lighting]" unless explicitly changing
+
+**VIDEO GENERATION PROMPTS:**
+16. Each scene should include a video_generation_prompt that describes the MOTION between first and last frame
+17. Keep video prompts focused on the ACTION/MOTION, not static descriptions
+18. Examples: "Woman turns head left to right", "Hand reaches for bottle", "Subtle zoom into product"
 
 ═══════════════════════════════════════════════════════════════════════════
 AUTOMATIC TOOL SELECTION FOR VIDEO CONTENT
@@ -485,7 +594,7 @@ export const TOOLS_SCHEMA = [
   },
   {
     name: 'storyboard_creation',
-    description: 'Create a complete video ad storyboard with multiple scenes. Each scene has first frame, last frame, description, and prompts for video generation. Use this for complete video ads, UGC videos, or any multi-scene video content.',
+    description: 'Create a complete video ad storyboard with multiple scenes. Each scene has first frame, last frame, description, and prompts for video generation. Use this for complete video ads, UGC videos, or any multi-scene video content. IMPORTANT: For videos with actors, an avatar must be generated first using image_generation.',
     parameters: {
       type: 'object',
       properties: {
@@ -504,6 +613,8 @@ export const TOOLS_SCHEMA = [
           type: 'string', 
           description: 'Aspect ratio: 9:16 for vertical, 16:9 for horizontal, 1:1 for square'
         },
+        avatar_image_url: { type: 'string', description: 'URL of the avatar/actor reference image for consistency' },
+        avatar_description: { type: 'string', description: 'Description of the avatar for prompt consistency' },
         scenes: {
           type: 'array',
           description: 'Array of scene objects',
@@ -514,16 +625,19 @@ export const TOOLS_SCHEMA = [
               scene_name: { type: 'string', description: 'Short descriptive name' },
               description: { type: 'string', description: 'What happens in this scene' },
               duration_seconds: { type: 'number', description: 'Scene duration' },
-              first_frame_prompt: { type: 'string', description: 'Detailed image prompt for opening frame' },
-              last_frame_prompt: { type: 'string', description: 'Detailed image prompt for closing frame' },
+              first_frame_prompt: { type: 'string', description: 'Image prompt for opening frame - MUST reference avatar' },
+              last_frame_prompt: { type: 'string', description: 'Image prompt for closing frame - MUST reference avatar' },
               transition_type: { 
                 type: 'string', 
                 enum: ['smooth', 'cut'],
                 description: 'Transition from previous scene'
               },
+              camera_angle: { type: 'string', description: 'Camera angle: same, close-up, wide, etc.' },
+              setting_change: { type: 'boolean', description: 'Whether this scene has a different setting' },
+              video_generation_prompt: { type: 'string', description: 'Prompt for video generation describing motion between frames' },
               audio_notes: { type: 'string', description: 'Voiceover, music, or sound notes' }
             },
-            required: ['scene_number', 'scene_name', 'description', 'first_frame_prompt', 'last_frame_prompt']
+            required: ['scene_number', 'scene_name', 'description', 'first_frame_prompt', 'last_frame_prompt', 'video_generation_prompt']
           }
         }
       },

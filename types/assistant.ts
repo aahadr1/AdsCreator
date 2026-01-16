@@ -160,12 +160,17 @@ export interface StoryboardScene {
   first_frame_prompt: string;
   last_frame_prompt: string;
   transition_type?: 'smooth' | 'cut';
+  camera_angle?: string;
+  setting_change?: boolean;
+  video_generation_prompt?: string;
   audio_notes?: string;
-  // Generated image URLs (populated after generation)
+  // Generated image URLs and status (populated after generation)
   first_frame_url?: string;
   last_frame_url?: string;
   first_frame_prediction_id?: string;
   last_frame_prediction_id?: string;
+  first_frame_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
+  last_frame_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
 }
 
 export interface Storyboard {
@@ -178,6 +183,9 @@ export interface Storyboard {
   total_duration_seconds?: number;
   style?: string;
   aspect_ratio?: string;
+  // Avatar reference for consistency
+  avatar_image_url?: string;
+  avatar_description?: string;
   scenes: StoryboardScene[];
   created_at: string;
   status: 'draft' | 'generating' | 'ready' | 'failed';
@@ -192,6 +200,9 @@ export interface StoryboardCreationInput {
   total_duration_seconds?: number;
   style?: string;
   aspect_ratio?: string;
+  // Avatar reference for image-to-image consistency
+  avatar_image_url?: string;
+  avatar_description?: string;
   scenes: Array<{
     scene_number: number;
     scene_name: string;
@@ -200,6 +211,9 @@ export interface StoryboardCreationInput {
     first_frame_prompt: string;
     last_frame_prompt: string;
     transition_type?: 'smooth' | 'cut';
+    camera_angle?: string;
+    setting_change?: boolean;
+    video_generation_prompt?: string;
     audio_notes?: string;
   }>;
 }
