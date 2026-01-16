@@ -38,7 +38,9 @@ import { analyzeForkNeeds, checkOutOfDate } from '@/lib/versioning';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-const CLAUDE_MODEL = 'anthropic/claude-sonnet-4';
+// NOTE: Replicate expects Anthropic models in the form "anthropic/<model-id>".
+// We keep this aligned with the known-working model used elsewhere in the repo.
+const CLAUDE_MODEL = 'anthropic/claude-4.5-sonnet';
 
 // -----------------------------------------------------------------------------
 // Intent Classification
@@ -207,7 +209,7 @@ Respond with JSON only:
       input: {
         prompt,
         max_tokens: 500,
-        system: 'You are a JSON-only intent classifier. Output valid JSON only.',
+        system_prompt: 'You are a JSON-only intent classifier. Output valid JSON only.',
       },
     });
     
@@ -220,6 +222,7 @@ Respond with JSON only:
       clarificationQuestion: "I'm not sure I understood. Could you tell me more about what you'd like to do?",
     };
   } catch (e) {
+    console.error('[UGC Agent] classifyIntent failed:', e);
     return {
       intent: 'unclear',
       confidence: 0.1,
@@ -282,7 +285,7 @@ Respond with JSON:
       input: {
         prompt,
         max_tokens: 400,
-        system: 'You are a JSON-only API. Output valid JSON only.',
+        system_prompt: 'You are a JSON-only API. Output valid JSON only.',
       },
     });
     
@@ -292,6 +295,7 @@ Respond with JSON:
       suggestedActions: [],
     };
   } catch (e) {
+    console.error('[UGC Agent] generateAgentResponse failed:', e);
     return {
       message: "Let me help you create your UGC ad. What product or service would you like to promote?",
       suggestedActions: ['Tell me about your product'],
@@ -440,7 +444,7 @@ Return JSON with any fields you can extract:
 Only include fields that are clearly present. Use null for missing fields.`;
 
   const llmOut = await replicate.run(CLAUDE_MODEL as `${string}/${string}`, {
-    input: { prompt: extractPrompt, max_tokens: 500, system: 'JSON only' },
+    input: { prompt: extractPrompt, max_tokens: 500, system_prompt: 'JSON only' },
   });
   
   const extracted = safeJsonParse<Partial<CreativeBrief>>(chunkToString(llmOut)) || {};
@@ -533,7 +537,7 @@ Return JSON array with 3 creators:
 Make them diverse but relevant. Each should have a distinct personality.`;
 
   const llmOut = await replicate.run(CLAUDE_MODEL as `${string}/${string}`, {
-    input: { prompt, max_tokens: 1500, system: 'JSON array only' },
+    input: { prompt, max_tokens: 1500, system_prompt: 'JSON array only' },
   });
   
   const personas = safeJsonParse<any[]>(chunkToString(llmOut)) || [];
@@ -732,7 +736,7 @@ RULES:
 - Each scene should flow naturally to next`;
 
   const llmOut = await replicate.run(CLAUDE_MODEL as `${string}/${string}`, {
-    input: { prompt, max_tokens: 2500, system: 'JSON only' },
+    input: { prompt, max_tokens: 2500, system_prompt: 'JSON only' },
   });
   
   const storyboardData = safeJsonParse<any>(chunkToString(llmOut));
