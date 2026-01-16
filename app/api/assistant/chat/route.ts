@@ -107,7 +107,7 @@ async function executeScriptCreation(input: ScriptCreationInput): Promise<{ succ
     const scriptSystemPrompt = `You are a world-class direct-response copywriter specializing in high-converting ad scripts for short-form video ads. Create compelling, original scripts that drive action and engagement. Use strong hooks, benefits, sensory language, social proof, and bold CTAs. Format the script with clear timing markers like [0-3s] HOOK, [3-10s] BODY, etc.`;
     
     let output = '';
-    const stream = await replicate.stream('anthropic/claude-sonnet-4-20250514', {
+    const stream = await replicate.stream('anthropic/claude-4-sonnet', {
       input: {
         prompt: composedPrompt,
         system_prompt: scriptSystemPrompt,
@@ -303,7 +303,7 @@ export async function POST(req: NextRequest) {
           // Signal reflexion start
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_start' })}\n\n`));
           
-          const stream = await replicate.stream('anthropic/claude-sonnet-4-20250514', {
+          const stream = await replicate.stream('anthropic/claude-4-sonnet', {
             input: {
               prompt: fullPrompt,
               system_prompt: ASSISTANT_SYSTEM_PROMPT,
