@@ -61,9 +61,85 @@ function parseToolCalls(content: string): Array<{ tool: string; input: Record<st
   const toolCallRegex = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
   let match;
   
+  function normalizeToolCallJson(raw: string): string {
+    let s = raw.trim();
+    // Remove common Markdown fences if the model wraps JSON
+    s = s.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+    // Normalize smart quotes
+    s = s
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .trim();
+    // Remove trailing commas in objects/arrays
+    s = s.replace(/,\s*([}\]])/g, '$1');
+    return s;
+  }
+
+  // Fix unescaped newlines inside JSON string literals
+  function escapeNewlinesInsideStrings(raw: string): string {
+    let out = '';
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (escape) {
+        out += ch;
+        escape = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        out += ch;
+        inString = !inString;
+        continue;
+      }
+      if (inString && (ch === '\n' || ch === '\r')) {
+        out += '\\n';
+        continue;
+      }
+      out += ch;
+    }
+    return out;
+  }
+
+  function tryParseJson(raw: string): any | null {
+    const normalized = normalizeToolCallJson(raw);
+    try {
+      return JSON.parse(normalized);
+    } catch {
+      // Try again after escaping newlines inside strings
+      try {
+        return JSON.parse(escapeNewlinesInsideStrings(normalized));
+      } catch {
+        // Try extracting the first JSON object substring via brace matching
+        const start = normalized.indexOf('{');
+        if (start === -1) return null;
+        let depth = 0;
+        for (let i = start; i < normalized.length; i++) {
+          const c = normalized[i];
+          if (c === '{') depth++;
+          else if (c === '}') depth--;
+          if (depth === 0) {
+            const candidate = normalized.slice(start, i + 1);
+            try {
+              return JSON.parse(escapeNewlinesInsideStrings(candidate));
+            } catch {
+              return null;
+            }
+          }
+        }
+        return null;
+      }
+    }
+  }
+
   while ((match = toolCallRegex.exec(content)) !== null) {
     try {
-      const parsed = JSON.parse(match[1]);
+      const parsed = tryParseJson(match[1]);
       if (parsed.tool && parsed.input) {
         toolCalls.push(parsed);
       }
@@ -705,6 +781,12 @@ export async function POST(req: NextRequest) {
             }
           }
           let cleanedResponse = cleanResponse(fullResponse);
+          const responseHadToolCallTag = fullResponse.includes('<tool_call>') && fullResponse.includes('</tool_call>');
+          if (!toolCalls.length && responseHadToolCallTag && !cleanedResponse.trim()) {
+            cleanedResponse =
+              'I generated a storyboard tool call, but it was not parseable. Please reply "retry storyboard" and I will reformat it as strict JSON.';
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: cleanedResponse })}\n\n`));
+          }
           
           if (!cleanedResponse.trim() && storyboardBlockedByAvatar) {
             if (userConfirmedAvatar && !confirmedAvatarUrl) {
