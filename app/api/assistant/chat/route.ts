@@ -356,9 +356,13 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       return { success: false, error: 'No latest version found for model' };
     }
     
+    // Force avatar outputs to JPG to maximize compatibility with later img2img steps
+    const forcedOutputFormat =
+      input.purpose === 'avatar' ? 'jpg' : (input.output_format || 'jpg');
+
     const predictionInput: Record<string, unknown> = {
       prompt: input.prompt,
-      output_format: input.output_format || 'jpg',
+      output_format: forcedOutputFormat,
     };
     
     if (input.image_input && input.image_input.length > 0) {
@@ -389,19 +393,18 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
   }
 }
 
-// Cache for model version ID to avoid repeated API calls
-let cachedModelVersionId: string | null = null;
-let cachedModelVersionTime: number = 0;
+// Cache for model version IDs to avoid repeated API calls
 const MODEL_VERSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const cachedModelVersions = new Map<string, { versionId: string; at: number }>();
 
 // Helper to get model version with caching
-async function getModelVersionId(token: string): Promise<string | null> {
+async function getModelVersionId(token: string, model: string): Promise<string | null> {
   const now = Date.now();
-  if (cachedModelVersionId && (now - cachedModelVersionTime) < MODEL_VERSION_CACHE_TTL) {
-    return cachedModelVersionId;
+  const cached = cachedModelVersions.get(model);
+  if (cached && (now - cached.at) < MODEL_VERSION_CACHE_TTL) {
+    return cached.versionId;
   }
-  
-  const model = 'google/nano-banana';
+
   const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
     headers: { Authorization: `Token ${token}` },
     cache: 'no-store',
@@ -415,10 +418,7 @@ async function getModelVersionId(token: string): Promise<string | null> {
   const modelJson = await modelRes.json();
   const versionId = modelJson?.latest_version?.id;
   
-  if (versionId) {
-    cachedModelVersionId = versionId;
-    cachedModelVersionTime = now;
-  }
+  if (versionId) cachedModelVersions.set(model, { versionId, at: now });
   
   return versionId || null;
 }
@@ -435,11 +435,22 @@ async function generateSingleImage(
       console.error('[Storyboard] No REPLICATE_API_TOKEN');
       return null;
     }
-    
-    const versionId = await getModelVersionId(token);
-    if (!versionId) {
-      console.error('[Storyboard] Could not get model version ID');
-      return null;
+    const tokenStr = String(token);
+
+    async function createPrediction(model: string, input: Record<string, unknown>) {
+      const versionId = await getModelVersionId(tokenStr, model);
+      if (!versionId) return { ok: false as const, status: 0, text: `No latest version found for ${model}` };
+      const res = await fetch(`${REPLICATE_API}/predictions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Token ${tokenStr}`,
+        },
+        body: JSON.stringify({ version: versionId, input }),
+      });
+      if (!res.ok) return { ok: false as const, status: res.status, text: await res.text() };
+      const json = await res.json();
+      return { ok: true as const, json };
     }
     
     // Build the enhanced prompt
@@ -450,55 +461,65 @@ async function generateSingleImage(
       enhancedPrompt = `${enhancedPrompt}, ${aspectRatio} aspect ratio`;
     }
     
-    const predictionInput: Record<string, unknown> = {
+    const baseInput: Record<string, unknown> = {
       prompt: enhancedPrompt,
       output_format: 'jpg',
     };
     
     // If reference image is provided, use it for image-to-image generation
     // This ensures consistency - same actor, same setting, same style
-    if (referenceImageUrl && /^https?:\/\//i.test(referenceImageUrl)) {
-      predictionInput.image_input = [referenceImageUrl];
-      // Add consistency instructions to the prompt
-      predictionInput.prompt = `Maintain exact same person, same face, same setting, same camera angle, same lighting as reference image. Only change: ${enhancedPrompt}`;
+    const hasRef = referenceImageUrl && /^https?:\/\//i.test(referenceImageUrl);
+    const refPrompt = hasRef
+      ? `Maintain exact same person, same face, same setting, same camera angle, same lighting as reference image. Only change: ${enhancedPrompt}`
+      : enhancedPrompt;
+
+    // Primary attempt: google/nano-banana with image_input array
+    const primaryModel = 'google/nano-banana';
+    const primaryInput: Record<string, unknown> = { ...baseInput, prompt: refPrompt };
+    if (hasRef) primaryInput.image_input = [String(referenceImageUrl)];
+
+    console.log('[Storyboard] Creating prediction (primary):', primaryModel);
+    let res1 = await createPrediction(primaryModel, primaryInput);
+    if (res1.ok) return { id: String(res1.json.id), status: String(res1.json.status) };
+
+    const err1 = String(res1.text || '');
+    // Retry on transient failures
+    if (res1.status === 429 || (res1.status >= 500 && res1.status < 600)) {
+      await delay(700);
+      res1 = await createPrediction(primaryModel, primaryInput);
+      if (res1.ok) return { id: String(res1.json.id), status: String(res1.json.status) };
     }
-    
-    console.log('[Storyboard] Creating prediction with prompt:', (predictionInput.prompt as string).substring(0, 100) + '...');
-    
-    const maxRetries = 2;
-    let attempt = 0;
-    while (attempt <= maxRetries) {
-      const res = await fetch(`${REPLICATE_API}/predictions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Token ${token}`,
-        },
-        body: JSON.stringify({ version: versionId, input: predictionInput }),
-      });
-      
-      if (res.ok) {
-        const prediction = await res.json();
-        console.log('[Storyboard] Prediction created:', prediction.id, prediction.status);
-        return { id: prediction.id, status: prediction.status };
-      }
-      
-      const errorText = await res.text();
-      console.error('[Storyboard] Prediction creation failed:', res.status, errorText);
-      
-      // Retry on rate limits or transient errors
-      if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-        attempt += 1;
-        if (attempt <= maxRetries) {
-          await delay(600 * attempt);
-          continue;
-        }
-      }
-      
-      return { id: '', status: 'failed', error: errorText || `HTTP ${res.status}` };
+
+    // If invalid input (E006) or schema mismatch, try fallbacks.
+    const isInvalidInput = err1.includes('(E006)') || err1.toLowerCase().includes('input was invalid');
+
+    if (hasRef && isInvalidInput) {
+      // Fallback A: nano-banana-pro (often more permissive)
+      const modelA = 'google/nano-banana-pro';
+      const inputA: Record<string, unknown> = { ...baseInput, prompt: refPrompt, image_input: [String(referenceImageUrl)] };
+      // Some versions may accept aspect_ratio explicitly
+      if (aspectRatio) inputA.aspect_ratio = aspectRatio;
+      console.log('[Storyboard] Fallback prediction:', modelA);
+      const resA = await createPrediction(modelA, inputA);
+      if (resA.ok) return { id: String(resA.json.id), status: String(resA.json.status) };
+
+      // Fallback B: flux-kontext-max (input_image img2img)
+      const modelB = 'black-forest-labs/flux-kontext-max';
+      const inputB: Record<string, unknown> = {
+        prompt: refPrompt,
+        input_image: String(referenceImageUrl),
+        aspect_ratio: 'match_input_image',
+        output_format: 'jpg',
+        // conservative safety; some configs require <=2 with input_image
+        safety_tolerance: 2,
+      };
+      console.log('[Storyboard] Fallback prediction:', modelB);
+      const resB = await createPrediction(modelB, inputB);
+      if (resB.ok) return { id: String(resB.json.id), status: String(resB.json.status) };
+      return { id: '', status: 'failed', error: `E006 invalid input. Tried nano-banana, nano-banana-pro, flux-kontext-max. Last error: ${String((resB as any).text || (resB as any).status || '')}` };
     }
-    
-    return null;
+
+    return { id: '', status: 'failed', error: `${res1.status || ''} ${err1}`.trim() || 'Prediction failed' };
   } catch (e: any) {
     console.error('[Storyboard] generateSingleImage error:', e.message || e);
     return { id: '', status: 'failed', error: e.message || 'Unknown error' };
