@@ -171,6 +171,8 @@ export interface StoryboardScene {
   last_frame_prediction_id?: string;
   first_frame_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
   last_frame_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
+  first_frame_error?: string;
+  last_frame_error?: string;
 }
 
 export interface Storyboard {

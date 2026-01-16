@@ -203,27 +203,58 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
   }
 }
 
+// Cache for model version ID to avoid repeated API calls
+let cachedModelVersionId: string | null = null;
+let cachedModelVersionTime: number = 0;
+const MODEL_VERSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Helper to get model version with caching
+async function getModelVersionId(token: string): Promise<string | null> {
+  const now = Date.now();
+  if (cachedModelVersionId && (now - cachedModelVersionTime) < MODEL_VERSION_CACHE_TTL) {
+    return cachedModelVersionId;
+  }
+  
+  const model = 'google/nano-banana';
+  const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
+    headers: { Authorization: `Token ${token}` },
+    cache: 'no-store',
+  });
+  
+  if (!modelRes.ok) {
+    console.error('[Storyboard] Failed to fetch model:', await modelRes.text());
+    return null;
+  }
+  
+  const modelJson = await modelRes.json();
+  const versionId = modelJson?.latest_version?.id;
+  
+  if (versionId) {
+    cachedModelVersionId = versionId;
+    cachedModelVersionTime = now;
+  }
+  
+  return versionId || null;
+}
+
 // Helper to generate a single image with optional image-to-image reference
 async function generateSingleImage(
   prompt: string, 
   aspectRatio?: string,
   referenceImageUrl?: string
-): Promise<{ id: string; status: string } | null> {
+): Promise<{ id: string; status: string; error?: string } | null> {
   try {
     const token = process.env.REPLICATE_API_TOKEN;
-    if (!token) return null;
+    if (!token) {
+      console.error('[Storyboard] No REPLICATE_API_TOKEN');
+      return null;
+    }
     
-    const model = 'google/nano-banana';
-    const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
-      headers: { Authorization: `Token ${token}` },
-      cache: 'no-store',
-    });
-    
-    if (!modelRes.ok) return null;
-    
-    const modelJson = await modelRes.json();
-    const versionId = modelJson?.latest_version?.id;
-    if (!versionId) return null;
+    const versionId = await getModelVersionId(token);
+    if (!versionId) {
+      console.error('[Storyboard] Could not get model version ID');
+      return null;
+    }
     
     // Build the enhanced prompt
     let enhancedPrompt = prompt;
@@ -240,28 +271,57 @@ async function generateSingleImage(
     
     // If reference image is provided, use it for image-to-image generation
     // This ensures consistency - same actor, same setting, same style
-    if (referenceImageUrl) {
+    if (referenceImageUrl && /^https?:\/\//i.test(referenceImageUrl)) {
       predictionInput.image_input = [referenceImageUrl];
       // Add consistency instructions to the prompt
       predictionInput.prompt = `Maintain exact same person, same face, same setting, same camera angle, same lighting as reference image. Only change: ${enhancedPrompt}`;
     }
     
-    const res = await fetch(`${REPLICATE_API}/predictions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Token ${token}`,
-      },
-      body: JSON.stringify({ version: versionId, input: predictionInput }),
-    });
+    console.log('[Storyboard] Creating prediction with prompt:', (predictionInput.prompt as string).substring(0, 100) + '...');
     
-    if (!res.ok) return null;
+    const maxRetries = 2;
+    let attempt = 0;
+    while (attempt <= maxRetries) {
+      const res = await fetch(`${REPLICATE_API}/predictions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Token ${token}`,
+        },
+        body: JSON.stringify({ version: versionId, input: predictionInput }),
+      });
+      
+      if (res.ok) {
+        const prediction = await res.json();
+        console.log('[Storyboard] Prediction created:', prediction.id, prediction.status);
+        return { id: prediction.id, status: prediction.status };
+      }
+      
+      const errorText = await res.text();
+      console.error('[Storyboard] Prediction creation failed:', res.status, errorText);
+      
+      // Retry on rate limits or transient errors
+      if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+        attempt += 1;
+        if (attempt <= maxRetries) {
+          await delay(600 * attempt);
+          continue;
+        }
+      }
+      
+      return { id: '', status: 'failed', error: errorText || `HTTP ${res.status}` };
+    }
     
-    const prediction = await res.json();
-    return { id: prediction.id, status: prediction.status };
-  } catch {
     return null;
+  } catch (e: any) {
+    console.error('[Storyboard] generateSingleImage error:', e.message || e);
+    return { id: '', status: 'failed', error: e.message || 'Unknown error' };
   }
+}
+
+// Small delay helper
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Execute storyboard creation tool
@@ -287,12 +347,17 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         useAvatarReference ? avatarUrl : undefined
       );
       
+      // Small delay to avoid rate limits
+      await delay(350);
+      
       // Generate last frame image with optional avatar reference
       const lastFramePrediction = await generateSingleImage(
         scene.last_frame_prompt,
         input.aspect_ratio,
         useAvatarReference ? avatarUrl : undefined
       );
+      
+      await delay(350);
       
       scenesWithPredictions.push({
         scene_number: scene.scene_number,
@@ -306,10 +371,12 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         setting_change: scene.setting_change,
         video_generation_prompt: scene.video_generation_prompt,
         audio_notes: scene.audio_notes,
-        first_frame_prediction_id: firstFramePrediction?.id,
-        last_frame_prediction_id: lastFramePrediction?.id,
-        first_frame_status: firstFramePrediction ? 'generating' : 'failed',
-        last_frame_status: lastFramePrediction ? 'generating' : 'failed',
+        first_frame_prediction_id: firstFramePrediction?.id || undefined,
+        last_frame_prediction_id: lastFramePrediction?.id || undefined,
+        first_frame_status: firstFramePrediction?.id ? 'generating' : 'failed',
+        last_frame_status: lastFramePrediction?.id ? 'generating' : 'failed',
+        first_frame_error: firstFramePrediction && !firstFramePrediction.id ? firstFramePrediction.error : undefined,
+        last_frame_error: lastFramePrediction && !lastFramePrediction.id ? lastFramePrediction.error : undefined,
       });
     }
     

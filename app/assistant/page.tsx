@@ -520,11 +520,13 @@ export default function AssistantPage() {
     label,
     initialUrl,
     initialStatus,
+    errorMessage,
   }: {
     predictionId?: string;
     label: string;
     initialUrl?: string;
     initialStatus?: string;
+    errorMessage?: string;
   }) {
     const [url, setUrl] = useState<string | null>(initialUrl || null);
     const [status, setStatus] = useState<string>(initialUrl ? 'succeeded' : (initialStatus || 'pending'));
@@ -603,6 +605,11 @@ export default function AssistantPage() {
                 <>
                   <AlertCircle size={24} />
                   <span>Generation failed</span>
+                  {errorMessage && (
+                    <span className={styles.frameErrorText}>
+                      {errorMessage}
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -652,6 +659,7 @@ export default function AssistantPage() {
             label="First Frame"
             initialUrl={scene.first_frame_url}
             initialStatus={scene.first_frame_status}
+            errorMessage={scene.first_frame_error}
           />
           <div className={styles.framesArrow}>
             <div className={styles.arrowLine} />
@@ -663,6 +671,7 @@ export default function AssistantPage() {
             label="Last Frame"
             initialUrl={scene.last_frame_url}
             initialStatus={scene.last_frame_status}
+            errorMessage={scene.last_frame_error}
           />
         </div>
 
