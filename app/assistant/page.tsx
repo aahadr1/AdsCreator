@@ -1,172 +1,52 @@
-/* eslint-disable react/no-array-index-key */
 'use client';
 
-import '../globals.css';
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { supabaseClient as supabase } from '../../lib/supabaseClient';
-import type { AssistantPlan, AssistantPlanMessage, AssistantMedia, AssistantPlanStep, AssistantRunEvent } from '../../types/assistant';
-import { TOOL_SPECS, fieldsForModel, defaultsForModel } from '../../lib/assistantTools';
-import MessageBubble from './components/MessageBubble';
-import ChatInput from './components/ChatInput';
-import CompactPlanWidget from './components/CompactPlanWidget';
-import StepWidget from './components/StepWidget';
-import ProgressWidget from './components/ProgressWidget';
-import OutputPreview from './components/OutputPreview';
-import ConversationSidebar from './components/ConversationSidebar';
-import AssistantEditor from './components/AssistantEditor';
-import UgcStoryboardModal from './components/UgcStoryboardModal';
-import { Menu, ChevronLeft, Edit, History } from 'lucide-react';
-import type { EditorAsset } from '../../types/editor';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { supabaseClient as supabase } from '@/lib/supabaseClient';
+import type {
+  UgcProject,
+  ChatMessage,
+  ProjectCapabilities,
+  WidgetBlock,
+  ProjectSettings,
+} from '@/types/ugc';
+import { getProjectCapabilities } from '@/types/ugc';
+import { TopBar } from './components/TopBar';
+import { ProjectPanel } from './components/ProjectPanel';
+import { ChatTimeline } from './components/ChatTimeline';
 
-type StepConfig = { model: string; inputs: Record<string, any> };
-type StepState = { 
-  status: 'idle' | 'running' | 'complete' | 'error'; 
-  outputUrl?: string | null; 
-  outputText?: string | null; 
-  error?: string | null;
-};
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
 
-type ChatMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  content?: string;
-  timestamp: Date;
-  attachments?: AssistantMedia[];
-  widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error' | 'phased';
-  widgetData?: any;
-};
+const generateId = () => `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 
-const EMPTY_PLAN: AssistantPlan = { summary: 'No plan yet', steps: [] };
-
-const ACTION_DESCRIPTIONS: Record<string, { base: string; withUpload?: string }> = {
-  image: { base: 'create the hero still image', withUpload: 'modify your uploaded image' },
-  video: { base: 'animate the approved still into a video spot' },
-  enhance: { base: 'enhance and upscale the imagery' },
-  background_remove: { base: 'remove the background from the clip' },
-  lipsync: { base: 'apply lipsync using the prepared audio' },
-  transcription: { base: 'transcribe the audio' },
-  tts: { base: 'generate narration audio' },
-};
-
-const shouldStartUgcBuilder = (text: string): boolean => {
-  const t = (text || '').trim().toLowerCase();
-  if (!t) return false;
-  if (/^\/ugc\b/i.test(t)) return true;
-  // Auto-detect phrases
-  const ugcKeywords = [
-    'ugc ad',
-    'ugc script',
-    'ugc video',
-    'ugc reel',
-    'ugc tiktok',
-    'tiktok ugc',
-    'creator style ad',
-    'creator-style ad',
-    'user generated content',
-  ];
-  return ugcKeywords.some(kw => t.includes(kw));
-};
-
-const shouldGenerateWorkflowPlan = (text: string): boolean => {
-  const t = (text || '').trim();
-  if (!t) return false;
-  if (/^\/(plan|workflow)\b/i.test(t)) return true;
-  // Only treat as "asked for a plan" when the user explicitly requests a plan/workflow/steps to execute.
-  const hasPlanNoun = /\b(plan|workflow|steps|step-by-step)\b/i.test(t);
-  const hasRequestVerb = /\b(create|generate|make|build|give|show|draft|write|produce)\b/i.test(t);
-  const looksLikeHowTo = /\b(step-by-step|steps to|workflow to)\b/i.test(t);
-  return (hasPlanNoun && hasRequestVerb) || looksLikeHowTo;
-};
-
-const stripUgcCommand = (text: string): string => {
-  const t = (text || '').trim();
-  return t.replace(/^\/ugc\b\s*/i, '').trim();
-};
-
-const stripPlanCommand = (text: string): string => {
-  const t = (text || '').trim();
-  return t.replace(/^\/(plan|workflow)\b\s*/i, '').trim();
-};
-
-const stepIntro = (idx: number, total: number): string => {
-  if (idx === 0) return 'First,';
-  if (idx === total - 1) return 'Finally,';
-  return 'Then,';
-};
-
-const inputsContainUrl = (inputs: Record<string, any> | undefined, url: string | undefined): boolean => {
-  if (!inputs || !url) return false;
-  try {
-    return JSON.stringify(inputs).includes(url);
-  } catch {
-    return false;
-  }
-};
-
-const describePlanIntent = (
-  plan: AssistantPlan,
-  media: AssistantMedia[],
-  history: AssistantPlanMessage[],
-): string => {
-  if (!plan.steps.length) return 'I\'ve analyzed your request.';
-  const lastUser = [...history].reverse().find((m) => m.role === 'user');
-  const counts = media.reduce<Record<string, number>>((acc, item) => {
-    acc[item.type] = (acc[item.type] || 0) + 1;
-    return acc;
-  }, {});
-  const attachmentParts = Object.entries(counts)
-    .filter(([, count]) => count > 0)
-    .map(([type, count]) => `${count} ${type}${count > 1 ? 's' : ''}`);
-  const attachmentLine = attachmentParts.length ? `I see ${attachmentParts.join(' and ')} attached.` : '';
-  const stepLookup = new Map(plan.steps.map((s) => [s.id, s]));
-  const total = plan.steps.length;
-  const sentences = plan.steps.slice(0, 3).map((step, idx) => {
-    const intro = stepIntro(idx, total);
-    const usesUpload = media.some((m) => inputsContainUrl(step.inputs, m.url || ''));
-    const desc = ACTION_DESCRIPTIONS[step.tool] || { base: step.title ? step.title.toLowerCase() : `run ${step.tool}` };
-    const action = usesUpload && desc.withUpload ? desc.withUpload : desc.base;
-    return `${intro} I'll ${action}.`;
-  });
-  if (total > 3) {
-    sentences.push(`...and ${total - 3} more step${total - 3 > 1 ? 's' : ''}.`);
-  }
-  return [attachmentLine, 'Here\'s the workflow I\'ll run:', ...sentences].filter(Boolean).join(' ');
-};
+// -----------------------------------------------------------------------------
+// Main Component
+// -----------------------------------------------------------------------------
 
 export default function AssistantPage() {
+  // Auth
   const [userId, setUserId] = useState<string>('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content:
-        "Hello! Ask me anything. If you want a runnable workflow, ask for a **workflow plan** (or start your message with `/plan ...`).",
-      timestamp: new Date(),
-    },
-  ]);
-  const [draft, setDraft] = useState<string>('');
-  const [attachments, setAttachments] = useState<AssistantMedia[]>([]);
-  const [plan, setPlan] = useState<AssistantPlan>(EMPTY_PLAN);
-  const [planLoading, setPlanLoading] = useState(false);
-  const [stepConfigs, setStepConfigs] = useState<Record<string, StepConfig>>({});
-  const [stepStates, setStepStates] = useState<Record<string, StepState>>({});
-  const [runState, setRunState] = useState<'idle' | 'running' | 'done'>('idle');
-  const [runError, setRunError] = useState<string | null>(null);
-  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed by default
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [ugcModalOpen, setUgcModalOpen] = useState(false);
-  const [ugcStoryboard, setUgcStoryboard] = useState<{ scenes: any[]; globalScript?: string; metadata?: any } | null>(null);
-  const [ugcSelectedAvatarUrl, setUgcSelectedAvatarUrl] = useState<string>('');
-  const streamRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, stepStates]);
+  // Project state (capability-based, no phases)
+  const [project, setProject] = useState<UgcProject | null>(null);
+  const [capabilities, setCapabilities] = useState<ProjectCapabilities>(getProjectCapabilities(null));
+
+  // Chat state
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<{ role: string; content: string }[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [attachments, setAttachments] = useState<{ type: 'image' | 'video' | 'file'; url: string; label?: string }[]>([]);
+
+  // UI state
+  const [showPreview, setShowPreview] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // -------------------------------------------------------------------------
+  // Initialize
+  // -------------------------------------------------------------------------
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -174,1345 +54,555 @@ export default function AssistantPage() {
     });
   }, []);
 
-  const validateStep = (step: AssistantPlanStep, cfg: StepConfig): string[] => {
-    const errors: string[] = [];
-    const fields = fieldsForModel(cfg.model || step.model, step.tool);
-    for (const field of fields) {
-      if (!field.required) continue;
-      const val = cfg.inputs?.[field.key];
-      if (val === undefined || val === null) {
-        errors.push(`${field.label} required`);
-        continue;
-      }
-      if (typeof val === 'string' && !val.trim()) errors.push(`${field.label} required`);
-    }
-    if (step.tool === 'video' && cfg.model.includes('kling-v2.1') && !cfg.inputs?.start_image) {
-      errors.push('Kling v2.1 requires start_image');
-    }
-    if (step.tool === 'image' && cfg.model === 'openai/gpt-image-1.5') {
-      const count = Number(cfg.inputs?.number_of_images || 0);
-      if (count > 10) errors.push('GPT Image 1.5 allows up to 10 images');
-    }
-    return errors;
-  };
-
-  const planReady = useMemo(() => {
-    if (!plan.steps.length) return false;
-    return plan.steps.every((step) => {
-      const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-      return validateStep(step, cfg).length === 0;
-    });
-  }, [plan, stepConfigs]);
-
-  const stepMap = useMemo(() => Object.fromEntries(plan.steps.map((s) => [s.id, s])), [plan]);
-
-  const updateStepConfig = (stepId: string, next: StepConfig) => {
-    setStepConfigs((prev) => ({ ...prev, [stepId]: next }));
-    // Update the step widget in chat messages
-    setChatMessages((prev) =>
-      prev.map((msg) => {
-        if (msg.widgetType === 'step' && msg.widgetData?.stepId === stepId) {
-          return {
-            ...msg,
-            widgetData: { ...msg.widgetData, config: next },
-          };
-        }
-        return msg;
-      })
-    );
-  };
-
-  // Handle clarification submissions
-  const handleClarificationSubmit = async (answers: Record<string, string>) => {
-    if (!userId) return;
-
-    // Format answers as a message
-    const answerText = Object.entries(answers)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\n');
-
-    addUserMessage(`Clarification answers:\n${answerText}`);
-
-    setPlanLoading(true);
-    setRunError(null);
-
-    // Get all messages including the new answers
-    const userMessages: AssistantPlanMessage[] = chatMessages
-      .filter((m) => m.role === 'user')
-      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
-    userMessages.push({ role: 'user', content: answerText });
-
-    try {
-      const res = await fetch('/api/assistant/plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          conversation_id: conversationId,
-          messages: userMessages,
-          media: attachments,
-        }),
-      });
-
-      if (!res.ok) throw new Error(await res.text());
-
-      const json = await res.json();
-
-      if (json.responseType === 'phased') {
-        addAssistantMessage(JSON.stringify(json), undefined, 'phased');
-        await saveConversation();
-        return;
-      }
-
-      const nextPlan: AssistantPlan = json.plan || json;
-      if (!nextPlan?.summary || !Array.isArray(nextPlan.steps)) throw new Error('Invalid plan response');
-
-      setPlan(nextPlan);
-      const nextConfigs: Record<string, StepConfig> = {};
-      const nextStates: Record<string, StepState> = {};
-      for (const step of nextPlan.steps) {
-        nextConfigs[step.id] = { model: step.model, inputs: { ...step.inputs } };
-        nextStates[step.id] = { status: 'idle' };
-      }
-      setStepConfigs(nextConfigs);
-      setStepStates(nextStates);
-
-      const narrative = describePlanIntent(nextPlan, attachments, userMessages);
-      addAssistantMessage(narrative);
-      await saveConversation();
-    } catch (error: any) {
-      console.error('[Plan Error]:', error);
-      addAssistantMessage(error.message || 'Failed to generate plan', 'error');
-      setRunError(error.message || 'Unknown error');
-    } finally {
-      setPlanLoading(false);
-    }
-  };
-
-  // Handle strategy proceed
-  const handleStrategyProceed = async () => {
-    if (!userId) return;
-
-    addUserMessage('Create execution plan from this strategy');
-
-    setPlanLoading(true);
-    setRunError(null);
-
-    const userMessages: AssistantPlanMessage[] = chatMessages
-      .filter((m) => m.role === 'user')
-      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
-    userMessages.push({ role: 'user', content: 'Create execution plan from this strategy' });
-
-    try {
-      const res = await fetch('/api/assistant/plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          conversation_id: conversationId,
-          messages: userMessages,
-          media: attachments,
-        }),
-      });
-
-      if (!res.ok) throw new Error(await res.text());
-
-      const json = await res.json();
-
-      if (json.responseType === 'phased') {
-        addAssistantMessage(JSON.stringify(json), undefined, 'phased');
-        await saveConversation();
-        return;
-      }
-
-      const nextPlan: AssistantPlan = json.plan || json;
-      if (!nextPlan?.summary || !Array.isArray(nextPlan.steps)) throw new Error('Invalid plan response');
-
-      setPlan(nextPlan);
-      const nextConfigs: Record<string, StepConfig> = {};
-      const nextStates: Record<string, StepState> = {};
-      for (const step of nextPlan.steps) {
-        nextConfigs[step.id] = { model: step.model, inputs: { ...step.inputs } };
-        nextStates[step.id] = { status: 'idle' };
-      }
-      setStepConfigs(nextConfigs);
-      setStepStates(nextStates);
-
-      const narrative = describePlanIntent(nextPlan, attachments, userMessages);
-      addAssistantMessage(narrative);
-      await saveConversation();
-    } catch (error: any) {
-      console.error('[Plan Error]:', error);
-      addAssistantMessage(error.message || 'Failed to generate plan', 'error');
-      setRunError(error.message || 'Unknown error');
-    } finally {
-      setPlanLoading(false);
-    }
-  };
-
-  // Handle dynamic actions from block renderer
-  const handleDynamicAction = async (action: string, parameters?: Record<string, any>) => {
-    if (!userId) return;
-
-    // Handle different action types
-    switch (action) {
-      case 'submit_answers':
-        // Similar to clarification submit
-        if (parameters?.answers) {
-          await handleClarificationSubmit(parameters.answers);
-        }
-        break;
-
-      case 'create_workflow':
-      case 'proceed':
-      case 'continue':
-        // Similar to strategy proceed
-        await handleStrategyProceed();
-        break;
-
-      case 'research_competitor':
-        // Trigger competitor research
-        if (parameters?.brand) {
-          const msg = `Research competitor: ${parameters.brand}`;
-          addUserMessage(msg);
-          setPlanLoading(true);
-          setRunError(null);
-          try {
-            const history: AssistantPlanMessage[] = [
-              ...chatMessages
-                .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-                .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
-                .filter((m) => m.content.trim().length > 0),
-              { role: 'user', content: msg },
-            ];
-            await generatePlan(msg, [], history);
-          } finally {
-            setPlanLoading(false);
-          }
-        }
-        break;
-
-      case 'regenerate':
-      case 'retry':
-        // Regenerate last response
-        setPlanLoading(true);
-        setRunError(null);
-        try {
-          const history: AssistantPlanMessage[] = chatMessages
-            .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-            .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
-            .filter((m) => m.content.trim().length > 0);
-          const lastUser = [...history].reverse().find((m) => m.role === 'user');
-          const seed = lastUser?.content || 'Create a workflow plan';
-          await generatePlan(seed, [], history);
-        } finally {
-          setPlanLoading(false);
-        }
-        break;
-
-      // UGC Builder Actions
-      case 'ugc_avatar_select':
-        // Deprecated: selection is now handled locally in the avatar picker widget.
-        // Keep for backward compatibility (no-op).
-        break;
-
-      case 'ugc_avatar_continue':
-        if (parameters?.selectedAvatarUrl) {
-          addUserMessage(`Generating storyboard...`);
-          setPlanLoading(true);
-          try {
-            const res = await fetch('/api/ugc-builder/storyboard/generate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                selectedAvatarUrl: parameters.selectedAvatarUrl,
-                avatarId: parameters.avatarId,
-                avatarPrompt: parameters.avatarPrompt,
-                sessionId: parameters.sessionId,
-                productImageUrl: parameters.productImageUrl,
-                context: parameters.context, // refinement prompt or original context
-              }),
-            });
-            if (!res.ok) {
-              const errText = await res.text();
-              throw new Error(errText || 'Failed to generate storyboard');
-            }
-            const data = await res.json();
-            addAssistantMessage(JSON.stringify(data));
-            await saveConversation();
-          } catch (e: any) {
-            addAssistantMessage(`Error generating storyboard: ${e.message}`, 'error');
-          } finally {
-            setPlanLoading(false);
-          }
-        }
-        break;
-
-      case 'ugc_intake_submit':
-        if (parameters?.answers && typeof parameters.answers === 'object') {
-          // Convert structured answers into a single brief string to feed the UGC builder.
-          const answers = parameters.answers as Record<string, any>;
-          const brief = [
-            `UGC BRIEF`,
-            answers.product_or_service ? `Product/Service: ${answers.product_or_service}` : null,
-            answers.target_customer ? `Target customer: ${answers.target_customer}` : null,
-            answers.platform ? `Platform: ${answers.platform}` : null,
-            answers.offer_cta ? `Offer/CTA: ${answers.offer_cta}` : null,
-            answers.brand_vibe ? `Brand vibe: ${answers.brand_vibe}` : null,
-            answers.language ? `Language: ${answers.language}` : null,
-            answers.constraints ? `Constraints: ${answers.constraints}` : null,
-            answers.must_include ? `Must include: ${answers.must_include}` : null,
-          ]
-            .filter(Boolean)
-            .join('\n');
-
-          addUserMessage('Thanks — generating creators for this brief.');
-          await startUgcBuilder(brief);
-        }
-        break;
-
-      case 'ugc_avatar_regenerate':
-        if (parameters?.refinementPrompt) {
-          const msg = `Regenerate avatars: ${parameters.refinementPrompt}`;
-          addUserMessage(msg);
-          await startUgcBuilder(msg, {
-            sessionId: typeof parameters?.sessionId === 'string' ? parameters.sessionId : null,
-            productImageUrl: typeof parameters?.productImageUrl === 'string' ? parameters.productImageUrl : null,
-          });
-        }
-        break;
-
-      case 'ugc_storyboard_open':
-        if (parameters?.storyboard) {
-          setUgcStoryboard(parameters.storyboard);
-          setUgcSelectedAvatarUrl(parameters.selectedAvatarUrl);
-          setUgcModalOpen(true);
-        }
-        break;
-
-      case 'ugc_video_assemble':
-        if (Array.isArray(parameters?.clips) && parameters.clips.length > 0) {
-          addUserMessage('Assembling final video...');
-          setPlanLoading(true);
-          try {
-            const res = await fetch('/api/ugc-builder/video/assemble', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                sessionId: parameters.sessionId,
-                clips: parameters.clips,
-                userId,
-              }),
-            });
-            if (!res.ok) throw new Error(await res.text());
-            const data = await res.json();
-            addAssistantMessage(JSON.stringify(data));
-            await saveConversation();
-          } catch (e: any) {
-            addAssistantMessage(`Error assembling video: ${e.message}`, 'error');
-          } finally {
-            setPlanLoading(false);
-          }
-        }
-        break;
-
-      default:
-        // Generic action: send to assistant as user message
-        const actionMessage = parameters 
-          ? `${action}: ${JSON.stringify(parameters)}`
-          : action;
-        addUserMessage(actionMessage);
-        setPlanLoading(true);
-        setRunError(null);
-        try {
-          const history: AssistantPlanMessage[] = [
-            ...chatMessages
-              .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-              .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
-              .filter((m) => m.content.trim().length > 0),
-            { role: 'user', content: actionMessage },
-          ];
-          await generatePlan(actionMessage, [], history);
-        } finally {
-          setPlanLoading(false);
-        }
-        break;
-    }
-  };
-
-  const sendChat = async (text: string, media: AssistantMedia[], history: AssistantPlanMessage[]) => {
-    const res = await fetch('/api/assistant/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: userId,
-        messages: history,
-        media,
-      }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const json = await res.json();
-    const message = typeof json?.message === 'string' ? json.message : '';
-    if (!message.trim()) throw new Error('Empty response from assistant');
-    addAssistantMessage(message);
-    await saveConversation();
-  };
-
-  const startUgcBuilder = async (
-    text: string,
-    opts?: { productImageUrl?: string | null; sessionId?: string | null }
-  ) => {
-    setPlanLoading(true);
-    setRunError(null);
-    try {
-      const res = await fetch('/api/ugc-builder/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userRequest: text,
-          userId,
-          productImageUrl: opts?.productImageUrl || undefined,
-          sessionId: opts?.sessionId || undefined,
-        }),
-      });
-      
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || 'Failed to start UGC builder');
-      }
-
-      const data = await res.json();
-      addAssistantMessage(JSON.stringify(data));
-      await saveConversation();
-    } catch (e: any) {
-      addAssistantMessage(`Failed to start UGC builder: ${e.message}`, 'error');
-    } finally {
-      setPlanLoading(false);
-    }
-  };
-
-  const generatePlan = async (text: string, media: AssistantMedia[], history: AssistantPlanMessage[]) => {
-    if (!userId) {
-      addAssistantMessage('Please sign in at /auth to generate a plan.', 'error');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/assistant/plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: history,
-          media,
-          user_id: userId,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const json = await res.json();
-      
-      // Check if this is a phased response (thinking/questions) or a plan
-      if (json.responseType === 'phased') {
-        console.log('[Frontend] 📥 Received phased response (thinking phase)');
-        // Store the phased response as a special assistant message
-        addAssistantMessage(JSON.stringify(json), undefined, 'phased');
-        await saveConversation();
-        return; // Don't set plan yet, wait for user input or completion
-      }
-      
-      const nextPlan: AssistantPlan = json.plan || json;
-      
-      // VERIFICATION: Log what we received from API
-      console.log('[Frontend] 📥 Received plan from API:');
-      console.log('[Frontend]   Summary:', nextPlan.summary);
-      console.log('[Frontend]   Steps count:', nextPlan.steps?.length || 0);
-      console.log('[Frontend]   Full plan JSON:', JSON.stringify(nextPlan, null, 2));
-      
-      if (!nextPlan.steps || !Array.isArray(nextPlan.steps)) {
-        console.error('[Frontend] ❌ CRITICAL: Received plan with invalid steps!');
-        console.error('[Frontend] Plan object:', nextPlan);
-        throw new Error('Received plan with invalid steps from API');
-      }
-      
-      if (nextPlan.steps.length === 0) {
-        console.error('[Frontend] ❌ CRITICAL: Received plan with no steps!');
-        throw new Error('Received plan with no steps from API');
-      }
-      
-      nextPlan.steps.forEach((step, idx) => {
-        console.log(`[Frontend]   ${idx + 1}. ${step.id} (${step.tool}) - ${step.model} - "${step.title}"`);
-        console.log(`[Frontend]      Inputs:`, JSON.stringify(step.inputs || {}, null, 2));
-        console.log(`[Frontend]      Dependencies:`, step.dependencies || []);
-      });
-      
-      setPlan(nextPlan);
-
-      const nextConfigs: Record<string, StepConfig> = {};
-      const nextStates: Record<string, StepState> = {};
-      for (const step of nextPlan.steps) {
-        nextConfigs[step.id] = { model: step.model, inputs: { ...step.inputs } };
-        nextStates[step.id] = { status: 'idle' };
-      }
-      setStepConfigs(nextConfigs);
-      setStepStates(nextStates);
-
-      const narrative = describePlanIntent(nextPlan, media, history);
-      addAssistantMessage(narrative);
-
-      // Save conversation to database
-      await saveConversation();
-    } catch (err: any) {
-      addAssistantMessage(err?.message || 'Failed to generate plan. Please try again.', 'error');
-    }
-  };
-
-  const handleSend = async () => {
-    if (!userId) {
-      addAssistantMessage('Please sign in at /auth to continue.', 'error');
-      return;
-    }
-
-    const raw = draft.trim();
-    const currentAttachments = [...attachments];
-    if (!raw && currentAttachments.length === 0) return;
-
-    const wantsPlan = shouldGenerateWorkflowPlan(raw);
-    const wantsUgc = shouldStartUgcBuilder(raw);
-    
-    let userText = raw;
-    if (wantsUgc) {
-      userText = stripUgcCommand(raw);
-    } else if (wantsPlan) {
-      userText = stripPlanCommand(raw);
-    }
-    
-    if (currentAttachments.length && !userText) userText = 'Analyze the attached media.';
-
-    // Add user message to UI
-    addUserMessage(userText || raw, currentAttachments.length > 0 ? currentAttachments : undefined);
-    setDraft('');
-    setAttachments([]);
-
-    setPlanLoading(true);
-    setRunError(null);
-
-    // Build full message history (include assistant + user), plus the new user message.
-    const history: AssistantPlanMessage[] = [
-      ...chatMessages
-        .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
-        .filter((m) => m.content.trim().length > 0),
-      { role: 'user', content: userText },
-    ];
-
-    try {
-      if (wantsUgc) {
-        const productImageUrl =
-          (currentAttachments.find((a) => a.type === 'image')?.url as string | undefined) || undefined;
-        await startUgcBuilder(userText, { productImageUrl });
-      } else if (wantsPlan) {
-        await generatePlan(userText, currentAttachments, history);
-      } else {
-        await sendChat(userText, currentAttachments, history);
-      }
-    } catch (error: any) {
-      console.error('[Assistant Error]:', error);
-      addAssistantMessage(error?.message || 'Request failed. Please try again.', 'error');
-      setRunError(error?.message || 'Unknown error');
-    } finally {
-      setPlanLoading(false);
-    }
-  };
-
-  const addUserMessage = (content: string, atts?: AssistantMedia[]) => {
-    const msg: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content,
-      timestamp: new Date(),
-      attachments: atts,
-    };
-    setChatMessages((prev) => [...prev, msg]);
-  };
-
-  const addAssistantMessage = (
-    content: string,
-    widgetType?: 'plan' | 'step' | 'progress' | 'output' | 'error' | 'phased',
-    widgetData?: any
-  ) => {
-    const msg: ChatMessage = {
-      id: `assistant-${Date.now()}`,
-      role: 'assistant',
-      content,
-      timestamp: new Date(),
-      widgetType,
-      widgetData,
-    };
-    setChatMessages((prev) => [...prev, msg]);
-  };
-
-  // Collect workflow outputs as EditorAssets
-  const getWorkflowAssets = useCallback((): EditorAsset[] => {
-    const assets: EditorAsset[] = [];
-    
-    plan.steps.forEach((step) => {
-      const state = stepStates[step.id];
-      if (!state || state.status !== 'complete') return;
-
-      if (state.outputUrl) {
-        let type: EditorAsset['type'] = 'text';
-        const url = state.outputUrl;
-        
-        if (step.outputType === 'image' || /\.(png|jpg|jpeg|gif|webp)/i.test(url)) {
-          type = 'image';
-        } else if (step.outputType === 'video' || /\.(mp4|webm|mov|avi)/i.test(url)) {
-          type = 'video';
-        } else if (step.outputType === 'audio' || /\.(mp3|wav|ogg|m4a)/i.test(url)) {
-          type = 'audio';
-        } else if (step.outputType === 'text' || state.outputText) {
-          type = 'text';
-        }
-
-        assets.push({
-          id: `workflow-${step.id}`,
-          type,
-          url: state.outputUrl,
-          name: step.title || `Step ${step.id}`,
-          source: 'workflow',
-          sourceId: step.id,
-        });
-      } else if (state.outputText) {
-        assets.push({
-          id: `workflow-${step.id}-text`,
-          type: 'text',
-          url: `data:text/plain;base64,${btoa(state.outputText)}`,
-          name: `${step.title || `Step ${step.id}`} (text)`,
-          source: 'workflow',
-          sourceId: step.id,
-        });
-      }
-    });
-
-    return assets;
-  }, [plan, stepStates]);
-
-  const parseSse = (chunk: string): AssistantRunEvent[] => {
-    return chunk
-      .split('\n\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => line.replace(/^data:\s*/i, ''))
-      .map((json) => {
-        try {
-          return JSON.parse(json) as AssistantRunEvent;
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean) as AssistantRunEvent[];
-  };
-
-  const runWorkflow = async (startFromId?: string) => {
-    if (!planReady || !userId) return;
-    const startIndex = startFromId ? plan.steps.findIndex((s) => s.id === startFromId) : 0;
-    const boundedStart = startIndex >= 0 ? startIndex : 0;
-    setRunState('running');
-    setRunError(null);
-    
-    // Update global task state for favicon - workflow starting
-    const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
-    updateTaskStateFromJobStatus('running');
-
-    // Add progress widget message
-    const progressMsgId = `progress-${Date.now()}`;
-    addAssistantMessage('Starting workflow execution...', 'progress', {
-      current: 0,
-      total: plan.steps.length,
-    });
-
-    setStepStates((prev) =>
-      plan.steps.reduce<Record<string, StepState>>((acc, step, idx) => {
-        const prevState = prev[step.id] || { status: 'idle' };
-        acc[step.id] = idx >= boundedStart ? { ...prevState, status: 'idle', error: null } : prevState;
-        return acc;
-      }, {}),
-    );
-
-    const prepareInputs = (step: AssistantPlanStep, cfg: StepConfig) => {
-      const inputs: Record<string, any> = { ...cfg.inputs };
-      const fields = step.fields || [];
-      fields.forEach((field) => {
-        const val = inputs[field.key];
-        if (typeof val === 'string') {
-          if (['input_images', 'image_input'].includes(field.key)) {
-            inputs[field.key] = val
-              .split(',')
-              .map((p) => p.trim())
-              .filter(Boolean);
-          }
-        }
-      });
-      return inputs;
-    };
-
-    const payloadSteps = plan.steps.slice(boundedStart).map((step) => {
-      const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-      return { ...step, model: cfg.model, inputs: prepareInputs(step, cfg) };
-    });
-    const previousOutputs = boundedStart > 0
-      ? plan.steps.slice(0, boundedStart).reduce<Record<string, { url?: string | null; text?: string | null }>>((acc, step) => {
-        const state = stepStates[step.id];
-        if (state?.outputUrl || state?.outputText) {
-          acc[step.id] = { url: state.outputUrl || null, text: state.outputText || null };
-        }
-        return acc;
-      }, {})
-      : undefined;
-
-    // Get user messages for context
-    const userMessages: AssistantPlanMessage[] = chatMessages
-      .filter((m) => m.role === 'user')
-      .map((m) => ({ role: 'user' as const, content: m.content || '' }));
-
-    try {
-      const res = await fetch('/api/assistant/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          steps: payloadSteps,
-          user_id: userId,
-          plan_summary: plan.summary,
-          user_messages: userMessages,
-          previous_outputs: previousOutputs,
-          conversation_id: conversationId,
-        }),
-      });
-      if (!res.ok || !res.body) throw new Error(await res.text());
-      const reader = res.body.getReader();
-      streamRef.current = reader;
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let completedSteps = 0;
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const segments = buffer.split('\n\n');
-        buffer = segments.pop() || '';
-        for (const segment of segments) {
-          const events = parseSse(segment);
-          for (const event of events) {
-            if (event.type === 'step_start') {
-              setStepStates((prev) => ({
-                ...prev,
-                [event.stepId]: { ...(prev[event.stepId] || { status: 'idle' }), status: 'running' },
-              }));
-              // Update global task state for favicon - step starting (keep in_progress)
-              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
-              updateTaskStateFromJobStatus('running');
-              // Update or create step widget message (avoid duplicates)
-              setChatMessages((prev) => {
-                const existingStepMsg = prev.find(
-                  (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === event.stepId
-                );
-                if (existingStepMsg) {
-                  // Update existing message
-                  return prev.map((msg) => {
-                    if (msg.id === existingStepMsg.id) {
-                      return {
-                        ...msg,
-                        widgetData: {
-                          ...msg.widgetData,
-                          state: { status: 'running' as const },
-                        },
-                      };
-                    }
-                    return msg;
-                  });
-                } else {
-                  // Create new message only if it doesn't exist
-                  const step = stepMap[event.stepId];
-                  if (step) {
-                    const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-                    const deps = (step.dependencies || [])
-                      .map((id) => stepMap[id])
-                      .filter(Boolean)
-                      .map((s) => ({ id: s.id, title: s.title }));
-                    return [
-                      ...prev,
-                      {
-                        id: `step-${event.stepId}`,
-                        role: 'assistant' as const,
-                        content: `Starting: ${step.title}`,
-                        timestamp: new Date(),
-                        widgetType: 'step' as const,
-                        widgetData: {
-                          step,
-                          config: cfg,
-                          state: { status: 'running' as const },
-                          stepIndex: plan.steps.findIndex((s) => s.id === step.id),
-                          dependencies: deps,
-                        },
-                      },
-                    ];
-                  }
-                }
-                return prev;
-              });
-              // Update progress
-              setChatMessages((prev) =>
-                prev.map((msg) => {
-                  if (msg.widgetType === 'progress') {
-                    return {
-                      ...msg,
-                      widgetData: {
-                        ...msg.widgetData,
-                        current: completedSteps,
-                        currentStepTitle: stepMap[event.stepId]?.title,
-                      },
-                    };
-                  }
-                  return msg;
-                })
-              );
-            } else if (event.type === 'step_complete') {
-              completedSteps++;
-              setStepStates((prev) => ({
-                ...prev,
-                [event.stepId]: {
-                  status: 'complete',
-                  outputUrl: event.outputUrl ?? prev[event.stepId]?.outputUrl,
-                  outputText: event.outputText ?? prev[event.stepId]?.outputText,
-                },
-              }));
-              // Update global task state for favicon - step completed (still in_progress if more steps)
-              // Will be updated to 'done' when workflow completes
-              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
-              // Keep as in_progress until all steps are done
-              updateTaskStateFromJobStatus('running');
-              // Update existing step message instead of creating new one
-              setChatMessages((prev) => {
-                const existingStepMsg = prev.find(
-                  (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === event.stepId
-                );
-                if (existingStepMsg) {
-                  return prev.map((msg) => {
-                    if (msg.id === existingStepMsg.id) {
-                      const step = stepMap[event.stepId];
-                      const cfg = stepConfigs[step.id] || { model: step.model, inputs: step.inputs };
-                      return {
-                        ...msg,
-                        content: `✓ ${step?.title || 'Step'} complete${event.outputUrl ? '' : '.'}`,
-                        widgetData: {
-                          ...msg.widgetData,
-                          state: {
-                            status: 'complete' as const,
-                            outputUrl: event.outputUrl,
-                            outputText: event.outputText,
-                          },
-                        },
-                      };
-                    }
-                    return msg;
-                  });
-                }
-                return prev;
-              });
-              // Update progress
-              setChatMessages((prev) =>
-                prev.map((msg) => {
-                  if (msg.widgetType === 'progress') {
-                    return {
-                      ...msg,
-                      widgetData: {
-                        ...msg.widgetData,
-                        current: completedSteps,
-                      },
-                    };
-                  }
-                  return msg;
-                })
-              );
-            } else if (event.type === 'step_error') {
-              setStepStates((prev) => ({
-                ...prev,
-                [event.stepId]: { status: 'error', error: event.error },
-              }));
-              // Update global task state for favicon - step failed
-              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
-              updateTaskStateFromJobStatus('error');
-              // Update existing step message instead of creating new one
-              setChatMessages((prev) => {
-                const existingStepMsg = prev.find(
-                  (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === event.stepId
-                );
-                if (existingStepMsg) {
-                  return prev.map((msg) => {
-                    if (msg.id === existingStepMsg.id) {
-                      const step = stepMap[event.stepId];
-                      return {
-                        ...msg,
-                        content: `✗ ${step?.title || 'Step'} failed: ${event.error}`,
-                        widgetData: {
-                          ...msg.widgetData,
-                          state: { status: 'error' as const, error: event.error },
-                        },
-                      };
-                    }
-                    return msg;
-                  });
-                }
-                return prev;
-              });
-            } else if (event.type === 'done') {
-              setRunState(event.status === 'success' ? 'done' : 'idle');
-              // Update global task state for favicon - workflow complete
-              const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
-              if (event.status === 'success') {
-                updateTaskStateFromJobStatus('success');
-                const outputs = event.outputs && typeof event.outputs === 'object'
-                  ? Object.values(event.outputs as Record<string, any>)
-                  : [];
-                const urls = outputs
-                  .map((o: any) => (o?.url as string | undefined) || null)
-                  .filter((u): u is string => Boolean(u));
-                addAssistantMessage(
-                  urls.length
-                    ? `Workflow complete! Generated ${urls.length} output${urls.length > 1 ? 's' : ''}.`
-                    : 'Workflow complete!',
-                  'output',
-                  { showEditorButton: true }
-                );
-              } else {
-                updateTaskStateFromJobStatus('error');
-              }
-              // Update progress to complete
-              setChatMessages((prev) =>
-                prev.map((msg) => {
-                  if (msg.widgetType === 'progress') {
-                    return {
-                      ...msg,
-                      widgetData: {
-                        ...msg.widgetData,
-                        current: plan.steps.length,
-                      },
-                    };
-                  }
-                  return msg;
-                })
-              );
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      addAssistantMessage(err?.message || 'Workflow execution failed.', 'error');
-      setRunState('idle');
-      // Update global task state for favicon - workflow failed
-      const { updateTaskStateFromJobStatus } = await import('../../lib/taskStateHelper');
-      updateTaskStateFromJobStatus('error');
-    } finally {
-      streamRef.current = null;
-    }
-  };
-
-  const handleRetryStep = (stepId: string) => {
-    runWorkflow(stepId);
-  };
-
-  const handleStepClick = (stepId: string) => {
-    // Toggle expanded state in compact widget
-    setExpandedStepId(expandedStepId === stepId ? null : stepId);
-    
-    // Also find or create step widget message in chat for full details
-    const step = plan.steps.find((s) => s.id === stepId);
-    if (!step) return;
-
-    const stepWidgetMsg = chatMessages.find(
-      (msg) => msg.widgetType === 'step' && msg.widgetData?.step?.id === stepId
-    );
-
-    if (stepWidgetMsg) {
-      // Scroll to existing step widget
-      const element = document.getElementById(`step-widget-${stepId}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setChatMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id === stepWidgetMsg.id && msg.widgetType === 'step') {
-              return {
-                ...msg,
-                widgetData: {
-                  ...msg.widgetData,
-                  forceExpanded: true,
-                },
-              };
-            }
-            return msg;
-          })
-        );
-      }
-    } else {
-      // Create a new step widget message if it doesn't exist
-      const cfg = stepConfigs[stepId] || { model: step.model, inputs: step.inputs };
-      const state = stepStates[stepId] || { status: 'idle' };
-      const deps = (step.dependencies || [])
-        .map((id) => plan.steps.find((s) => s.id === id))
-        .filter(Boolean)
-        .map((s) => ({ id: s!.id, title: s!.title }));
-      
-      addAssistantMessage(`Step: ${step.title}`, 'step', {
-        step,
-        config: cfg,
-        state,
-        stepIndex: plan.steps.findIndex((s) => s.id === stepId),
-        dependencies: deps,
-        forceExpanded: true,
-      });
-      
-      setTimeout(() => {
-        const element = document.getElementById(`step-widget-${stepId}`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 100);
-    }
-  };
-
-  const handleStepExpand = (stepId: string) => {
-    // Open full step widget in chat
-    handleStepClick(stepId);
-  };
-
-  const saveConversation = async () => {
-    if (!userId) return;
-
-    try {
-      const conversationData = {
-        user_id: userId,
-        messages: chatMessages.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-          attachments: msg.attachments,
-          timestamp: msg.timestamp.toISOString(),
-        })),
-        plan: plan.steps.length > 0 ? {
-          summary: plan.summary,
-          steps: plan.steps,
-        } : null,
-        title: chatMessages.find((m) => m.role === 'user')?.content?.slice(0, 100) || 'New Conversation',
-      };
-
-      if (conversationId) {
-        // Update existing conversation
-        const res = await fetch('/api/assistant/conversations', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: conversationId,
-            ...conversationData,
-          }),
-        });
-        if (!res.ok) console.error('Failed to update conversation');
-      } else {
-        // Create new conversation
-        const res = await fetch('/api/assistant/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(conversationData),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setConversationId(data.id);
-        } else {
-          console.error('Failed to save conversation');
-        }
-      }
-    } catch (error) {
-      console.error('Error saving conversation:', error);
-    }
-  };
-
-  // Auto-save conversation when messages or plan change
+  // Welcome message
   useEffect(() => {
-    if (chatMessages.length > 1 && userId) {
-      const timeoutId = setTimeout(() => {
-        saveConversation();
-      }, 2000); // Debounce: save 2 seconds after last change
-      return () => clearTimeout(timeoutId);
-    }
-  }, [chatMessages, plan, userId]);
-
-  const handleNewConversation = () => {
-    setConversationId(null);
-    setChatMessages([{
+    if (messages.length === 0) {
+      setMessages([{
       id: 'welcome',
       role: 'assistant',
-      content: 'Hello! I can help you create workflows for image generation, video creation, text-to-speech, and more. What would you like to create?',
+        content: "Hey! 👋 I'm your UGC ad creator. Tell me about the product or service you want to promote, and I'll handle everything from there - casting, script, storyboard, and video generation.\n\n**What would you like to advertise?**",
       timestamp: new Date(),
-    }]);
-    setPlan(EMPTY_PLAN);
-    setStepConfigs({});
-    setStepStates({});
-    setDraft('');
-    setAttachments([]);
-  };
+      }]);
+    }
+  }, []);
 
-  const handleSelectConversation = async (id: string | null) => {
-    if (!id) {
-      handleNewConversation();
+  // Update capabilities when project changes
+  useEffect(() => {
+    setCapabilities(getProjectCapabilities(project));
+  }, [project]);
+
+  // -------------------------------------------------------------------------
+  // Polling for async jobs
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!project) return;
+
+    // Poll for actor images
+    const processingActors = project.actors.filter(a => a.imageStatus === 'processing' && a.imageJobId);
+    // Poll for keyframes
+    const processingKeyframes = project.storyboard?.scenes.flatMap(s =>
+      s.keyframes.filter(k => k.status === 'processing' && k.imageJobId)
+    ) || [];
+    // Poll for clips
+    const processingClips = project.clips.filter(c => c.status === 'processing' && c.jobId);
+
+    if (processingActors.length === 0 && processingKeyframes.length === 0 && processingClips.length === 0) {
       return;
     }
 
-    try {
-      const res = await fetch(`/api/assistant/conversations?user_id=${userId}&id=${id}`);
-      if (res.ok) {
-        const conv = await res.json();
-        setConversationId(conv.id);
-        
-        // Load messages
-        const messages = (conv.messages || []).map((m: any) => ({
-          ...m,
-          timestamp: new Date(m.timestamp || conv.created_at),
-        }));
-        setChatMessages(messages.length > 0 ? messages : [{
-          id: 'welcome',
-          role: 'assistant',
-          content: 'Hello! I can help you create workflows for image generation, video creation, text-to-speech, and more. What would you like to create?',
-          timestamp: new Date(),
-        }]);
-        
-        // Load plan
-        if (conv.plan) {
-          setPlan(conv.plan);
-          // Restore step configs
-          const configs: Record<string, StepConfig> = {};
-          conv.plan.steps.forEach((step: AssistantPlanStep) => {
-            configs[step.id] = {
-              model: step.model,
-              inputs: step.inputs || {},
-            };
-          });
-          setStepConfigs(configs);
+    const interval = setInterval(async () => {
+      let updated = false;
+
+      // Check actors
+      for (const actor of processingActors) {
+        try {
+          const res = await fetch(`/api/replicate/status?id=${actor.imageJobId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'succeeded') {
+              setProject(prev => {
+                if (!prev) return null;
+          return {
+                  ...prev,
+                  actors: prev.actors.map(a =>
+                    a.id === actor.id
+                      ? { ...a, imageStatus: 'complete' as const, imageUrl: data.outputUrl || data.output }
+                      : a
+                  ),
+                  updatedAt: new Date(),
+                };
+              });
+              updated = true;
+            } else if (data.status === 'failed') {
+              setProject(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  actors: prev.actors.map(a =>
+                    a.id === actor.id ? { ...a, imageStatus: 'failed' as const } : a
+                  ),
+                  updatedAt: new Date(),
+                };
+              });
+              updated = true;
+            }
+          }
+        } catch (e) {
+          console.error('Poll error:', e);
         }
       }
-    } catch (error) {
-      console.error('Error loading conversation:', error);
+
+      // Check keyframes
+      for (const kf of processingKeyframes) {
+        try {
+          const res = await fetch(`/api/ugc/keyframes?jobId=${kf.imageJobId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'succeeded') {
+              setProject(prev => {
+                if (!prev?.storyboard) return prev;
+                return {
+                  ...prev,
+                  storyboard: {
+                    ...prev.storyboard,
+                    scenes: prev.storyboard.scenes.map(s => ({
+                      ...s,
+                      keyframes: s.keyframes.map(k =>
+                        k.id === kf.id
+                          ? { ...k, status: 'complete' as const, imageUrl: data.imageUrl }
+                          : k
+                      ),
+                    })),
+                  },
+                  updatedAt: new Date(),
+                };
+              });
+              updated = true;
+            }
+          }
+        } catch (e) {
+          console.error('Keyframe poll error:', e);
+        }
+      }
+
+      // Check clips
+      for (const clip of processingClips) {
+        try {
+          const res = await fetch(`/api/ugc/video?jobId=${clip.jobId}&projectId=${project.id}&clipId=${clip.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'succeeded') {
+              setProject(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  clips: prev.clips.map(c =>
+                    c.id === clip.id
+                      ? { ...c, status: 'complete' as const, videoUrl: data.videoUrl }
+                      : c
+                  ),
+                  updatedAt: new Date(),
+                };
+              });
+              updated = true;
+            } else if (data.status === 'failed') {
+              setProject(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  clips: prev.clips.map(c =>
+                    c.id === clip.id
+                      ? { ...c, status: 'failed' as const, autoFixSuggestion: data.autoFixSuggestion }
+                      : c
+                  ),
+                  updatedAt: new Date(),
+                };
+              });
+              updated = true;
+            }
+          }
+        } catch (e) {
+          console.error('Clip poll error:', e);
+        }
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [project]);
+
+  // -------------------------------------------------------------------------
+  // Agent Communication
+  // -------------------------------------------------------------------------
+
+  const callAgent = async (userMessage: string, widgetAction?: { widgetId: string; action: string; data?: any }) => {
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/ugc/agent', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+          userMessage,
+                userId,
+          projectId: project?.id,
+          conversationHistory,
+          widgetAction,
+              }),
+            });
+
+            if (!res.ok) throw new Error(await res.text());
+
+            const data = await res.json();
+
+      // Update conversation history
+      setConversationHistory(prev => [
+        ...prev,
+        { role: 'user', content: userMessage },
+        { role: 'assistant', content: data.message },
+      ]);
+
+      // Add assistant message with widgets
+      const assistantMsg: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: data.message,
+        timestamp: new Date(),
+        blocks: data.blocks,
+        toolCalls: data.toolCalls,
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+
+      // Update project from contextPatch or full state
+      if (data.contextPatch || data.projectId) {
+        // Fetch updated project state
+        // For now, merge contextPatch into local state
+        if (data.contextPatch) {
+          setProject(prev => prev ? { ...prev, ...data.contextPatch, updatedAt: new Date() } : null);
+        }
+      }
+
+      // If we got a new project ID and don't have one, set it
+      if (data.projectId && !project) {
+        // Minimal project initialization
+        setProject({
+          id: data.projectId,
+          name: 'New UGC Ad',
+          userId,
+          settings: {
+            aspectRatio: '9:16',
+            targetDuration: 30,
+            fps: 30,
+            resolution: '1080p',
+            language: 'en',
+          },
+          actors: data.contextPatch?.actors || [],
+          clips: [],
+          brief: data.contextPatch?.brief,
+          briefVersion: 0,
+          storyboardVersion: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+
+      // Update capabilities
+      if (data.capabilities) {
+        setCapabilities(data.capabilities);
+      }
+
+      // Handle tool calls (trigger media generation jobs)
+      if (data.toolCalls) {
+        for (const tc of data.toolCalls) {
+          if (tc.tool === 'generate_actors' && tc.status === 'pending') {
+            // Actor image generation is already started by the agent
+            // Just update local state with pending actors
+          }
+          // Similarly for keyframes, videos, etc.
+        }
+      }
+
+      return data;
+    } catch (e: any) {
+      const errorMsg: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: `Oops, something went wrong: ${e.message}. Let's try that again!`,
+        timestamp: new Date(),
+        blocks: [{
+          id: generateId(),
+          type: 'error',
+          data: { error: e.message, recoveryOptions: ['Try again'] },
+          timestamp: new Date(),
+        }],
+      };
+      setMessages(prev => [...prev, errorMsg]);
+      return null;
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleUgcGenerateClips = async (scenes: any[]) => {
-    // Optimistically update local state if needed (not strictly necessary as we close modal)
-    // Send request to generate clips
-    try {
-      addAssistantMessage("Generating video clips for your storyboard scenes...");
-      const sessionId = ugcStoryboard?.metadata?.sessionId;
-      const res = await fetch('/api/ugc-builder/video/scenes/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenes, sessionId })
-      });
-      const data = await res.json();
-      addAssistantMessage(JSON.stringify(data));
-      await saveConversation();
-    } catch (e: any) {
-      addAssistantMessage(`Error generating clips: ${e.message}`, 'error');
+  // -------------------------------------------------------------------------
+  // Message Handlers
+  // -------------------------------------------------------------------------
+
+  const handleSend = async () => {
+    if (!input.trim() && attachments.length === 0) return;
+    if (!userId) {
+      setMessages(prev => [...prev, {
+        id: generateId(),
+        role: 'assistant',
+        content: "Please sign in first at /auth to create ads.",
+        timestamp: new Date(),
+      }]);
+      return;
+    }
+
+    const userText = input.trim() || 'Here is an attachment';
+    const currentAttachments = [...attachments];
+
+    // Add user message
+    const userMsg: ChatMessage = {
+      id: generateId(),
+      role: 'user',
+      content: userText,
+      timestamp: new Date(),
+      attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
+    };
+    setMessages(prev => [...prev, userMsg]);
+
+    setInput('');
+    setAttachments([]);
+
+    // Call agent
+    await callAgent(userText);
+  };
+
+  const handleWidgetAction = async (widgetId: string, action: string, data?: any) => {
+    // Handle widget actions by sending to agent
+    let userMessage = '';
+
+    switch (action) {
+      case 'submit_brief':
+        userMessage = `Here's my brief: ${JSON.stringify(data)}`;
+        break;
+      case 'select_actor':
+        userMessage = `I'll go with this creator`;
+        break;
+      case 'regenerate_actors':
+        userMessage = 'Generate different creator options';
+        break;
+      case 'lock_direction':
+        userMessage = `Lock the direction with these settings: ${JSON.stringify(data)}`;
+        break;
+      case 'generate_storyboard':
+        userMessage = 'Generate the storyboard';
+        break;
+      case 'approve_scene':
+        userMessage = `Approve scene ${data?.sceneId}`;
+        break;
+      case 'approve_storyboard':
+        userMessage = 'Approve the entire storyboard';
+        break;
+      case 'generate_videos':
+        userMessage = 'Generate video clips for all scenes';
+        break;
+      case 'regenerate_clip':
+        userMessage = `Regenerate clip for scene ${data?.sceneId} with feedback: ${data?.feedback?.join(', ')}`;
+        break;
+      case 'assemble':
+        userMessage = 'Assemble the final video';
+        break;
+      case 'export':
+        userMessage = 'Export the final video';
+        break;
+      case 'qcm_response':
+        userMessage = `I choose: ${data?.values || data?.selected?.join(', ')}`;
+        break;
+      case 'edit_brief':
+        userMessage = 'I want to edit the brief';
+        break;
+      case 'confirm_brief':
+        userMessage = 'Brief looks good, continue';
+        break;
+      case 'retry':
+        userMessage = 'Let\'s try that again';
+        break;
+      default:
+        userMessage = `Action: ${action}`;
+    }
+
+    // Add implicit user message
+    setMessages(prev => [...prev, {
+      id: generateId(),
+      role: 'user',
+      content: userMessage,
+      timestamp: new Date(),
+    }]);
+
+    await callAgent(userMessage, { widgetId, action, data });
+  };
+
+  const handleAttach = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+
+    for (const file of Array.from(files)) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('userId', userId);
+
+      try {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const type = file.type.startsWith('image/') ? 'image' :
+                      file.type.startsWith('video/') ? 'video' : 'file';
+
+          setAttachments(prev => [...prev, {
+          type,
+            url: data.url,
+            label: file.name,
+          }]);
+        }
+      } catch (err) {
+        console.error('Upload failed:', err);
+      }
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
+
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // -------------------------------------------------------------------------
+  // Settings & Actions
+  // -------------------------------------------------------------------------
+
+  const handleSettingsChange = (updates: Partial<ProjectSettings>) => {
+    if (project) {
+      setProject(prev => prev ? {
+                ...prev,
+        settings: { ...prev.settings, ...updates },
+        updatedAt: new Date(),
+      } : null);
+    }
+  };
+
+  const handlePreview = () => {
+    setShowPreview(true);
+  };
+
+  const handleExport = () => {
+    if (project?.finalEdit?.finalVideoUrl) {
+      window.open(project.finalEdit.finalVideoUrl, '_blank');
+    }
+  };
+
+  // Derive primary action based on capabilities
+  const getPrimaryAction = () => {
+    if (!project) return undefined;
+
+    if (capabilities.canAssemble && !capabilities.hasFinalExport) {
+                      return {
+        label: 'Assemble Video',
+        onClick: () => handleWidgetAction('', 'assemble'),
+        disabled: loading,
+      };
+    }
+
+    if (capabilities.canGenerateVideos && !capabilities.hasAllClipsReady) {
+                    return {
+        label: 'Generate Clips',
+        onClick: () => handleWidgetAction('', 'generate_videos'),
+        disabled: loading,
+      };
+    }
+
+    if (capabilities.hasStoryboard && !capabilities.isStoryboardApproved) {
+              return {
+        label: 'Approve Storyboard',
+        onClick: () => handleWidgetAction('', 'approve_storyboard'),
+        disabled: loading,
+      };
+    }
+
+    if (capabilities.hasSelectedActor && !capabilities.hasStoryboard) {
+      return {
+        label: 'Generate Storyboard',
+        onClick: () => handleWidgetAction('', 'generate_storyboard'),
+        disabled: loading,
+      };
+    }
+
+    if (capabilities.hasBrief && !capabilities.hasActors) {
+      return {
+        label: 'Generate Creators',
+        onClick: () => callAgent('Generate creator options'),
+        disabled: loading,
+      };
+    }
+
+    return undefined;
+  };
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
 
   return (
-    <div className="assistant-page-layout">
-      {userId && (
-        <div className={`conversation-sidebar-wrapper ${sidebarOpen ? 'open' : ''}`}>
-          <ConversationSidebar
-            userId={userId}
-            currentConversationId={conversationId}
-            onSelectConversation={handleSelectConversation}
-            onNewConversation={handleNewConversation}
-          />
-        </div>
-      )}
-      <div className={`chat-container ${userId && sidebarOpen ? 'with-sidebar' : ''}`}>
-        {/* Topbar with title and buttons */}
-        <div className="assistant-topbar">
-          <div className="assistant-topbar-left">
-            <button
-              className="assistant-topbar-button"
-              onClick={() => setEditorOpen(true)}
-              title="Open Assistant Editor"
-              type="button"
-            >
-              <Edit size={18} />
-            </button>
-          </div>
-          <div className="assistant-topbar-center">
-            <h1 className="assistant-title">Assistant</h1>
-            {userId && (
-              <button
-                className="assistant-topbar-button"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                title={sidebarOpen ? 'Hide chat history' : 'Show chat history'}
-                type="button"
-              >
-                <History size={18} />
-              </button>
-            )}
-          </div>
-          <div className="assistant-topbar-right">
-            {/* Reserved for future actions */}
-          </div>
-        </div>
-        <div className="chat-messages" ref={chatEndRef}>
-          {chatMessages.map((msg) => {
-          let widgetContent: React.ReactNode = null;
+    <div className="ugc-app two-panel">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        onChange={handleFileUpload}
+        style={{ display: 'none' }}
+        multiple
+      />
 
-          if (msg.widgetType === 'step' && msg.widgetData?.step) {
-            const stepData = msg.widgetData;
-            // Always use latest state and config from main state
-            const currentConfig = stepConfigs[stepData.step.id] || stepData.config || { model: stepData.step.model, inputs: stepData.step.inputs };
-            const currentState = stepStates[stepData.step.id] || stepData.state || { status: 'idle' };
-            const shouldExpand = stepData.forceExpanded || currentState.status === 'running' || currentState.status === 'complete';
-            widgetContent = (
-              <div id={`step-widget-${stepData.step.id}`}>
-                <StepWidget
-                  step={stepData.step}
-                  config={currentConfig}
-                  state={currentState}
-                  stepIndex={stepData.stepIndex ?? plan.steps.findIndex((s) => s.id === stepData.step.id)}
-                  dependencies={stepData.dependencies || []}
-                  onConfigChange={updateStepConfig}
-                  onRetry={handleRetryStep}
-                  defaultExpanded={shouldExpand}
-                />
-              </div>
-            );
-          } else if (msg.widgetType === 'progress' && msg.widgetData) {
-            widgetContent = (
-              <ProgressWidget
-                current={msg.widgetData.current || 0}
-                total={msg.widgetData.total || plan.steps.length}
-                currentStepTitle={msg.widgetData.currentStepTitle}
-              />
-            );
-          } else if (msg.widgetType === 'output' && msg.widgetData) {
-            const outputData = msg.widgetData;
-            if (outputData.step) {
-              // Always use latest state and config from main state
-              const currentConfig = stepConfigs[outputData.step.id] || outputData.config || { model: outputData.step.model, inputs: outputData.step.inputs };
-              const currentState = stepStates[outputData.step.id] || outputData.state || { status: 'complete' };
-              widgetContent = (
-                <StepWidget
-                  step={outputData.step}
-                  config={currentConfig}
-                  state={currentState}
-                  stepIndex={outputData.stepIndex ?? plan.steps.findIndex((s) => s.id === outputData.step.id)}
-                  dependencies={outputData.dependencies || []}
-                  onConfigChange={updateStepConfig}
-                  onRetry={handleRetryStep}
-                  defaultExpanded={false} // Collapsed by default for minimalist view
-                />
-              );
-            } else if (outputData.url || outputData.text) {
-              widgetContent = (
-                <OutputPreview
-                  url={outputData.url}
-                  text={outputData.text}
-                  compact={true} // Compact by default
-                />
-              );
-            }
-            
-            // Add "Show on Editor" button if workflow is complete and has outputs
-            if (outputData.showEditorButton && runState === 'done' && getWorkflowAssets().length > 0) {
-              widgetContent = (
-                <div>
-                  {widgetContent}
-                  <div style={{ marginTop: 'var(--space-3)', display: 'flex', justifyContent: 'center' }}>
-                    <button
-                      className="assistant-editor-open-button"
-                      onClick={() => setEditorOpen(true)}
-                      type="button"
-                    >
-                      <Edit size={16} />
-                      Show on Editor
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-          } else if (msg.widgetType === 'error') {
-            widgetContent = (
-              <div className="widget-card error-widget">
-                <div className="error-widget-content">{msg.content}</div>
-                      </div>
-                    );
-          }
+      {/* Top Bar */}
+      <TopBar
+        settings={project?.settings || {
+          aspectRatio: '9:16',
+          targetDuration: 30,
+          fps: 30,
+          resolution: '1080p',
+          language: 'en',
+        }}
+        capabilities={capabilities}
+        onSettingsChange={handleSettingsChange}
+        onPreview={handlePreview}
+        onExport={handleExport}
+        primaryAction={getPrimaryAction()}
+      />
 
-            return (
-              <MessageBubble
-                key={msg.id}
-                role={msg.role}
-                content={msg.content}
-                attachments={msg.attachments}
-                onClarificationSubmit={handleClarificationSubmit}
-                onStrategyProceed={handleStrategyProceed}
-                onDynamicAction={handleDynamicAction}
-                onRunWorkflow={runWorkflow}
-              >
-                {widgetContent}
-              </MessageBubble>
-            );
-          })}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="chat-input-area">
-        {plan.steps.length > 0 && (
-          <div className="compact-plan-widget-sticky">
-            <CompactPlanWidget
-              plan={plan}
-              stepConfigs={stepConfigs}
-              stepStates={stepStates}
-              onRun={() => runWorkflow()}
-              canRun={planReady}
-              isRunning={runState === 'running'}
-              onStepClick={handleStepClick}
-              onStepExpand={handleStepExpand}
-              onConfigChange={updateStepConfig}
-              expandedStepId={expandedStepId}
-            />
-          </div>
-        )}
-        <div className="chat-input-wrapper-fixed">
-          <ChatInput
-            value={draft}
-            onChange={setDraft}
+      {/* Main Content */}
+      <div className="ugc-main-content">
+        {/* Left: Chat Timeline */}
+        <div className="ugc-chat-panel">
+          <ChatTimeline
+            messages={messages}
+            loading={loading}
+            input={input}
             attachments={attachments}
-            onAttachmentsChange={setAttachments}
+            onInputChange={setInput}
             onSend={handleSend}
+            onAttach={handleAttach}
+            onRemoveAttachment={handleRemoveAttachment}
+            onWidgetAction={handleWidgetAction}
             disabled={!userId}
-            loading={planLoading}
-            placeholder={userId ? 'Send a message...' : 'Sign in to continue...'}
+            placeholder={!userId ? "Sign in to start..." : "Describe your product or ask me anything..."}
           />
-        </div>
-        </div>
       </div>
 
-      <AssistantEditor
-        isOpen={editorOpen}
-        onClose={() => setEditorOpen(false)}
-        initialAssets={getWorkflowAssets()}
-      />
-      
-      {ugcStoryboard && (
-        <UgcStoryboardModal
-          isOpen={ugcModalOpen}
-          onClose={() => setUgcModalOpen(false)}
-          storyboard={ugcStoryboard}
-          selectedAvatarUrl={ugcSelectedAvatarUrl}
-          onGenerateClips={handleUgcGenerateClips}
-        />
-      )}
+        {/* Right: Project Panel */}
+        <div className="ugc-project-panel">
+          <ProjectPanel
+            project={project}
+            capabilities={capabilities}
+            onEditBrief={() => handleWidgetAction('', 'edit_brief')}
+            onChangeActor={() => handleWidgetAction('', 'regenerate_actors')}
+            onViewScene={(sceneId) => console.log('View scene', sceneId)}
+            onViewClip={(clipId) => console.log('View clip', clipId)}
+            onViewHistory={() => console.log('View history')}
+          />
+        </div>
+      </div>
     </div>
   );
 }

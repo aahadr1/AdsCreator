@@ -1,50 +1,5 @@
-export type AssistantToolKind =
-  | 'image'
-  | 'video'
-  | 'lipsync'
-  | 'background_remove'
-  | 'enhance'
-  | 'transcription'
-  | 'tts'
-  | 'competitor_analyst'
-  | 'web_search'
-  | 'website_analyzer';
-
-export type AssistantPlanField = {
-  key: string;
-  label: string;
-  type: 'text' | 'textarea' | 'number' | 'select' | 'url' | 'choice';
-  required?: boolean;
-  helper?: string;
-  options?: Array<{ value: string; label: string }>;
-  min?: number;
-  max?: number;
-};
-
-export type AssistantPlanStep = {
-  id: string;
-  title: string;
-  description?: string;
-  tool: AssistantToolKind;
-  model: string;
-  modelOptions?: string[];
-  inputs: Record<string, any>;
-  suggestedParams?: Record<string, any>;
-  fields?: AssistantPlanField[];
-  outputType?: 'image' | 'video' | 'audio' | 'text' | 'json';
-  dependencies?: string[];
-  validations?: string[];
-};
-
-export type AssistantPlan = {
-  summary: string;
-  steps: AssistantPlanStep[];
-};
-
-export type AssistantPlanMessage = {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-};
+// Simplified assistant types - UGC only
+export type AssistantToolKind = 'ugc';
 
 export type AssistantMedia = {
   type: 'image' | 'video' | 'audio' | 'url' | 'unknown';
@@ -52,9 +7,73 @@ export type AssistantMedia = {
   label?: string;
 };
 
-export type AssistantRunEvent =
-  | { type: 'task'; taskId: string }
-  | { type: 'step_start'; stepId: string; title?: string }
-  | { type: 'step_complete'; stepId: string; outputUrl?: string | null; outputText?: string | null }
-  | { type: 'step_error'; stepId: string; error: string }
-  | { type: 'done'; status: 'success' | 'error'; outputs?: Record<string, unknown> };
+export type AssistantPlanMessage = {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+};
+
+// UGC-specific types
+export type UgcBrief = {
+  product: string;
+  targetAudience: string;
+  platform: 'tiktok' | 'instagram' | 'youtube' | 'other';
+  offer?: string;
+  brandVibe?: string;
+  language?: string;
+  constraints?: string;
+  mustInclude?: string;
+};
+
+export type UgcCreator = {
+  id: string;
+  label: string;
+  description: string;
+  imageUrl?: string;
+  jobId?: string;
+  status: 'pending' | 'processing' | 'complete' | 'failed';
+  prompt: string;
+};
+
+export type UgcScene = {
+  id: string;
+  order: number;
+  beatType: 'hook' | 'problem' | 'solution' | 'proof' | 'cta' | 'transition';
+  duration: number; // seconds
+  script: string;
+  visualDescription: string;
+  imageUrl?: string;
+  imageJobId?: string;
+  videoUrl?: string;
+  videoJobId?: string;
+  status: 'pending' | 'image_processing' | 'image_ready' | 'video_processing' | 'video_ready' | 'failed';
+  onScreenText?: string;
+  soundNote?: string;
+};
+
+export type UgcProject = {
+  id: string;
+  brief: Partial<UgcBrief>;
+  creators: UgcCreator[];
+  selectedCreatorId?: string;
+  script?: string;
+  scenes: UgcScene[];
+  finalVideoUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+// Chat message type for the interface
+export type ChatMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: Date;
+  attachments?: AssistantMedia[];
+  // UGC-specific data
+  ugcData?: {
+    creators?: UgcCreator[];
+    scenes?: UgcScene[];
+    brief?: Partial<UgcBrief>;
+    projectId?: string;
+  };
+};

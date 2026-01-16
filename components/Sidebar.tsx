@@ -4,21 +4,10 @@ import React from 'react';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
-  Cpu,
-  Database,
-  Download,
-  FileText,
   Home,
-  Image as ImageIcon,
-  LogIn,
-  Mic,
-  Monitor,
-  Music,
-  Search,
-  Settings,
   Sparkles,
-  Scissors,
-  Video,
+  LogIn,
+  Settings,
   Zap,
 } from 'lucide-react';
 import { CreditCounter } from './CreditCounter';
@@ -29,7 +18,6 @@ type NavLink = {
   icon: React.ReactNode;
   description?: string;
   badge?: string;
-  disabled?: boolean;
 };
 
 type NavSection = {
@@ -38,62 +26,22 @@ type NavSection = {
   items: NavLink[];
 };
 
-type QuickAction = {
-  href: string;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-};
-
-const quickActions: QuickAction[] = [
-  { href: '/lipsync-new', label: 'New Lipsync', description: 'Swap dialogue in minutes', icon: <Mic size={18} /> },
-  { href: '/veo', label: 'Generate Video', description: 'VEO · Sora · Kling', icon: <Video size={18} /> },
-  { href: '/image', label: 'Create Image', description: 'Flux · GPT Image 1.5', icon: <ImageIcon size={18} /> },
-  { href: '/tasks', label: 'View Tasks', description: 'Live production queue', icon: <Activity size={18} /> },
-  { href: '/assistant', label: 'Assistant', description: 'Planned workflows', icon: <Sparkles size={18} /> },
-];
-
 const navSections: NavSection[] = [
   {
-    title: 'Workspace',
-    description: 'Monitor and manage your creative operations',
-    items: [
-      { href: '/', label: 'Home', icon: <Home size={18} />, description: 'Command center' },
-      { href: '/tasks', label: 'Tasks', icon: <Activity size={18} />, description: 'Track progress' },
-      { href: '/library', label: 'Library', icon: <Database size={18} />, description: 'Asset archive' },
-      { href: '/spy', label: 'Spy Tool', icon: <Search size={18} />, description: 'Competitor insights', badge: 'Pro' },
-      { href: '/assistant', label: 'Assistant', icon: <Sparkles size={18} />, description: 'Plan + run workflows', badge: 'New' },
-    ],
-  },
-  {
     title: 'Create',
-    description: 'Launch new AI-powered flows',
+    description: 'AI-powered UGC video creation',
     items: [
-      { href: '/lipsync-new', label: 'Lipsync Studio', icon: <Mic size={18} />, description: 'Voices & dialogue', badge: 'New' },
-      { href: '/veo', label: 'Video Generation', icon: <Video size={18} />, description: 'VEO · Sora · Kling' },
-      { href: '/image', label: 'Image Lab', icon: <ImageIcon size={18} />, description: 'Flux · GPT Image' },
-      { href: '/enhance', label: 'Enhance Footage', icon: <Sparkles size={18} />, description: 'Upscale & polish' },
-      { href: '/tts', label: 'Text to Speech', icon: <Music size={18} />, description: 'Narration & VO' },
-      { href: '/transcription/bulk', label: 'Bulk Transcription', icon: <FileText size={18} />, description: 'Batch transcripts' },
-      { href: '/auto-edit-beta', label: 'Auto Edit Beta', icon: <Cpu size={18} />, description: 'Automated cuts', badge: 'Beta' },
-    ],
-  },
-  {
-    title: 'Utilities',
-    description: 'Polish and download assets',
-    items: [
-      { href: '/background-remove', label: 'Background Remove', icon: <Scissors size={18} />, description: 'Image + Video' },
-      { href: '/download', label: 'TikTok Downloader', icon: <Download size={18} />, description: 'Grab references' },
-      { href: '/editor', label: 'Editor', icon: <Monitor size={18} />, description: 'Frame-accurate edits' },
+      { href: '/assistant', label: 'UGC Creator', icon: <Sparkles size={18} />, description: 'Create viral UGC ads', badge: 'New' },
+      { href: '/tasks', label: 'Tasks', icon: <Activity size={18} />, description: 'Track progress' },
     ],
   },
   {
     title: 'Account',
-    description: 'Credits, billing, and access',
+    description: 'Credits and billing',
     items: [
       { href: '/credits', label: 'Credits', icon: <Zap size={18} />, description: 'Usage + limits' },
       { href: '/billing', label: 'Billing', icon: <Settings size={18} />, description: 'Plans & invoices' },
-      { href: '/auth', label: 'Sign in / Up', icon: <LogIn size={18} />, description: 'Workspace access' },
+      { href: '/auth', label: 'Sign in / Up', icon: <LogIn size={18} />, description: 'Account access' },
     ],
   },
 ];
@@ -106,27 +54,28 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-inner">
         <div className="sidebar-brand-card">
-          <a className="sidebar-logo" title="AdzCreator" href="/">
+          <a className="sidebar-logo" title="UGC Creator" href="/">
             <div className="brand-chip">
-              <img src="/icon.png" alt="AdzCreator favicon" />
+              <Sparkles size={20} style={{ color: '#a78bfa' }} />
             </div>
             <div className="sidebar-logo-text">
-              <span>AdzCreator</span>
+              <span>UGC Creator</span>
             </div>
           </a>
         </div>
 
         <div className="sidebar-scroll">
+          {/* Main CTA */}
           <div className="sidebar-quick-actions">
-            {quickActions.map((action) => (
-              <a key={action.href} href={action.href} className="sidebar-quick-card">
-                <div className="sidebar-quick-icon">{action.icon}</div>
-                <div className="sidebar-quick-copy">
-                  <span>{action.label}</span>
-                  <p>{action.description}</p>
-                </div>
-              </a>
-            ))}
+            <a href="/assistant" className="sidebar-quick-card sidebar-quick-main">
+              <div className="sidebar-quick-icon">
+                <Sparkles size={22} />
+              </div>
+              <div className="sidebar-quick-copy">
+                <span>Create UGC Ad</span>
+                <p>AI-powered video creation</p>
+              </div>
+            </a>
           </div>
 
           {navSections.map((section) => (
@@ -142,9 +91,8 @@ export function Sidebar() {
                     <a
                       key={item.href}
                       href={item.href}
-                      className={`sidebar-nav-item ${isActive ? 'active' : ''} ${item.disabled ? 'disabled' : ''}`}
+                      className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
                       aria-current={isActive ? 'page' : undefined}
-                      onClick={item.disabled ? (e) => e.preventDefault() : undefined}
                     >
                       <span className="sidebar-nav-indicator" aria-hidden />
                       <div className="sidebar-nav-icon">{item.icon}</div>
@@ -167,7 +115,7 @@ export function Sidebar() {
           <div className="sidebar-credits-header">
             <div>
               <div className="sidebar-credits-title">Credits</div>
-              <div className="sidebar-credits-subtitle">Track usage in real time</div>
+              <div className="sidebar-credits-subtitle">Track usage</div>
             </div>
             <span className="sidebar-chip">Live</span>
           </div>
@@ -175,8 +123,8 @@ export function Sidebar() {
         </div>
 
         <div className="sidebar-footer-meta">
-          <span>© {year} AdzCreator</span>
-          <span>Build fast · Iterate daily</span>
+          <span>© {year} UGC Creator</span>
+          <span>Create viral ads in minutes</span>
         </div>
       </div>
     </aside>

@@ -5,18 +5,6 @@
  * without being limited by predefined pipelines or response types.
  */
 
-import type {
-  UgcAvatarPickerBlock,
-  UgcStoryboardLinkBlock,
-  UgcClipsResultBlock,
-} from './ugc';
-
-export type {
-  UgcAvatarPickerBlock,
-  UgcStoryboardLinkBlock,
-  UgcClipsResultBlock
-} from './ugc';
-
 export type BlockMetadata = {
   timestamp?: string;
   source?: string;
@@ -213,9 +201,6 @@ export type ContentBlock =
   | TableBlock
   | TimelineBlock
   | ComparisonBlock
-  | UgcAvatarPickerBlock
-  | UgcStoryboardLinkBlock
-  | UgcClipsResultBlock
   | UnknownBlock;
 
 // Dynamic response that can contain any combination of blocks
@@ -274,18 +259,6 @@ export function isComparisonBlock(block: ContentBlock): block is ComparisonBlock
   return block.blockType === 'comparison';
 }
 
-export function isUgcAvatarPickerBlock(block: ContentBlock): block is UgcAvatarPickerBlock {
-  return block.blockType === 'ugc_avatar_picker';
-}
-
-export function isUgcStoryboardLinkBlock(block: ContentBlock): block is UgcStoryboardLinkBlock {
-  return block.blockType === 'ugc_storyboard_link';
-}
-
-export function isUgcClipsResultBlock(block: ContentBlock): block is UgcClipsResultBlock {
-  return block.blockType === 'ugc_clips_result';
-}
-
 export function isDynamicResponse(response: any): response is DynamicResponse {
   return response?.responseType === 'dynamic' && Array.isArray(response?.blocks);
 }
@@ -303,4 +276,3 @@ export function createBlock<T extends ContentBlock['blockType']>(
     metadata,
   } as Extract<ContentBlock, { blockType: T }>;
 }
-
