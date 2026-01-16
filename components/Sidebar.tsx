@@ -17,6 +17,7 @@ import {
   LogIn,
   Settings,
   Zap,
+  MessageSquare,
 } from 'lucide-react';
 import { CreditCounter } from './CreditCounter';
 
@@ -40,6 +41,7 @@ const navSections: NavSection[] = [
     description: 'All tools',
     items: [
       { href: '/', label: 'Home', icon: <Home size={18} />, description: 'Dashboard' },
+      { href: '/assistant', label: 'Assistant', icon: <MessageSquare size={18} />, description: 'AI creative partner', badge: 'New' },
       { href: '/image', label: 'Image', icon: <ImageIcon size={18} />, description: 'Generate images' },
       { href: '/veo', label: 'Video', icon: <Video size={18} />, description: 'Generate videos' },
       { href: '/tts', label: 'TTS', icon: <Mic size={18} />, description: 'Text to speech' },

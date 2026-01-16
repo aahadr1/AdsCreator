@@ -37,6 +37,7 @@ import {
   LogIn,
   LogOut,
   Copy,
+  MessageSquare,
 } from 'lucide-react';
 
 export type Task = {
@@ -415,11 +416,19 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
 
   const quickActions = [
     {
+      title: "AI Assistant",
+      subtitle: "Creative partner",
+      href: "/assistant",
+      icon: <MessageSquare size={20} />,
+      gradient: ACCENT_GRADIENT,
+      shortcut: "⌘A"
+    },
+    {
       title: "New Lipsync",
       subtitle: "Sync audio to video",
       href: "/lipsync-new",
       icon: <Zap size={20} />,
-      gradient: ACCENT_GRADIENT,
+      gradient: MINIMAL_GRADIENT,
       shortcut: "⌘L"
     },
     {
@@ -437,14 +446,6 @@ export default function DashboardClient({ initialTasks, initialUserEmail }: { in
       icon: <Activity size={20} />,
       gradient: MINIMAL_GRADIENT,
       shortcut: "⌘T"
-    },
-    {
-      title: "Open Library",
-      subtitle: "Browse assets",
-      href: "/library",
-      icon: <Database size={20} />,
-      gradient: MINIMAL_GRADIENT,
-      shortcut: "⌘B"
     }
   ];
 
