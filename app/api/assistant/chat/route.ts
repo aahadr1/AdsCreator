@@ -77,6 +77,50 @@ function parseReflexion(content: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+function extractImageUrlFromToolResult(message: Message): string | null {
+  if (!message?.tool_output) return null;
+  const toolOutput = message.tool_output as any;
+  const direct =
+    toolOutput?.outputUrl ||
+    toolOutput?.output_url ||
+    toolOutput?.output?.outputUrl ||
+    toolOutput?.output?.output_url ||
+    (typeof message.content === 'string' && message.content.startsWith('http') ? message.content : null);
+  return typeof direct === 'string' && direct.startsWith('http') ? direct : null;
+}
+
+function getLastAvatarFromConversation(messages: Message[]): { url: string; description?: string } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'tool_result' || msg.tool_name !== 'image_generation') continue;
+    const url = extractImageUrlFromToolResult(msg);
+    if (!url) continue;
+    // Find the closest previous tool_call to determine if it was an avatar generation
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = messages[j];
+      if (prev.role === 'tool_call' && prev.tool_name === 'image_generation') {
+        const input = prev.tool_input as any;
+        if (input?.purpose === 'avatar') {
+          return { url, description: input?.avatar_description || undefined };
+        }
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+function isAvatarConfirmation(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes('use this avatar') ||
+    normalized.includes('use that avatar') ||
+    normalized.includes('use this one') ||
+    normalized.includes('use this image as avatar') ||
+    normalized.includes('yes use this avatar')
+  );
+}
+
 // Remove tool calls and reflexion from visible response
 function cleanResponse(content: string): string {
   return content
@@ -334,13 +378,24 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
     // Avatar reference URL for image-to-image consistency
     const avatarUrl = input.avatar_image_url;
     
+    function inferUsesAvatar(scene: StoryboardCreationInput['scenes'][number]): boolean {
+      if (typeof scene.uses_avatar === 'boolean') return scene.uses_avatar;
+      if (scene.setting_change === true) return false;
+      const text = `${scene.description} ${scene.first_frame_prompt} ${scene.last_frame_prompt}`.toLowerCase();
+      const noActorSignals = ['product only', 'no actor', 'no people', 'b-roll', 'b roll', 'flat lay', 'packaging', 'end card', 'logo', 'text card'];
+      if (noActorSignals.some((s) => text.includes(s))) return false;
+      const actorSignals = ['creator', 'actor', 'person', 'woman', 'man', 'she', 'he', 'facecam', 'talk', 'speaking', 'holding', 'applying', 'unboxing', 'reaction'];
+      return actorSignals.some((s) => text.includes(s));
+    }
+    
     // Build scenes with prediction IDs for image generation
     const scenesWithPredictions: StoryboardScene[] = [];
     
     for (const scene of input.scenes) {
       // Determine if this scene should use the avatar reference
       // Only use avatar when explicitly marked as uses_avatar
-      const useAvatarReference = avatarUrl && scene.uses_avatar === true;
+      const usesAvatar = inferUsesAvatar(scene);
+      const useAvatarReference = avatarUrl && usesAvatar;
       
       // Generate first frame image with optional avatar reference
       const firstFramePrediction = await generateSingleImage(
@@ -371,7 +426,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         transition_type: scene.transition_type,
         camera_angle: scene.camera_angle,
         setting_change: scene.setting_change,
-        uses_avatar: scene.uses_avatar,
+        uses_avatar: usesAvatar,
         video_generation_prompt: scene.video_generation_prompt,
         audio_notes: scene.audio_notes,
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
@@ -504,6 +559,12 @@ export async function POST(req: NextRequest) {
     
     existingMessages.push(userMessage);
     
+  // Check if user is confirming avatar usage
+  const avatarCandidate = getLastAvatarFromConversation(existingMessages);
+  const userConfirmedAvatar = isAvatarConfirmation(body.message);
+  const confirmedAvatarUrl = userConfirmedAvatar ? avatarCandidate?.url : undefined;
+  const confirmedAvatarDescription = userConfirmedAvatar ? avatarCandidate?.description : undefined;
+  
     // Build conversation context for Claude
     const conversationContext = buildConversationContext(existingMessages);
     
@@ -563,12 +624,46 @@ export async function POST(req: NextRequest) {
           // Parse the full response
           const reflexion = parseReflexion(fullResponse);
           const toolCalls = parseToolCalls(fullResponse);
+          
+          // Filter tool calls to enforce avatar-first flow
+          let filteredToolCalls = toolCalls;
+          const hasStoryboardCall = toolCalls.some(tc => tc.tool === 'storyboard_creation');
+          const hasAvatarImageCall = toolCalls.some(tc => 
+            tc.tool === 'image_generation' && (tc.input as any)?.purpose === 'avatar'
+          );
+          
+          if (hasStoryboardCall && hasAvatarImageCall) {
+            // If avatar is being generated, do NOT execute storyboard in same turn
+            filteredToolCalls = toolCalls.filter(tc => tc.tool !== 'storyboard_creation');
+          }
+          
+          // If storyboard uses avatar but no confirmed avatar URL, block storyboard execution
+          if (hasStoryboardCall && !confirmedAvatarUrl) {
+            const storyboardCall = toolCalls.find(tc => tc.tool === 'storyboard_creation');
+            const usesAvatarScene = Array.isArray((storyboardCall as any)?.input?.scenes)
+              ? (storyboardCall as any).input.scenes.some((s: any) => s?.uses_avatar === true)
+              : false;
+            if (usesAvatarScene) {
+              filteredToolCalls = filteredToolCalls.filter(tc => tc.tool !== 'storyboard_creation');
+            }
+          }
           const cleanedResponse = cleanResponse(fullResponse);
           
           // Execute tool calls if any
           const toolResults: Array<{ tool: string; result: unknown }> = [];
           
-          for (const toolCall of toolCalls) {
+          for (const toolCall of filteredToolCalls) {
+            // Inject confirmed avatar URL if user just confirmed
+            if (toolCall.tool === 'storyboard_creation' && confirmedAvatarUrl) {
+              const input = toolCall.input as any;
+              if (!input.avatar_image_url) {
+                input.avatar_image_url = confirmedAvatarUrl;
+              }
+              if (!input.avatar_description && confirmedAvatarDescription) {
+                input.avatar_description = confirmedAvatarDescription;
+              }
+            }
+            
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
               type: 'tool_call', 
               data: { tool: toolCall.tool, input: toolCall.input }
@@ -623,8 +718,8 @@ export async function POST(req: NextRequest) {
           });
           
           // Add tool calls and results
-          for (let i = 0; i < toolCalls.length; i++) {
-            const toolCall = toolCalls[i];
+          for (let i = 0; i < filteredToolCalls.length; i++) {
+            const toolCall = filteredToolCalls[i];
             const toolResult = toolResults[i];
             
             messagesToSave.push({

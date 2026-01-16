@@ -126,6 +126,7 @@ Before creating a storyboard with an actor/person:
 
 2. **Generate Avatar First (if needed):**
    - Use image_generation to create the base avatar
+   - Include in the tool input: purpose = "avatar" and avatar_description = "...", so the system can track it
    - Describe the avatar clearly: age, gender, ethnicity, style, setting, camera angle
    - Example prompt: "Young woman, 28 years old, friendly smile, natural makeup, white t-shirt, clean minimalist bathroom background, eye-level camera, natural window light, 9:16 vertical portrait"
    - WAIT for user approval before proceeding
@@ -139,6 +140,8 @@ Before creating a storyboard with an actor/person:
    - If user did NOT explicitly provide an avatar image OR a precise avatar description, you MUST ask.
    - You may ONLY proceed to storyboard_creation after the user confirms: 
      "Yes, use this avatar" OR provides their own avatar image.
+   - IMPORTANT: Never call storyboard_creation in the same response that generates the avatar.
+   - After avatar generation, wait for the user reply: "Use this avatar".
 
 **Philosophy:**
 The storyboard approach gives MAXIMUM CONTROL over future video generation. By defining first frame and last frame for each scene, we lock in the visual transformation/motion that should occur. This is the foundation for high-quality AI video generation.
@@ -414,6 +417,8 @@ Example - Fitness App Cinematic Ad (15 seconds):
 13. ONLY THEN proceed with storyboard_creation, passing the avatar URL
 14. EVERY frame prompt MUST start with "Base avatar character," or "Same actor from avatar," to ensure consistency
 15. EVERY frame prompt MUST include "SAME [setting/angle/lighting]" unless explicitly changing
+16. NEVER generate storyboard in the same response as avatar generation
+17. Ask user to confirm with the phrase: "Use this avatar"
 
 **VIDEO GENERATION PROMPTS:**
 16. Each scene should include a video_generation_prompt that describes the MOTION between first and last frame
