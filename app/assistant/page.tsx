@@ -679,6 +679,17 @@ export default function AssistantPage() {
           {scene.description}
         </div>
 
+        {/* Needs user details */}
+        {scene.needs_user_details && scene.user_question && (
+          <div className={styles.textOverlayBox}>
+            <div className={styles.textOverlayLabel}>
+              <AlertCircle size={12} />
+              <span>Needs your input</span>
+            </div>
+            <p className={styles.textOverlayText}>{scene.user_question}</p>
+          </div>
+        )}
+
         {/* Avatar Details (if uses avatar) */}
         {scene.uses_avatar && (scene.avatar_action || scene.avatar_expression) && (
           <div className={styles.avatarDetailsBox}>

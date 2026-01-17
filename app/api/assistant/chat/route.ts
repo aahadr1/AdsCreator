@@ -4,9 +4,9 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
-import { ASSISTANT_SYSTEM_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
+import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../../lib/r2';
-import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, Storyboard, StoryboardScene } from '../../../../types/assistant';
+import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline } from '../../../../types/assistant';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -46,8 +46,9 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
     if (typeof scene.scene_number !== 'number') return false;
     if (typeof scene.scene_name !== 'string') return false;
     if (typeof scene.description !== 'string') return false;
-    if (typeof scene.first_frame_prompt !== 'string') return false;
-    if (typeof scene.last_frame_prompt !== 'string') return false;
+    // Allow minimal outlines (server will generate prompts). If provided, must be strings.
+    if (scene.first_frame_prompt != null && typeof scene.first_frame_prompt !== 'string') return false;
+    if (scene.last_frame_prompt != null && typeof scene.last_frame_prompt !== 'string') return false;
     
     // New field: video_generation_prompt is required
     if (typeof scene.video_generation_prompt !== 'string' || scene.video_generation_prompt.trim().length === 0) {
@@ -58,11 +59,79 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
     // If any scene explicitly needs avatar, require a REAL url (not a placeholder)
     if (scene.uses_avatar === true && !avatarUrlIsValid) return false;
     
-    // If prompts explicitly reference avatar, require a real url too
-    const p = `${scene.first_frame_prompt} ${scene.last_frame_prompt}`.toLowerCase();
-    if ((p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar') || p.includes('same avatar character')) && !avatarUrlIsValid) return false;
+    // If prompts explicitly reference avatar, require a real url too (only if prompts exist)
+    const p = `${String(scene.first_frame_prompt || '')} ${String(scene.last_frame_prompt || '')}`.toLowerCase();
+    if (p && (p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar') || p.includes('same avatar character')) && !avatarUrlIsValid) return false;
   }
   return true;
+}
+
+function normalizeJsonLike(raw: string): string {
+  let s = String(raw || '').trim();
+  s = s.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  s = s.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").trim();
+  s = s.replace(/,\s*([}\]])/g, '$1');
+  return s;
+}
+
+function escapeNewlinesInsideStrings(raw: string): string {
+  let out = '';
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) {
+      out += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      inString = !inString;
+      continue;
+    }
+    if (inString && (ch === '\n' || ch === '\r')) {
+      out += '\\n';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function tryParseAnyJson(raw: string): any | null {
+  const normalized = normalizeJsonLike(raw);
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    try {
+      return JSON.parse(escapeNewlinesInsideStrings(normalized));
+    } catch {
+      // Try extracting first JSON object via brace matching
+      const start = normalized.indexOf('{');
+      if (start === -1) return null;
+      let depth = 0;
+      for (let i = start; i < normalized.length; i++) {
+        const c = normalized[i];
+        if (c === '{') depth++;
+        else if (c === '}') depth--;
+        if (depth === 0) {
+          const candidate = normalized.slice(start, i + 1);
+          try {
+            return JSON.parse(escapeNewlinesInsideStrings(candidate));
+          } catch {
+            return null;
+          }
+        }
+      }
+      return null;
+    }
+  }
 }
 
 // Parse tool calls from assistant response
@@ -604,7 +673,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
     const avatarUrl = input.avatar_image_url;
     const avatarDescription = input.avatar_description;
     
-    console.log('[Storyboard] Starting enhanced storyboard creation:', {
+    console.log('[Storyboard] Starting multi-call storyboard creation:', {
       title: input.title,
       avatarUrl: avatarUrl ? avatarUrl.substring(0, 50) + '...' : 'none',
       avatarDescription: avatarDescription || 'none',
@@ -613,148 +682,229 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       hasPainPoints: Array.isArray(input.pain_points) && input.pain_points.length > 0,
     });
     
-    // Enhanced avatar detection logic
-    function inferUsesAvatar(scene: StoryboardCreationInput['scenes'][number]): boolean {
-      // Explicit declaration takes precedence
-      if (typeof scene.uses_avatar === 'boolean') return scene.uses_avatar;
-      
-      // Scene type based detection
-      if (scene.scene_type) {
-        const avatarTypes = ['talking_head', 'demonstration'];
-        const nonAvatarTypes = ['product_showcase', 'b_roll', 'text_card', 'transition'];
-        if (nonAvatarTypes.includes(scene.scene_type)) return false;
-        if (avatarTypes.includes(scene.scene_type)) return true;
-      }
-      
-      // Setting change typically means product/b-roll shot
-      if (scene.setting_change === true) return false;
-      
-      // Content-based detection
-      const text = `${scene.description} ${scene.first_frame_prompt} ${scene.last_frame_prompt}`.toLowerCase();
-      
-      // Strong signals for NO avatar
-      const noActorSignals = [
-        'product only', 'no actor', 'no person', 'no people', 'product-only',
-        'b-roll', 'b roll', 'flat lay', 'flatlay', 'packaging shot',
-        'end card', 'logo reveal', 'text card', 'brand card',
-        'product hero', 'product shot', 'no avatar'
-      ];
-      if (noActorSignals.some((s) => text.includes(s))) return false;
-      
-      // Strong signals FOR avatar
-      const actorSignals = [
-        'creator', 'actor', 'person', 'woman', 'man', 'she', 'he',
-        'facecam', 'face cam', 'talking head', 'talking-head',
-        'speaking', 'says', 'speaks', 'looking at camera',
-        'holding', 'applying', 'unboxing', 'reaction', 'showing',
-        'avatar', 'same actor', 'base avatar', 'same avatar character',
-        'demonstrates', 'presents', 'gestures'
-      ];
-      return actorSignals.some((s) => text.includes(s));
+    const token = process.env.REPLICATE_API_TOKEN;
+    if (!token) return { success: false, error: 'Server misconfigured: missing REPLICATE_API_TOKEN' };
+    const replicate = new Replicate({ auth: token });
+
+    async function callClaudeText(opts: { prompt: string; system_prompt: string; max_tokens: number }): Promise<string> {
+      let out = '';
+      const stream = await replicate.stream('anthropic/claude-4-sonnet', {
+        input: {
+          prompt: opts.prompt,
+          system_prompt: opts.system_prompt,
+          max_tokens: opts.max_tokens,
+        },
+      });
+      for await (const event of stream) out += String(event);
+      return out;
     }
-    
-    // Determine scene type if not explicitly set
-    function inferSceneType(scene: StoryboardCreationInput['scenes'][number]): string {
-      if (scene.scene_type) return scene.scene_type;
-      
-      const text = `${scene.description} ${scene.scene_name}`.toLowerCase();
-      
-      if (text.includes('end card') || text.includes('logo') || text.includes('brand')) return 'text_card';
-      if (text.includes('product') && (text.includes('only') || text.includes('shot') || text.includes('hero'))) return 'product_showcase';
-      if (text.includes('b-roll') || text.includes('b roll')) return 'b_roll';
-      if (text.includes('demo') || text.includes('apply') || text.includes('application')) return 'demonstration';
-      if (text.includes('transition')) return 'transition';
-      if (text.includes('talk') || text.includes('hook') || text.includes('cta')) return 'talking_head';
-      
-      return 'talking_head'; // Default to talking head if uncertain
+
+    async function callClaudeJson<T>(opts: { prompt: string; system_prompt: string; max_tokens: number }): Promise<T> {
+      const raw = await callClaudeText(opts);
+      const parsed = tryParseAnyJson(raw);
+      if (!parsed) {
+        const snippet = String(raw || '').slice(0, 900);
+        throw new Error(`Failed to parse JSON from LLM. Raw starts with: ${snippet}`);
+      }
+      return parsed as T;
+    }
+
+    function outlineFromInputScene(s: any, idx: number): SceneOutline {
+      const st: SceneOutline['scene_type'] =
+        (s?.scene_type as any) ||
+        (String(s?.scene_name || '').toLowerCase().includes('end card') ? 'text_card' : 'talking_head');
+      const needsAvatar = typeof s?.uses_avatar === 'boolean' ? Boolean(s.uses_avatar) : true;
+      return {
+        scene_number: typeof s?.scene_number === 'number' ? s.scene_number : idx + 1,
+        scene_name: typeof s?.scene_name === 'string' ? s.scene_name : `Scene ${idx + 1}`,
+        purpose: typeof s?.description === 'string' ? s.description : 'Advance the ad narrative',
+        duration_seconds: typeof s?.duration_seconds === 'number' ? s.duration_seconds : 4,
+        needs_avatar: needsAvatar,
+        scene_type: st,
+      };
+    }
+
+    // Phase 1: scenario planning (or use provided outlines)
+    let scenario: VideoScenario | undefined;
+    let outlines: SceneOutline[] = [];
+
+    const inputLooksDetailed = input.scenes.every((s: any) => typeof s?.first_frame_prompt === 'string' && typeof s?.last_frame_prompt === 'string');
+
+    if (inputLooksDetailed) {
+      // Back-compat: treat as already-refined; still store a lightweight scenario
+      outlines = input.scenes.map((s: any, idx: number) => outlineFromInputScene(s, idx));
+      scenario = {
+        title: input.title,
+        concept: `Storyboard for ${input.brand_name || 'brand'} ${input.product || 'product'}`,
+        narrative_arc: 'Hook → demo → proof → CTA',
+        target_emotion: 'curiosity → desire → confidence',
+        key_message: input.call_to_action || 'Take action now',
+        scene_breakdown: outlines,
+      };
+    } else {
+      const scenarioPromptParts: string[] = [];
+      scenarioPromptParts.push(`Title: ${input.title}`);
+      if (input.brand_name) scenarioPromptParts.push(`Brand: ${input.brand_name}`);
+      if (input.product) scenarioPromptParts.push(`Product: ${input.product}`);
+      if (input.product_description) scenarioPromptParts.push(`Product description: ${input.product_description}`);
+      if (input.target_audience) scenarioPromptParts.push(`Target audience: ${input.target_audience}`);
+      if (input.platform) scenarioPromptParts.push(`Platform: ${input.platform}`);
+      if (input.total_duration_seconds) scenarioPromptParts.push(`Total duration seconds: ${input.total_duration_seconds}`);
+      if (input.style) scenarioPromptParts.push(`Style: ${input.style}`);
+      if (input.aspect_ratio) scenarioPromptParts.push(`Aspect ratio: ${input.aspect_ratio}`);
+      if (Array.isArray(input.key_benefits) && input.key_benefits.length) scenarioPromptParts.push(`Key benefits: ${input.key_benefits.join('; ')}`);
+      if (Array.isArray(input.pain_points) && input.pain_points.length) scenarioPromptParts.push(`Pain points: ${input.pain_points.join('; ')}`);
+      if (input.call_to_action) scenarioPromptParts.push(`CTA: ${input.call_to_action}`);
+      if (input.creative_direction) scenarioPromptParts.push(`Creative direction: ${input.creative_direction}`);
+      if (avatarDescription) scenarioPromptParts.push(`Avatar description: ${avatarDescription}`);
+      scenarioPromptParts.push('Create a compact scenario and scene breakdown.');
+
+      scenario = await callClaudeJson<VideoScenario>({
+        prompt: scenarioPromptParts.join('\n'),
+        system_prompt: SCENARIO_PLANNING_PROMPT,
+        max_tokens: 1400,
+      });
+
+      outlines = Array.isArray(scenario?.scene_breakdown) ? scenario.scene_breakdown : [];
+      if (!outlines.length) {
+        // Fallback to input scenes as outlines
+        outlines = input.scenes.map((s: any, idx: number) => outlineFromInputScene(s, idx));
+        scenario.scene_breakdown = outlines;
+      }
     }
     
     // Build scenes with prediction IDs for image generation
     const scenesWithPredictions: StoryboardScene[] = [];
-    
-    for (const scene of input.scenes) {
-      // Determine if this scene should use the avatar reference
-      const usesAvatar = inferUsesAvatar(scene);
-      const useAvatarReference = avatarUrl && usesAvatar;
-      const sceneType = inferSceneType(scene);
-      
-      console.log(`[Storyboard] Scene ${scene.scene_number} (${scene.scene_name}):`, {
-        usesAvatar,
-        useAvatarReference: Boolean(useAvatarReference),
-        sceneType,
-        hasVoiceover: Boolean(scene.voiceover_text),
-        hasVideoPrompt: Boolean(scene.video_generation_prompt),
+
+    let previousRefined: StoryboardScene | undefined;
+    for (const outline of outlines) {
+      const usesAvatar = Boolean(outline.needs_avatar);
+      const useAvatarReference = Boolean(avatarUrl && usesAvatar);
+
+      // If outline says avatar but we don't have an avatar URL, force user clarification
+      if (usesAvatar && !avatarUrl) {
+        scenesWithPredictions.push({
+          scene_number: outline.scene_number,
+          scene_name: outline.scene_name,
+          description: outline.purpose,
+          duration_seconds: outline.duration_seconds,
+          scene_type: outline.scene_type,
+          uses_avatar: false,
+          needs_user_details: true,
+          user_question: 'This scene needs an on-camera creator, but no approved avatar is available. Please confirm an avatar first.',
+          first_frame_prompt: 'NEEDS USER INPUT: confirm an avatar to generate this scene.',
+          first_frame_visual_elements: [],
+          last_frame_prompt: 'NEEDS USER INPUT: confirm an avatar to generate this scene.',
+          last_frame_visual_elements: [],
+          video_generation_prompt: 'NEEDS USER INPUT',
+          first_frame_status: 'pending',
+          last_frame_status: 'pending',
+        });
+        continue;
+      }
+
+      if (outline.needs_user_details) {
+        scenesWithPredictions.push({
+          scene_number: outline.scene_number,
+          scene_name: outline.scene_name,
+          description: outline.purpose,
+          duration_seconds: outline.duration_seconds,
+          scene_type: outline.scene_type,
+          uses_avatar: usesAvatar,
+          needs_user_details: true,
+          user_question: outline.user_question || 'What should this scene show (setting, objects, vibe)?',
+          first_frame_prompt: `NEEDS USER INPUT: ${outline.user_question || 'Specify setting/objects/vibe for this scene.'}`,
+          first_frame_visual_elements: [],
+          last_frame_prompt: `NEEDS USER INPUT: ${outline.user_question || 'Specify setting/objects/vibe for this scene.'}`,
+          last_frame_visual_elements: [],
+          video_generation_prompt: 'NEEDS USER INPUT',
+          first_frame_status: 'pending',
+          last_frame_status: 'pending',
+        });
+        continue;
+      }
+
+      // Phase 2: refine scene in an individual LLM call
+      const refinementPrompt = [
+        `SCENARIO:`,
+        JSON.stringify(scenario || {}, null, 2),
+        ``,
+        `SCENE_OUTLINE:`,
+        JSON.stringify(outline, null, 2),
+        ``,
+        `BRAND: ${input.brand_name || ''}`,
+        `PRODUCT: ${input.product || ''}`,
+        `STYLE: ${input.style || ''}`,
+        `ASPECT_RATIO: ${input.aspect_ratio || ''}`,
+        `AVATAR_DESCRIPTION: ${usesAvatar ? (avatarDescription || '(use avatar image reference)') : 'NO AVATAR'}`,
+        previousRefined ? `PREVIOUS_SCENE (for continuity):\n${JSON.stringify(previousRefined, null, 2)}` : '',
+      ].filter(Boolean).join('\n');
+
+      const refined = await callClaudeJson<any>({
+        prompt: refinementPrompt,
+        system_prompt: SCENE_REFINEMENT_PROMPT,
+        max_tokens: 1800,
       });
-      
-      // Generate first frame image with optional avatar reference
+
+      const firstPrompt = String(refined.first_frame_prompt || '').trim();
+      const lastPrompt = String(refined.last_frame_prompt || '').trim();
+      const videoPrompt = String(refined.video_generation_prompt || '').trim();
+      const firstElems = Array.isArray(refined.first_frame_visual_elements) ? refined.first_frame_visual_elements.map(String) : [];
+      const lastElems = Array.isArray(refined.last_frame_visual_elements) ? refined.last_frame_visual_elements.map(String) : [];
+
+      // Safety fallback (never pass empty prompts to image gen)
+      const safeFirst = firstPrompt || `NO PERSON, ${outline.scene_name}, ${outline.purpose}, ${input.aspect_ratio || '9:16'} aspect ratio`;
+      const safeLast = lastPrompt || safeFirst;
+
+      console.log(`[Storyboard] Refined scene ${outline.scene_number} (${outline.scene_name})`, {
+        usesAvatar,
+        hasPrompts: Boolean(firstPrompt && lastPrompt),
+      });
+
+      // Generate frames
       const firstFramePrediction = await generateSingleImage(
-        scene.first_frame_prompt,
+        safeFirst,
         input.aspect_ratio,
         useAvatarReference ? avatarUrl : undefined,
         useAvatarReference ? avatarDescription : undefined
       );
-      
-      // Small delay to avoid rate limits
       await delay(350);
-      
-      // Generate last frame image with optional avatar reference
       const lastFramePrediction = await generateSingleImage(
-        scene.last_frame_prompt,
+        safeLast,
         input.aspect_ratio,
         useAvatarReference ? avatarUrl : undefined,
         useAvatarReference ? avatarDescription : undefined
       );
-      
       await delay(350);
-      
-      // Build the enhanced scene object
-      scenesWithPredictions.push({
-        scene_number: scene.scene_number,
-        scene_name: scene.scene_name,
-        description: scene.description,
-        duration_seconds: scene.duration_seconds,
-        
-        // Frame prompts
-        first_frame_prompt: scene.first_frame_prompt,
-        first_frame_visual_elements: scene.first_frame_visual_elements || [],
-        last_frame_prompt: scene.last_frame_prompt,
-        last_frame_visual_elements: scene.last_frame_visual_elements || [],
-        
-        // Video generation
-        video_generation_prompt: scene.video_generation_prompt || '',
-        
-        // Audio specification
-        voiceover_text: scene.voiceover_text,
-        audio_mood: scene.audio_mood,
-        sound_effects: scene.sound_effects || [],
-        audio_notes: scene.audio_notes,
-        
-        // Scene metadata
-        transition_type: scene.transition_type,
-        camera_angle: scene.camera_angle,
-        camera_movement: scene.camera_movement,
-        lighting_description: scene.lighting_description,
-        setting_change: scene.setting_change,
-        
-        // Avatar usage
+
+      const sceneOut: StoryboardScene = {
+        scene_number: outline.scene_number,
+        scene_name: outline.scene_name,
+        description: String(refined.description || outline.purpose || ''),
+        duration_seconds: outline.duration_seconds,
+        scene_type: outline.scene_type,
         uses_avatar: usesAvatar,
-        avatar_action: scene.avatar_action,
-        avatar_expression: scene.avatar_expression,
-        avatar_position: scene.avatar_position,
-        
-        // Scene type info
-        scene_type: sceneType as any,
-        product_focus: scene.product_focus,
-        text_overlay: scene.text_overlay,
-        
-        // Generated image tracking
+        first_frame_prompt: safeFirst,
+        first_frame_visual_elements: firstElems,
+        last_frame_prompt: safeLast,
+        last_frame_visual_elements: lastElems,
+        video_generation_prompt: videoPrompt || 'Natural motion between first and last frame.',
+        voiceover_text: refined.voiceover_text ? String(refined.voiceover_text) : undefined,
+        audio_mood: refined.audio_mood ? String(refined.audio_mood) : undefined,
+        sound_effects: Array.isArray(refined.sound_effects) ? refined.sound_effects.map(String) : [],
+        audio_notes: refined.audio_notes ? String(refined.audio_notes) : undefined,
+        camera_movement: refined.camera_movement ? String(refined.camera_movement) : undefined,
+        lighting_description: refined.lighting_description ? String(refined.lighting_description) : undefined,
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
         last_frame_prediction_id: lastFramePrediction?.id || undefined,
         first_frame_status: firstFramePrediction?.id ? 'generating' : 'failed',
         last_frame_status: lastFramePrediction?.id ? 'generating' : 'failed',
         first_frame_error: firstFramePrediction && !firstFramePrediction.id ? firstFramePrediction.error : undefined,
         last_frame_error: lastFramePrediction && !lastFramePrediction.id ? lastFramePrediction.error : undefined,
-      });
+      };
+
+      scenesWithPredictions.push(sceneOut);
+      previousRefined = sceneOut;
     }
     
     const storyboard: Storyboard = {
@@ -769,6 +919,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       aspect_ratio: input.aspect_ratio,
       avatar_image_url: input.avatar_image_url,
       avatar_description: input.avatar_description,
+      scenario,
       scenes: scenesWithPredictions,
       created_at: new Date().toISOString(),
       status: 'generating',

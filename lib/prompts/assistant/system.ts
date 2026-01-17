@@ -128,6 +128,10 @@ For EACH scene, create extremely precise and specific:
 - Voiceover text (exact words the creator says)
 - Audio specifications (music mood, sound effects)
 
+IMPORTANT EXECUTION NOTE:
+- Keep the <tool_call> JSON SMALL. Do NOT dump huge per-scene first_frame_prompt/last_frame_prompt blocks inside the tool call.
+- Provide minimal scene outlines (scene_number, scene_name, description, duration_seconds, scene_type, uses_avatar) and let the server generate the detailed prompts and audio.
+
 **🎭 AVATAR INTEGRATION - INTELLIGENT SCENE DETECTION:**
 
 For each scene, explicitly determine:
@@ -610,7 +614,7 @@ export const TOOLS_SCHEMA = [
         avatar_description: { type: 'string', description: 'Detailed description of the avatar for prompt consistency' },
         scenes: {
           type: 'array',
-          description: 'Array of scene objects with hyper-detailed specifications',
+          description: 'Array of scene objects. Keep these minimal/outlines; server will generate detailed frame prompts and audio.',
           items: {
             type: 'object',
             properties: {
@@ -624,43 +628,16 @@ export const TOOLS_SCHEMA = [
                 description: 'Type of scene'
               },
               uses_avatar: { type: 'boolean', description: 'Whether this scene uses the avatar reference image' },
-              avatar_action: { type: 'string', description: 'What the avatar is doing (if uses_avatar)' },
-              avatar_expression: { type: 'string', description: 'Specific facial expression (if uses_avatar)' },
-              avatar_position: { type: 'string', description: 'Where avatar is positioned in frame (if uses_avatar)' },
-              first_frame_prompt: { type: 'string', description: 'HYPER-DETAILED image prompt for opening frame' },
-              first_frame_visual_elements: { 
-                type: 'array', 
-                items: { type: 'string' },
-                description: 'Explicit list of visual elements in first frame'
-              },
-              last_frame_prompt: { type: 'string', description: 'HYPER-DETAILED image prompt for closing frame' },
-              last_frame_visual_elements: { 
-                type: 'array', 
-                items: { type: 'string' },
-                description: 'Explicit list of visual elements in last frame'
-              },
-              video_generation_prompt: { type: 'string', description: 'Motion/action description for video generation' },
-              voiceover_text: { type: 'string', description: 'Exact words spoken with emphasis markers' },
-              audio_mood: { type: 'string', description: 'Background music mood/style' },
-              sound_effects: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Specific sound effects needed'
-              },
-              audio_notes: { type: 'string', description: 'Additional audio instructions' },
               transition_type: { 
                 type: 'string', 
                 enum: ['smooth', 'cut'],
                 description: 'Transition from previous scene'
               },
-              camera_angle: { type: 'string', description: 'Camera angle: eye-level, low-angle, high-angle, etc.' },
-              camera_movement: { type: 'string', description: 'Camera movement: static, pan, zoom, tracking, etc.' },
-              lighting_description: { type: 'string', description: 'Lighting setup description' },
               setting_change: { type: 'boolean', description: 'Whether this scene has a different setting' },
               product_focus: { type: 'boolean', description: 'Whether this is a product-focused scene' },
               text_overlay: { type: 'string', description: 'Any text that should appear on screen' }
             },
-            required: ['scene_number', 'scene_name', 'description', 'first_frame_prompt', 'last_frame_prompt', 'video_generation_prompt']
+            required: ['scene_number', 'scene_name', 'description']
           }
         }
       },
@@ -789,3 +766,39 @@ Your task is to take a scene outline and create EXTREMELY DETAILED frame prompts
   "camera_movement": "Static",
   "lighting_description": "Soft natural window light from left, warm morning 5600K tones"
 }`;
+
+/**
+ * Scenario planning prompt (Phase 1 of storyboard creation).
+ * Produces a compact outline that will be refined per-scene server-side.
+ */
+export const SCENARIO_PLANNING_PROMPT = `You are a senior creative director and storyboard planner.
+
+Return STRICT JSON ONLY (no markdown, no commentary).
+
+Create a complete short-form ad scenario and break it into scenes.
+
+Output JSON schema:
+{
+  "title": string,
+  "concept": string,
+  "narrative_arc": string,
+  "target_emotion": string,
+  "key_message": string,
+  "scene_breakdown": [
+    {
+      "scene_number": number,
+      "scene_name": string,
+      "purpose": string,
+      "duration_seconds": number,
+      "needs_avatar": boolean,
+      "scene_type": "talking_head"|"product_showcase"|"b_roll"|"demonstration"|"text_card"|"transition",
+      "needs_user_details": boolean,
+      "user_question": string
+    }
+  ]
+}
+
+Rules:
+- Total duration should approximately match the requested duration.
+- If a scene is non-avatar and ambiguous without more info (e.g., b-roll setting), set needs_user_details=true and ask a specific question in user_question.
+- Keep the breakdown compact and clear.`;

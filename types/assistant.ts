@@ -185,6 +185,13 @@ export interface SceneOutline {
   duration_seconds: number;
   needs_avatar: boolean; // Whether this scene requires the AI avatar/actor
   scene_type: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
+  /**
+   * If true, we should ask the user for more specifics before generating frames for this scene.
+   * Useful for non-avatar scenes where setting/objects are underspecified.
+   */
+  needs_user_details?: boolean;
+  /** A short, direct question to ask the user to clarify this scene. */
+  user_question?: string;
 }
 
 /**
@@ -231,6 +238,12 @@ export interface StoryboardScene {
   scene_type?: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
   product_focus?: boolean; // Is this a product-focused scene
   text_overlay?: string; // Any text that should appear on screen
+  /**
+   * If present, indicates this scene needs user clarification before we can generate frames.
+   * The UI can show this and the assistant can prompt the user.
+   */
+  needs_user_details?: boolean;
+  user_question?: string;
   
   // Generated image URLs and status (populated after generation)
   first_frame_url?: string;
@@ -317,15 +330,22 @@ export interface StoryboardCreationInput {
   // Avatar reference for image-to-image consistency
   avatar_image_url?: string;
   avatar_description?: string;
-  // Scenes - can be provided directly or generated via scenario planning
+  /**
+   * Scenes can be:
+   * - Minimal outlines (small tool_call payload; server will refine prompts), OR
+   * - Fully detailed scenes (backwards compatible)
+   */
   scenes: Array<{
     scene_number: number;
     scene_name: string;
     description: string;
     duration_seconds?: number;
-    first_frame_prompt: string;
+    scene_type?: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
+    uses_avatar?: boolean;
+    // Optional in tool input; server will generate/refine when missing
+    first_frame_prompt?: string;
     first_frame_visual_elements?: string[];
-    last_frame_prompt: string;
+    last_frame_prompt?: string;
     last_frame_visual_elements?: string[];
     video_generation_prompt?: string;
     voiceover_text?: string;
@@ -337,11 +357,9 @@ export interface StoryboardCreationInput {
     camera_movement?: string;
     lighting_description?: string;
     setting_change?: boolean;
-    uses_avatar?: boolean;
     avatar_action?: string;
     avatar_expression?: string;
     avatar_position?: string;
-    scene_type?: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
     product_focus?: boolean;
     text_overlay?: string;
   }>;
