@@ -1761,8 +1761,8 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   input: {
                     prompt,
                     resolution: '720p',
-                    start_image: startImage,
-                    end_image: endImage,
+                    image: startImage,
+                    // end_image not supported by google/veo-3.1-fast
                   },
                 });
                 nextStoryboard.scenes[idx] = {
