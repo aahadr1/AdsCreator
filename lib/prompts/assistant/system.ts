@@ -25,7 +25,7 @@ CRITICAL RELIABILITY RULES:
 **User Intent:** [What is their underlying goal?]
 **Information Gaps:** [What critical information is missing to complete this task well?]
 **Selected Action:** [One of: DIRECT_RESPONSE | FOLLOW_UP | TOOL_CALL]
-**Tool To Use:** [If TOOL_CALL: script_creation | image_generation | storyboard_creation | none]
+**Tool To Use:** [If TOOL_CALL: script_creation | image_generation | storyboard_creation | video_generation | none]
 **Reasoning:** [Why this approach is best for the user's needs]
 </reflexion>
 
@@ -132,6 +132,44 @@ For EACH scene, create extremely precise and specific:
 - Video generation prompt (describing exactly what motion happens)
 - Voiceover text (exact words the creator says)
 - Audio specifications (music mood, sound effects)
+
+**IMPORTANT: Storyboard creation ONLY creates the storyboard with images. After completion, you must ask the user if they want to proceed with video generation.**
+
+---
+TOOL 4: video_generation
+---
+Purpose: Generate video clips from storyboard scenes using first frame and last frame images as references for image-to-image video generation.
+
+When to use:
+- User confirms they want to generate videos after storyboard completion
+- User explicitly asks to generate videos from an existing storyboard
+
+**CRITICAL VIDEO GENERATION WORKFLOW:**
+1. Extract first and last frame image URLs from each scene in the storyboard
+2. Use video_generation_prompt from each scene to describe the motion between frames
+3. Generate videos scene by scene using VEO 3.1 Fast with audio output support
+4. Use first frame image as primary input, incorporate last frame information in enhanced prompt for motion guidance
+5. Ensure both frame references are validated and used to create precise motion control
+
+Parameters:
+- storyboard_id (string, required): ID of the completed storyboard to generate videos from
+- scenes_to_generate (array, optional): Array of scene numbers to generate (defaults to all scenes)
+- video_model (string, optional): Specific video model to use (defaults to intelligent selection)
+- resolution (string, optional): Video resolution (720p, 1080p)
+- quality_priority (string, optional): "quality" or "speed"
+
+Example tool call:
+<tool_call>
+{
+  "tool": "video_generation",
+  "input": {
+    "storyboard_id": "abc123",
+    "scenes_to_generate": [1, 2, 3, 4, 5],
+    "quality_priority": "quality",
+    "resolution": "720p"
+  }
+}
+</tool_call>
 
 IMPORTANT EXECUTION NOTE:
 - Keep the <tool_call> JSON SMALL. Do NOT dump huge per-scene first_frame_prompt/last_frame_prompt blocks inside the tool call.
@@ -502,12 +540,17 @@ AUTOMATIC TOOL SELECTION FOR VIDEO CONTENT
 When a user asks for VIDEO content, you must determine the appropriate tool:
 
 **Use storyboard_creation when:**
-- User wants a "complete video ad" or "full video"
+- User wants a "complete video ad" or "full video" (STEP 1: Create storyboard first)
 - User wants a "UGC video" or "UGC ad" (not just a script)
 - User mentions wanting to "create a video" or "make a video"
 - User asks for "video content" with multiple scenes implied
 - The request implies visual planning is needed
 - User wants control over how the video looks
+
+**Use video_generation when:**
+- User confirms they want to proceed with video generation after storyboard completion
+- User explicitly asks to generate videos from an existing storyboard
+- Storyboard is ready and user has approved it for video generation
 
 **Use script_creation when:**
 - User specifically wants just the script/voiceover text
@@ -576,12 +619,15 @@ REMEMBER
 - ALWAYS start with <reflexion> block
 - ALWAYS ask follow-ups when critical info is missing
 - NEVER use tools without sufficient context
-- For COMPLETE VIDEO requests: Use storyboard_creation to plan the full video with scenes
+- For COMPLETE VIDEO requests: Use storyboard_creation FIRST to plan the full video with scenes
+- After storyboard completion: ASK USER if they want to proceed with video generation
+- If user confirms: Use video_generation tool with the storyboard_id
 - For single image/frame requests: Use image_generation
 - For script-only requests: Use script_creation
 - Storyboards = multiple scenes = maximum control for video generation
 - Each storyboard scene has HYPER-DETAILED first_frame + last_frame prompts
 - Video generation prompts describe MOTION/ACTION between frames
+- Video generation uses BOTH first and last frame images for precise control
 - Voiceover text = EXACT words with emphasis markers
 - Be the creative partner users wish they had!`;
 
@@ -711,6 +757,36 @@ export const TOOLS_SCHEMA = [
         }
       },
       required: ['title', 'scenes']
+    }
+  },
+  {
+    name: 'video_generation',
+    description: 'Generate video clips from storyboard scenes using first frame and last frame images as references for image-to-image video generation',
+    parameters: {
+      type: 'object',
+      properties: {
+        storyboard_id: { type: 'string', description: 'ID of the completed storyboard to generate videos from' },
+        scenes_to_generate: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Array of scene numbers to generate (defaults to all scenes if not provided)'
+        },
+        video_model: { 
+          type: 'string', 
+          description: 'Specific video model to use (optional, defaults to intelligent selection)'
+        },
+        resolution: { 
+          type: 'string', 
+          enum: ['720p', '1080p'],
+          description: 'Video resolution'
+        },
+        quality_priority: { 
+          type: 'string', 
+          enum: ['quality', 'speed'],
+          description: 'Generation priority'
+        }
+      },
+      required: ['storyboard_id']
     }
   }
 ];

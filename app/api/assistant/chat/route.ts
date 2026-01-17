@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
 import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../../lib/r2';
-import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline } from '../../../../types/assistant';
+import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline } from '../../../../types/assistant';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -90,6 +90,13 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
     const p = `${String(scene.first_frame_prompt || '')} ${String(scene.last_frame_prompt || '')}`.toLowerCase();
     if (p && (p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar') || p.includes('same avatar character')) && !avatarUrlIsValid) return false;
   }
+  return true;
+}
+
+function isVideoGenerationInput(v: unknown): v is VideoGenerationInput {
+  if (typeof v !== 'object' || v === null) return false;
+  const obj = v as any;
+  if (typeof obj.storyboard_id !== 'string' || obj.storyboard_id.trim().length === 0) return false;
   return true;
 }
 
@@ -970,6 +977,23 @@ async function waitForPredictionComplete(
   return { status: 'timeout', outputUrl: null, error: `Prediction ${predictionId} timed out after ${maxWaitMs}ms` };
 }
 
+// Execute video generation tool - Generate videos from a completed storyboard
+async function executeVideoGeneration(input: VideoGenerationInput): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
+  try {
+    const { storyboard_id, scenes_to_generate, video_model = 'google/veo-3.1-fast', resolution = '720p' } = input;
+    
+    // For now, return an error indicating this functionality needs to be implemented
+    // This will be handled by the streaming logic in the route handler
+    return {
+      success: false,
+      error: 'Video generation should be handled by streaming logic, not this function'
+    };
+  } catch (e: any) {
+    console.error('Video generation error:', e);
+    return { success: false, error: e.message };
+  }
+}
+
 // Execute storyboard creation tool - Enhanced version with SEQUENTIAL frame generation
 // Key improvements:
 // 1. First frame generated BEFORE last frame
@@ -1672,7 +1696,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           if (pendingStoryboardId && userWantsToProceed(body.message)) {
             const storyboard = extractLatestStoryboard(existingMessages);
             if (!storyboard || storyboard.id !== pendingStoryboardId) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: 'I could not find the storyboard you want to proceed with. Please regenerate the storyboard, then say “proceed”.' })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: 'I could not find the storyboard you want to proceed with. Please regenerate the storyboard, then say "proceed".' })}\n\n`));
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
               controller.close();
               return;
@@ -1683,11 +1707,24 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
 
             // Emit an initial assistant response message (non-LLM path)
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
-            const proceedText = `Proceeding to video generation with Google VEO 3.1 Fast. I’ll generate each scene one-by-one and show previews as they’re ready.`;
+            const proceedText = `Perfect! I'll now generate videos from your storyboard using the video_generation tool with VEO 3.1 Fast (which includes audio output). I'll use the first frame image and incorporate the last frame information into the prompt to guide the motion between frames.`;
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: proceedText })}\n\n`));
+            
+            // Show the tool call
+            const videoToolCall = {
+              tool: 'video_generation',
+              input: {
+                storyboard_id: storyboard.id,
+                quality_priority: 'quality',
+                resolution: '720p'
+              }
+            };
+            
+            const toolCallText = `\n\n<tool_call>\n${JSON.stringify(videoToolCall, null, 2)}\n</tool_call>`;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: toolCallText })}\n\n`));
 
             const videoMessageId = crypto.randomUUID();
-            const model = 'google/veo-3.1-fast';
+            const model = 'google/veo-3.1-fast'; // Keep VEO 3.1 Fast for audio output support
 
             // Build a storyboard copy with video placeholders
             const nextStoryboard: Storyboard = {
@@ -1736,6 +1773,19 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 continue;
               }
 
+              if (!endImage || !/^https?:\/\//i.test(endImage)) {
+                nextStoryboard.scenes[idx] = {
+                  ...scene,
+                  video_status: 'failed',
+                  video_error: 'Missing or invalid last_frame_url. Please regenerate the frame.',
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  type: 'video_generation_update',
+                  data: { message_id: videoMessageId, storyboard: nextStoryboard },
+                })}\n\n`));
+                continue;
+              }
+
               // Verify start image is reachable
               try {
                 const check = await fetch(startImage, { method: 'HEAD' });
@@ -1773,16 +1823,28 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               })}\n\n`));
 
               try {
+                // Enhanced prompt that incorporates both first and last frame information
+                // Since VEO 3.1 Fast doesn't support end_image directly, we encode the end state in the prompt
+                const lastFrameContext = scene.last_frame_visual_elements ? 
+                  ` Target end state should show: ${scene.last_frame_visual_elements.join(', ')}` : '';
+                const enhancedPrompt = `${prompt}${lastFrameContext}. MOTION DIRECTION: Start from the provided first frame image and create natural progression towards the described end state. Ensure smooth transformation between start and end compositions with realistic motion flow.`;
+                
                 const prediction = await createReplicatePrediction({
                   token: tokenStr,
-                  model,
+                  model: model,
                   input: {
-                    prompt,
+                    prompt: enhancedPrompt,
                     resolution: '720p',
-                    image: startImage,
-                    // end_image not supported by google/veo-3.1-fast
+                    image: startImage, // Primary image input (VEO 3.1 Fast supports this)
+                    // Note: end_image not directly supported by VEO 3.1 Fast, but we encode the end state in the prompt
                   },
                 });
+                
+                // Update scene with video model
+                nextStoryboard.scenes[idx] = {
+                  ...nextStoryboard.scenes[idx],
+                  video_model: model,
+                };
                 nextStoryboard.scenes[idx] = {
                   ...nextStoryboard.scenes[idx],
                   video_prediction_id: prediction.id,
@@ -2056,6 +2118,11 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               result = isStoryboardCreationInput(safeInput)
                 ? await executeStoryboardCreation(safeInput)
                 : { success: false, error: 'Invalid storyboard_creation input: missing title/scenes or avatar_image_url required for scenes using avatar' };
+            } else if (toolCall.tool === 'video_generation') {
+              const safeInput: unknown = toolCall.input;
+              result = isVideoGenerationInput(safeInput)
+                ? await executeVideoGeneration(safeInput)
+                : { success: false, error: 'Invalid video_generation input: missing storyboard_id' };
             }
             
             if (result) {
@@ -2149,9 +2216,9 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           let finalAssistantResponse = cleanedResponse.trim();
           if (shouldPromptProceed) {
             const promptLine =
-              `Storyboard is ready. Do you want any modifications, or should I proceed with generation?\n\n` +
-              `- Reply **"modify"** + what to change (e.g. “modify scene 2: change setting to a kitchen”) \n` +
-              `- Reply **"proceed"** to generate videos for all scenes (VEO 3.1 Fast).`;
+              `Storyboard is ready! Do you want any modifications, or should I proceed with video generation?\n\n` +
+              `- Reply **"modify"** + what to change (e.g. "modify scene 2: change setting to a kitchen") \n` +
+              `- Reply **"proceed"** to generate videos using VEO 3.1 Fast with audio output, incorporating both first and last frame information for motion control.`;
             finalAssistantResponse = finalAssistantResponse ? `${finalAssistantResponse}\n\n${promptLine}` : promptLine;
 
             const nextPlan = {

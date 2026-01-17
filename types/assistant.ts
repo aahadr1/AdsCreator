@@ -419,3 +419,15 @@ export interface StoryboardCreationInput {
 export interface StoryboardCreationOutput {
   storyboard: Storyboard;
 }
+
+export interface VideoGenerationInput {
+  storyboard_id: string;
+  scenes_to_generate?: number[];
+  video_model?: string;
+  resolution?: '720p' | '1080p';
+  quality_priority?: 'quality' | 'speed';
+}
+
+export interface VideoGenerationOutput {
+  storyboard: Storyboard;
+}
