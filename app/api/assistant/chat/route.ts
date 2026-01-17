@@ -40,6 +40,7 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
   if (!Array.isArray(obj.scenes) || obj.scenes.length === 0) return false;
   const avatarUrl = typeof obj.avatar_image_url === 'string' ? obj.avatar_image_url.trim() : '';
   const avatarUrlIsValid = isHttpUrl(avatarUrl);
+  
   // Validate each scene has required fields
   for (const scene of obj.scenes) {
     if (typeof scene.scene_number !== 'number') return false;
@@ -47,11 +48,19 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
     if (typeof scene.description !== 'string') return false;
     if (typeof scene.first_frame_prompt !== 'string') return false;
     if (typeof scene.last_frame_prompt !== 'string') return false;
+    
+    // New field: video_generation_prompt is required
+    if (typeof scene.video_generation_prompt !== 'string' || scene.video_generation_prompt.trim().length === 0) {
+      console.warn(`[Storyboard Validation] Scene ${scene.scene_number} missing video_generation_prompt`);
+      // Allow for backwards compatibility but log warning
+    }
+    
     // If any scene explicitly needs avatar, require a REAL url (not a placeholder)
     if (scene.uses_avatar === true && !avatarUrlIsValid) return false;
+    
     // If prompts explicitly reference avatar, require a real url too
     const p = `${scene.first_frame_prompt} ${scene.last_frame_prompt}`.toLowerCase();
-    if ((p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar')) && !avatarUrlIsValid) return false;
+    if ((p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar') || p.includes('same avatar character')) && !avatarUrlIsValid) return false;
   }
   return true;
 }
@@ -586,7 +595,7 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Execute storyboard creation tool
+// Execute storyboard creation tool - Enhanced version with improved scene handling
 async function executeStoryboardCreation(input: StoryboardCreationInput): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
   try {
     const storyboardId = crypto.randomUUID();
@@ -595,21 +604,69 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
     const avatarUrl = input.avatar_image_url;
     const avatarDescription = input.avatar_description;
     
-    console.log('[Storyboard] Starting storyboard creation:', {
+    console.log('[Storyboard] Starting enhanced storyboard creation:', {
       title: input.title,
       avatarUrl: avatarUrl ? avatarUrl.substring(0, 50) + '...' : 'none',
       avatarDescription: avatarDescription || 'none',
       sceneCount: input.scenes.length,
+      hasKeyBenefits: Array.isArray(input.key_benefits) && input.key_benefits.length > 0,
+      hasPainPoints: Array.isArray(input.pain_points) && input.pain_points.length > 0,
     });
     
+    // Enhanced avatar detection logic
     function inferUsesAvatar(scene: StoryboardCreationInput['scenes'][number]): boolean {
+      // Explicit declaration takes precedence
       if (typeof scene.uses_avatar === 'boolean') return scene.uses_avatar;
+      
+      // Scene type based detection
+      if (scene.scene_type) {
+        const avatarTypes = ['talking_head', 'demonstration'];
+        const nonAvatarTypes = ['product_showcase', 'b_roll', 'text_card', 'transition'];
+        if (nonAvatarTypes.includes(scene.scene_type)) return false;
+        if (avatarTypes.includes(scene.scene_type)) return true;
+      }
+      
+      // Setting change typically means product/b-roll shot
       if (scene.setting_change === true) return false;
+      
+      // Content-based detection
       const text = `${scene.description} ${scene.first_frame_prompt} ${scene.last_frame_prompt}`.toLowerCase();
-      const noActorSignals = ['product only', 'no actor', 'no people', 'b-roll', 'b roll', 'flat lay', 'packaging', 'end card', 'logo', 'text card'];
+      
+      // Strong signals for NO avatar
+      const noActorSignals = [
+        'product only', 'no actor', 'no person', 'no people', 'product-only',
+        'b-roll', 'b roll', 'flat lay', 'flatlay', 'packaging shot',
+        'end card', 'logo reveal', 'text card', 'brand card',
+        'product hero', 'product shot', 'no avatar'
+      ];
       if (noActorSignals.some((s) => text.includes(s))) return false;
-      const actorSignals = ['creator', 'actor', 'person', 'woman', 'man', 'she', 'he', 'facecam', 'talk', 'speaking', 'holding', 'applying', 'unboxing', 'reaction', 'avatar', 'same actor', 'base avatar'];
+      
+      // Strong signals FOR avatar
+      const actorSignals = [
+        'creator', 'actor', 'person', 'woman', 'man', 'she', 'he',
+        'facecam', 'face cam', 'talking head', 'talking-head',
+        'speaking', 'says', 'speaks', 'looking at camera',
+        'holding', 'applying', 'unboxing', 'reaction', 'showing',
+        'avatar', 'same actor', 'base avatar', 'same avatar character',
+        'demonstrates', 'presents', 'gestures'
+      ];
       return actorSignals.some((s) => text.includes(s));
+    }
+    
+    // Determine scene type if not explicitly set
+    function inferSceneType(scene: StoryboardCreationInput['scenes'][number]): string {
+      if (scene.scene_type) return scene.scene_type;
+      
+      const text = `${scene.description} ${scene.scene_name}`.toLowerCase();
+      
+      if (text.includes('end card') || text.includes('logo') || text.includes('brand')) return 'text_card';
+      if (text.includes('product') && (text.includes('only') || text.includes('shot') || text.includes('hero'))) return 'product_showcase';
+      if (text.includes('b-roll') || text.includes('b roll')) return 'b_roll';
+      if (text.includes('demo') || text.includes('apply') || text.includes('application')) return 'demonstration';
+      if (text.includes('transition')) return 'transition';
+      if (text.includes('talk') || text.includes('hook') || text.includes('cta')) return 'talking_head';
+      
+      return 'talking_head'; // Default to talking head if uncertain
     }
     
     // Build scenes with prediction IDs for image generation
@@ -617,13 +674,16 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
     
     for (const scene of input.scenes) {
       // Determine if this scene should use the avatar reference
-      // Only use avatar when explicitly marked as uses_avatar
       const usesAvatar = inferUsesAvatar(scene);
       const useAvatarReference = avatarUrl && usesAvatar;
+      const sceneType = inferSceneType(scene);
       
       console.log(`[Storyboard] Scene ${scene.scene_number} (${scene.scene_name}):`, {
         usesAvatar,
         useAvatarReference: Boolean(useAvatarReference),
+        sceneType,
+        hasVoiceover: Boolean(scene.voiceover_text),
+        hasVideoPrompt: Boolean(scene.video_generation_prompt),
       });
       
       // Generate first frame image with optional avatar reference
@@ -647,19 +707,47 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       
       await delay(350);
       
+      // Build the enhanced scene object
       scenesWithPredictions.push({
         scene_number: scene.scene_number,
         scene_name: scene.scene_name,
         description: scene.description,
         duration_seconds: scene.duration_seconds,
+        
+        // Frame prompts
         first_frame_prompt: scene.first_frame_prompt,
+        first_frame_visual_elements: scene.first_frame_visual_elements || [],
         last_frame_prompt: scene.last_frame_prompt,
+        last_frame_visual_elements: scene.last_frame_visual_elements || [],
+        
+        // Video generation
+        video_generation_prompt: scene.video_generation_prompt || '',
+        
+        // Audio specification
+        voiceover_text: scene.voiceover_text,
+        audio_mood: scene.audio_mood,
+        sound_effects: scene.sound_effects || [],
+        audio_notes: scene.audio_notes,
+        
+        // Scene metadata
         transition_type: scene.transition_type,
         camera_angle: scene.camera_angle,
+        camera_movement: scene.camera_movement,
+        lighting_description: scene.lighting_description,
         setting_change: scene.setting_change,
+        
+        // Avatar usage
         uses_avatar: usesAvatar,
-        video_generation_prompt: scene.video_generation_prompt,
-        audio_notes: scene.audio_notes,
+        avatar_action: scene.avatar_action,
+        avatar_expression: scene.avatar_expression,
+        avatar_position: scene.avatar_position,
+        
+        // Scene type info
+        scene_type: sceneType as any,
+        product_focus: scene.product_focus,
+        text_overlay: scene.text_overlay,
+        
+        // Generated image tracking
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
         last_frame_prediction_id: lastFramePrediction?.id || undefined,
         first_frame_status: firstFramePrediction?.id ? 'generating' : 'failed',

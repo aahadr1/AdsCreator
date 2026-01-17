@@ -619,8 +619,20 @@ export default function AssistantPage() {
     );
   }
 
-  // Individual scene card component - Production Ready
+  // Individual scene card component - Production Ready with Enhanced Fields
   function SceneCard({ scene, aspectRatio }: { scene: StoryboardScene; aspectRatio?: string }) {
+    const sceneTypeLabel = (type?: string) => {
+      switch (type) {
+        case 'talking_head': return '🎤 Talking Head';
+        case 'product_showcase': return '📦 Product Shot';
+        case 'b_roll': return '🎬 B-Roll';
+        case 'demonstration': return '👆 Demo';
+        case 'text_card': return '📝 Text Card';
+        case 'transition': return '🔄 Transition';
+        default: return null;
+      }
+    };
+    
     return (
       <div className={styles.sceneCard}>
         {/* Scene Header */}
@@ -635,13 +647,28 @@ export default function AssistantPage() {
                   {scene.duration_seconds}s
                 </span>
               )}
+              {scene.scene_type && (
+                <span className={styles.sceneTag}>
+                  {sceneTypeLabel(scene.scene_type)}
+                </span>
+              )}
+              {scene.uses_avatar === true && (
+                <span className={styles.sceneTag} title="Uses avatar reference">
+                  🎭 Avatar
+                </span>
+              )}
+              {scene.uses_avatar === false && (
+                <span className={styles.sceneTag} title="No avatar">
+                  📷 No Avatar
+                </span>
+              )}
               {scene.transition_type && (
                 <span className={styles.sceneTag}>
                   {scene.transition_type === 'smooth' ? '↔️' : '✂️'} {scene.transition_type}
                 </span>
               )}
-              {scene.camera_angle && scene.camera_angle !== 'same' && (
-                <span className={styles.sceneTag}>📷 {scene.camera_angle}</span>
+              {scene.camera_movement && scene.camera_movement !== 'Static' && (
+                <span className={styles.sceneTag}>📹 {scene.camera_movement}</span>
               )}
             </div>
           </div>
@@ -651,6 +678,26 @@ export default function AssistantPage() {
         <div className={styles.sceneDescription}>
           {scene.description}
         </div>
+
+        {/* Avatar Details (if uses avatar) */}
+        {scene.uses_avatar && (scene.avatar_action || scene.avatar_expression) && (
+          <div className={styles.avatarDetailsBox}>
+            <div className={styles.avatarDetailsLabel}>
+              <span>🎭 Avatar Direction</span>
+            </div>
+            <div className={styles.avatarDetailsContent}>
+              {scene.avatar_action && (
+                <div><strong>Action:</strong> {scene.avatar_action}</div>
+              )}
+              {scene.avatar_expression && (
+                <div><strong>Expression:</strong> {scene.avatar_expression}</div>
+              )}
+              {scene.avatar_position && (
+                <div><strong>Position:</strong> {scene.avatar_position}</div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Frames Grid */}
         <div className={styles.framesGrid}>
@@ -686,14 +733,51 @@ export default function AssistantPage() {
           </div>
         )}
 
-        {/* Audio Notes */}
-        {scene.audio_notes && (
+        {/* Voiceover Text - New Enhanced Field */}
+        {scene.voiceover_text && (
+          <div className={styles.voiceoverBox}>
+            <div className={styles.voiceoverLabel}>
+              <span>🎙️ Voiceover Script</span>
+            </div>
+            <p className={styles.voiceoverText}>&quot;{scene.voiceover_text}&quot;</p>
+          </div>
+        )}
+
+        {/* Audio Details - New Enhanced Section */}
+        {(scene.audio_mood || scene.sound_effects?.length || scene.audio_notes) && (
           <div className={styles.audioNotesBox}>
             <div className={styles.audioNotesLabel}>
               <Volume2 size={12} />
               <span>Audio</span>
             </div>
-            <p className={styles.audioNotesText}>{scene.audio_notes}</p>
+            <div className={styles.audioDetailsContent}>
+              {scene.audio_mood && (
+                <div className={styles.audioDetailItem}>
+                  <strong>Music Mood:</strong> {scene.audio_mood}
+                </div>
+              )}
+              {scene.sound_effects && scene.sound_effects.length > 0 && (
+                <div className={styles.audioDetailItem}>
+                  <strong>Sound Effects:</strong> {scene.sound_effects.join(', ')}
+                </div>
+              )}
+              {scene.audio_notes && (
+                <div className={styles.audioDetailItem}>
+                  <strong>Notes:</strong> {scene.audio_notes}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Text Overlay - for end cards */}
+        {scene.text_overlay && (
+          <div className={styles.textOverlayBox}>
+            <div className={styles.textOverlayLabel}>
+              <FileText size={12} />
+              <span>Text Overlay</span>
+            </div>
+            <p className={styles.textOverlayText}>{scene.text_overlay}</p>
           </div>
         )}
       </div>

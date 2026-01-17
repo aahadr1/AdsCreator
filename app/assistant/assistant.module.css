@@ -894,7 +894,7 @@
 
 /* Audio Notes Box */
 .audioNotesBox {
-  margin: 0 16px 16px;
+  margin: 0 16px 12px;
   padding: 10px 12px;
   border-radius: 8px;
   background: rgba(16, 185, 129, 0.06);
@@ -919,6 +919,121 @@
   line-height: 1.5;
   color: rgba(231, 233, 238, 0.75);
   font-style: italic;
+}
+
+.audioDetailsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.audioDetailItem {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(231, 233, 238, 0.75);
+}
+
+.audioDetailItem strong {
+  color: rgba(231, 233, 238, 0.55);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+/* Voiceover Box */
+.voiceoverBox {
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.18);
+}
+
+.voiceoverLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(251, 191, 36, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.voiceoverText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(231, 233, 238, 0.9);
+  font-style: italic;
+}
+
+/* Avatar Details Box */
+.avatarDetailsBox {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.18);
+}
+
+.avatarDetailsLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(139, 92, 246, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.avatarDetailsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.avatarDetailsContent div {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(231, 233, 238, 0.75);
+}
+
+.avatarDetailsContent strong {
+  color: rgba(231, 233, 238, 0.55);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+/* Text Overlay Box */
+.textOverlayBox {
+  margin: 0 16px 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+.textOverlayLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(59, 130, 246, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.textOverlayText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(231, 233, 238, 0.9);
+  font-weight: 600;
 }
 
 /* Mobile */

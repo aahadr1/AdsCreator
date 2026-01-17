@@ -161,19 +161,77 @@ export interface ImageGenerationOutput {
 }
 
 // Storyboard specific types
+
+/**
+ * Video Scenario - High-level description of the complete video
+ * This is generated first before individual scenes are detailed
+ */
+export interface VideoScenario {
+  title: string;
+  concept: string; // The core creative concept/idea
+  narrative_arc: string; // How the story flows from beginning to end
+  target_emotion: string; // The emotional journey we want viewers to experience
+  key_message: string; // The single most important takeaway
+  scene_breakdown: SceneOutline[]; // High-level scene breakdown
+}
+
+/**
+ * Scene Outline - Brief scene description from the scenario phase
+ */
+export interface SceneOutline {
+  scene_number: number;
+  scene_name: string;
+  purpose: string; // Why this scene exists in the narrative
+  duration_seconds: number;
+  needs_avatar: boolean; // Whether this scene requires the AI avatar/actor
+  scene_type: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
+}
+
+/**
+ * Refined Scene - Detailed scene specification with precise prompts
+ * Generated in individual LLM calls for maximum precision
+ */
 export interface StoryboardScene {
   scene_number: number;
   scene_name: string;
   description: string;
   duration_seconds?: number;
+  
+  // First frame prompt - extremely precise and specific
   first_frame_prompt: string;
+  first_frame_visual_elements: string[]; // Explicit list of visual elements
+  
+  // Last frame prompt - extremely precise and specific  
   last_frame_prompt: string;
+  last_frame_visual_elements: string[]; // Explicit list of visual elements
+  
+  // Video generation prompt - describes the motion/action between frames
+  video_generation_prompt: string;
+  
+  // Audio specification
+  voiceover_text?: string; // Exact text the creator should say
+  audio_mood?: string; // Background music mood/style
+  sound_effects?: string[]; // Specific sound effects needed
+  audio_notes?: string; // Additional audio instructions
+  
+  // Scene metadata
   transition_type?: 'smooth' | 'cut';
   camera_angle?: string;
+  camera_movement?: string; // pan, zoom, static, tracking, etc.
+  lighting_description?: string;
   setting_change?: boolean;
+  
+  // Avatar usage
   uses_avatar?: boolean;
-  video_generation_prompt?: string;
-  audio_notes?: string;
+  avatar_action?: string; // What the avatar is doing in this scene
+  avatar_expression?: string; // Facial expression description
+  avatar_position?: string; // Where avatar is in frame
+  
+  // For non-avatar scenes
+  scene_type?: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
+  product_focus?: boolean; // Is this a product-focused scene
+  text_overlay?: string; // Any text that should appear on screen
+  
   // Generated image URLs and status (populated after generation)
   first_frame_url?: string;
   last_frame_url?: string;
@@ -198,36 +256,94 @@ export interface Storyboard {
   // Avatar reference for consistency
   avatar_image_url?: string;
   avatar_description?: string;
+  // Video scenario - the creative foundation
+  scenario?: VideoScenario;
   scenes: StoryboardScene[];
   created_at: string;
-  status: 'draft' | 'generating' | 'ready' | 'failed';
+  status: 'draft' | 'planning' | 'refining_scenes' | 'generating' | 'ready' | 'failed';
+}
+
+/**
+ * Input for the scenario planning phase (Phase 1)
+ * This generates the high-level video concept and scene breakdown
+ */
+export interface ScenarioPlanningInput {
+  brand_name?: string;
+  product?: string;
+  product_description?: string;
+  target_audience?: string;
+  platform?: 'tiktok' | 'instagram' | 'facebook' | 'youtube_shorts';
+  total_duration_seconds?: number;
+  style?: string;
+  aspect_ratio?: string;
+  key_benefits?: string[];
+  pain_points?: string[];
+  call_to_action?: string;
+  creative_direction?: string; // Any specific creative requests
+  avatar_image_url?: string;
+  avatar_description?: string;
+}
+
+/**
+ * Input for refining a single scene (Phase 2)
+ * Each scene gets its own LLM call for maximum precision
+ */
+export interface SceneRefinementInput {
+  scenario: VideoScenario;
+  scene_outline: SceneOutline;
+  avatar_image_url?: string;
+  avatar_description?: string;
+  aspect_ratio?: string;
+  style?: string;
+  brand_name?: string;
+  product?: string;
+  previous_scene?: StoryboardScene; // For continuity
 }
 
 export interface StoryboardCreationInput {
   title: string;
   brand_name?: string;
   product?: string;
+  product_description?: string;
   target_audience?: string;
   platform?: 'tiktok' | 'instagram' | 'facebook' | 'youtube_shorts';
   total_duration_seconds?: number;
   style?: string;
   aspect_ratio?: string;
+  key_benefits?: string[];
+  pain_points?: string[];
+  call_to_action?: string;
+  creative_direction?: string;
   // Avatar reference for image-to-image consistency
   avatar_image_url?: string;
   avatar_description?: string;
+  // Scenes - can be provided directly or generated via scenario planning
   scenes: Array<{
     scene_number: number;
     scene_name: string;
     description: string;
     duration_seconds?: number;
     first_frame_prompt: string;
+    first_frame_visual_elements?: string[];
     last_frame_prompt: string;
+    last_frame_visual_elements?: string[];
+    video_generation_prompt?: string;
+    voiceover_text?: string;
+    audio_mood?: string;
+    sound_effects?: string[];
+    audio_notes?: string;
     transition_type?: 'smooth' | 'cut';
     camera_angle?: string;
+    camera_movement?: string;
+    lighting_description?: string;
     setting_change?: boolean;
     uses_avatar?: boolean;
-    video_generation_prompt?: string;
-    audio_notes?: string;
+    avatar_action?: string;
+    avatar_expression?: string;
+    avatar_position?: string;
+    scene_type?: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
+    product_focus?: boolean;
+    text_overlay?: string;
   }>;
 }
 
