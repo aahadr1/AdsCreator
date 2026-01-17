@@ -360,12 +360,77 @@ function isAvatarConfirmation(text: string): boolean {
   );
 }
 
-async function maybeCacheAvatarToR2({
+function isProductImageConfirmation(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes('use this product') ||
+    normalized.includes('use that product') ||
+    normalized.includes('use this product image') ||
+    normalized.includes('yes use this product') ||
+    normalized.includes('use this as product image')
+  );
+}
+
+/**
+ * Get the last product image from the conversation (similar to avatar tracking)
+ */
+async function getLastProductFromConversation(messages: Message[]): Promise<{ url?: string; predictionId?: string; status?: string; description?: string } | null> {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'tool_result' || msg.tool_name !== 'image_generation') continue;
+    
+    const toolOutput = msg.tool_output as any;
+    const purposeFromOutput = toolOutput?.purpose;
+    const descriptionFromOutput = toolOutput?.product_description || toolOutput?.prompt;
+    
+    let isProduct = purposeFromOutput === 'product';
+    let productDescription = descriptionFromOutput;
+    
+    // Check the corresponding tool_call as fallback
+    if (!isProduct) {
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = messages[j];
+        if (prev.role === 'tool_call' && prev.tool_name === 'image_generation') {
+          const input = prev.tool_input as any;
+          if (input?.purpose === 'product') {
+            isProduct = true;
+            productDescription = productDescription || input?.prompt;
+          }
+          break;
+        }
+      }
+    }
+    
+    if (isProduct) {
+      const url = extractImageUrlFromToolResult(msg);
+      const predictionId = extractPredictionIdFromToolResult(msg);
+      
+      if (url) {
+        return { url, predictionId: predictionId || undefined, status: 'succeeded', description: productDescription || undefined };
+      }
+      
+      if (predictionId) {
+        const resolved = await resolveReplicateOutputUrl(predictionId);
+        if (resolved.outputUrl) {
+          return { url: resolved.outputUrl, predictionId, status: resolved.status || undefined, description: productDescription || undefined };
+        }
+        return { predictionId, status: resolved.status || undefined, description: productDescription || undefined };
+      }
+      
+      return { description: productDescription || undefined };
+    }
+  }
+  return null;
+}
+
+async function maybeCacheImageToR2({
   sourceUrl,
   conversationId,
+  type = 'avatar',
 }: {
   sourceUrl: string;
   conversationId: string;
+  type?: 'avatar' | 'product';
 }): Promise<{ url: string; cached: boolean; error?: string }> {
   try {
     const src = sourceUrl.trim();
@@ -384,13 +449,14 @@ async function maybeCacheAvatarToR2({
     }
 
     const res = await fetch(src, { cache: 'no-store' });
-    if (!res.ok) return { url: sourceUrl, cached: false, error: `Failed to download avatar: ${await res.text()}` };
+    if (!res.ok) return { url: sourceUrl, cached: false, error: `Failed to download ${type}: ${await res.text()}` };
     const arrayBuffer = await res.arrayBuffer();
     const contentType = res.headers.get('content-type') || 'image/jpeg';
 
     // Keep extension consistent; default to jpg for maximum compatibility
     const ext = contentType.includes('png') ? 'png' : 'jpg';
-    const key = `avatars/${conversationId}/${crypto.randomUUID()}.${ext}`;
+    const folder = type === 'product' ? 'products' : 'avatars';
+    const key = `${folder}/${conversationId}/${crypto.randomUUID()}.${ext}`;
 
     const r2 = createR2Client({
       accountId: r2AccountId,
@@ -414,8 +480,19 @@ async function maybeCacheAvatarToR2({
     if (!publicUrl) return { url: sourceUrl, cached: false, error: 'Could not compute R2 public URL' };
     return { url: publicUrl, cached: true };
   } catch (e: any) {
-    return { url: sourceUrl, cached: false, error: e?.message || 'maybeCacheAvatarToR2 failed' };
+    return { url: sourceUrl, cached: false, error: e?.message || `maybeCacheImageToR2 (${type}) failed` };
   }
+}
+
+// Backwards-compatible alias
+async function maybeCacheAvatarToR2({
+  sourceUrl,
+  conversationId,
+}: {
+  sourceUrl: string;
+  conversationId: string;
+}): Promise<{ url: string; cached: boolean; error?: string }> {
+  return maybeCacheImageToR2({ sourceUrl, conversationId, type: 'avatar' });
 }
 
 // Remove tool calls and reflexion from visible response
@@ -583,12 +660,24 @@ async function getModelVersionId(token: string, model: string): Promise<string |
   return versionId || null;
 }
 
-// Helper to generate a single image with optional image-to-image reference
+/**
+ * Reference images for image generation
+ * Supports multiple reference types for maximum consistency
+ */
+interface ReferenceImages {
+  avatarUrl?: string;              // Avatar image for character consistency
+  avatarDescription?: string;      // Description of the avatar
+  firstFrameUrl?: string;          // Scene's first frame (when generating last frame)
+  productUrl?: string;             // Product image for product consistency
+  productDescription?: string;     // Description of the product
+  prevSceneLastFrameUrl?: string;  // Previous scene's last frame (for smooth transitions)
+}
+
+// Helper to generate a single image with multiple reference image support
 async function generateSingleImage(
   prompt: string, 
   aspectRatio?: string,
-  referenceImageUrl?: string,
-  avatarDescription?: string
+  references?: ReferenceImages
 ): Promise<{ id: string; status: string; error?: string } | null> {
   try {
     const token = process.env.REPLICATE_API_TOKEN;
@@ -627,29 +716,76 @@ async function generateSingleImage(
       output_format: 'jpg',
     };
     
-    // If reference image is provided, use it for image-to-image generation
-    // This ensures consistency - same actor, same setting, same style
-    const hasRef = referenceImageUrl && /^https?:\/\//i.test(referenceImageUrl);
+    // Collect all reference image URLs
+    // Priority: prevSceneLastFrameUrl > firstFrameUrl > avatarUrl (for the primary reference)
+    // Additional references (product) are included in the prompt context
+    const referenceUrls: string[] = [];
+    const promptContextParts: string[] = [];
     
-    let refPrompt: string;
-    if (hasRef) {
-      // Build a comprehensive prompt that emphasizes maintaining the reference character
-      const avatarContext = avatarDescription 
-        ? `The person in the reference image is: ${avatarDescription}. ` 
-        : '';
-      refPrompt = `${avatarContext}CRITICAL: Maintain the EXACT same person, same face, same facial features, same hair, same skin tone, same body type as the reference image. Keep the same lighting style and visual quality. The ONLY changes should be: ${enhancedPrompt}`;
-      console.log('[Storyboard] Using avatar reference with description:', avatarDescription ? 'YES' : 'NO');
+    // Check which references we have
+    const hasPrevSceneRef = references?.prevSceneLastFrameUrl && /^https?:\/\//i.test(references.prevSceneLastFrameUrl);
+    const hasFirstFrameRef = references?.firstFrameUrl && /^https?:\/\//i.test(references.firstFrameUrl);
+    const hasAvatarRef = references?.avatarUrl && /^https?:\/\//i.test(references.avatarUrl);
+    const hasProductRef = references?.productUrl && /^https?:\/\//i.test(references.productUrl);
+    
+    // Build reference context for the prompt
+    if (hasPrevSceneRef) {
+      // For smooth transitions: use previous scene's last frame as PRIMARY reference
+      referenceUrls.push(references!.prevSceneLastFrameUrl!);
+      promptContextParts.push('CRITICAL: This frame must be a SEAMLESS continuation from the reference image. The person must be in the EXACT same position, same setting, same lighting. Only subtle changes in expression or very minor movement are allowed.');
+      console.log('[Storyboard] Using prev scene last frame for smooth transition');
+    } else if (hasFirstFrameRef) {
+      // For last frame generation: use first frame as PRIMARY reference
+      referenceUrls.push(references!.firstFrameUrl!);
+      promptContextParts.push('CRITICAL: Maintain EXACT same setting, same lighting, same camera angle, same background as the reference image. The person and environment must look consistent - only the specified changes should occur.');
+      console.log('[Storyboard] Using first frame reference for last frame generation');
+    } else if (hasAvatarRef) {
+      // For first frame generation with avatar
+      referenceUrls.push(references!.avatarUrl!);
+      if (references?.avatarDescription) {
+        promptContextParts.push(`The person in the reference image is: ${references.avatarDescription}.`);
+      }
+      promptContextParts.push('CRITICAL: Maintain the EXACT same person, same face, same facial features, same hair, same skin tone, same body type as the reference image.');
+      console.log('[Storyboard] Using avatar reference with description:', references?.avatarDescription ? 'YES' : 'NO');
+    }
+    
+    // Product reference adds additional context
+    if (hasProductRef && references?.productDescription) {
+      promptContextParts.push(`The product in this scene is: ${references.productDescription}. Ensure the product looks EXACTLY like the reference - same colors, same packaging, same details.`);
+      // If product is the only reference, use it as image input
+      if (referenceUrls.length === 0) {
+        referenceUrls.push(references!.productUrl!);
+        console.log('[Storyboard] Using product reference as primary image input');
+      }
+    }
+    
+    const hasAnyRef = referenceUrls.length > 0;
+    
+    let finalPrompt: string;
+    if (hasAnyRef) {
+      // Build comprehensive prompt with all context
+      const contextBlock = promptContextParts.join(' ');
+      finalPrompt = `${contextBlock} The ONLY changes should be: ${enhancedPrompt}`;
     } else {
-      refPrompt = enhancedPrompt;
+      finalPrompt = enhancedPrompt;
     }
 
-    // Use nano-banana for BOTH text-to-image and image-to-image.
-    // The primary failure mode we observed (E006) is usually a bad/unreachable reference URL,
-    // so we ensure avatar URLs are cached to our own R2 public URL on approval.
+    // Use nano-banana for BOTH text-to-image and image-to-image
     const model = 'google/nano-banana';
-    const input: Record<string, unknown> = { ...baseInput, prompt: hasRef ? refPrompt : enhancedPrompt };
-    if (hasRef) input.image_input = [String(referenceImageUrl)];
-    console.log('[Storyboard] Creating prediction:', model, hasRef ? '(img2img)' : '(t2i)', 'RefURL:', referenceImageUrl ? referenceImageUrl.substring(0, 50) + '...' : 'none');
+    const input: Record<string, unknown> = { ...baseInput, prompt: finalPrompt };
+    
+    if (hasAnyRef) {
+      input.image_input = referenceUrls;
+    }
+    
+    console.log('[Storyboard] Creating prediction:', model, hasAnyRef ? '(img2img)' : '(t2i)', 
+      'Refs:', {
+        prevScene: hasPrevSceneRef,
+        firstFrame: hasFirstFrameRef,
+        avatar: hasAvatarRef,
+        product: hasProductRef,
+      });
+    
     const res = await createPrediction(model, input);
     if (res.ok) return { id: String(res.json.id), status: String(res.json.status) };
     return { id: '', status: 'failed', error: String((res as any).text || '') || 'Prediction failed' };
@@ -664,7 +800,74 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Execute storyboard creation tool - Enhanced version with improved scene handling
+/**
+ * Poll for prediction completion and return the output URL
+ * This is essential for sequential frame generation where we need the first frame URL
+ * before generating the last frame.
+ */
+async function waitForPredictionComplete(
+  predictionId: string, 
+  maxWaitMs: number = 60000,
+  pollIntervalMs: number = 2000
+): Promise<{ status: string; outputUrl: string | null; error: string | null }> {
+  const startTime = Date.now();
+  const token = process.env.REPLICATE_API_TOKEN;
+  
+  if (!token) {
+    return { status: 'failed', outputUrl: null, error: 'missing REPLICATE_API_TOKEN' };
+  }
+  
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const res = await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}`, {
+        headers: { Authorization: `Token ${token}` },
+        cache: 'no-store',
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`[waitForPrediction] HTTP error for ${predictionId}:`, errorText);
+        await delay(pollIntervalMs);
+        continue;
+      }
+      
+      const json: any = await res.json();
+      const status = String(json.status || '');
+      
+      if (status === 'succeeded') {
+        let outputUrl: string | null = null;
+        const out = json.output;
+        if (typeof out === 'string') outputUrl = out;
+        else if (Array.isArray(out)) outputUrl = typeof out[0] === 'string' ? out[0] : null;
+        else if (out && typeof out === 'object' && typeof out.url === 'string') outputUrl = out.url;
+        
+        console.log(`[waitForPrediction] ${predictionId} succeeded, outputUrl:`, outputUrl?.substring(0, 50));
+        return { status, outputUrl, error: null };
+      }
+      
+      if (status === 'failed' || status === 'canceled') {
+        const error = json.error || json.logs || 'Prediction failed';
+        console.error(`[waitForPrediction] ${predictionId} ${status}:`, error);
+        return { status, outputUrl: null, error };
+      }
+      
+      // Still processing, wait and poll again
+      await delay(pollIntervalMs);
+    } catch (e: any) {
+      console.error(`[waitForPrediction] Error polling ${predictionId}:`, e.message);
+      await delay(pollIntervalMs);
+    }
+  }
+  
+  return { status: 'timeout', outputUrl: null, error: `Prediction ${predictionId} timed out after ${maxWaitMs}ms` };
+}
+
+// Execute storyboard creation tool - Enhanced version with SEQUENTIAL frame generation
+// Key improvements:
+// 1. First frame generated BEFORE last frame
+// 2. First frame URL passed to last frame generation for scene consistency
+// 3. Previous scene's last frame passed to next scene's first frame for smooth transitions
+// 4. Product image support for consistent product appearance
 async function executeStoryboardCreation(input: StoryboardCreationInput): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
   try {
     const storyboardId = crypto.randomUUID();
@@ -673,10 +876,16 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
     const avatarUrl = input.avatar_image_url;
     const avatarDescription = input.avatar_description;
     
-    console.log('[Storyboard] Starting multi-call storyboard creation:', {
+    // Product image URL and description for product consistency
+    const productUrl = input.product_image_url;
+    const productDescription = input.product_image_description || input.product_description;
+    
+    console.log('[Storyboard] Starting SEQUENTIAL multi-call storyboard creation:', {
       title: input.title,
       avatarUrl: avatarUrl ? avatarUrl.substring(0, 50) + '...' : 'none',
       avatarDescription: avatarDescription || 'none',
+      productUrl: productUrl ? productUrl.substring(0, 50) + '...' : 'none',
+      productDescription: productDescription || 'none',
       sceneCount: input.scenes.length,
       hasKeyBenefits: Array.isArray(input.key_benefits) && input.key_benefits.length > 0,
       hasPainPoints: Array.isArray(input.pain_points) && input.pain_points.length > 0,
@@ -774,12 +983,19 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
     }
     
     // Build scenes with prediction IDs for image generation
+    // SEQUENTIAL GENERATION: First frame → wait → last frame (with first frame reference)
+    // SMOOTH TRANSITIONS: Previous scene's last frame → next scene's first frame
     const scenesWithPredictions: StoryboardScene[] = [];
+    
+    // Track the previous scene's last frame URL for smooth transitions
+    let prevSceneLastFrameUrl: string | undefined;
 
     let previousRefined: StoryboardScene | undefined;
     for (const outline of outlines) {
       const usesAvatar = Boolean(outline.needs_avatar);
       const useAvatarReference = Boolean(avatarUrl && usesAvatar);
+      const needsProductImage = Boolean(outline.needs_product_image || outline.scene_type === 'product_showcase');
+      const usePrevSceneTransition = Boolean(outline.use_prev_scene_transition && prevSceneLastFrameUrl);
 
       // If outline says avatar but we don't have an avatar URL, force user clarification
       if (usesAvatar && !avatarUrl) {
@@ -799,6 +1015,8 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
           video_generation_prompt: 'NEEDS USER INPUT',
           first_frame_status: 'pending',
           last_frame_status: 'pending',
+          needs_product_image: needsProductImage,
+          use_prev_scene_transition: false,
         });
         continue;
       }
@@ -820,6 +1038,8 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
           video_generation_prompt: 'NEEDS USER INPUT',
           first_frame_status: 'pending',
           last_frame_status: 'pending',
+          needs_product_image: needsProductImage,
+          use_prev_scene_transition: false,
         });
         continue;
       }
@@ -834,9 +1054,12 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         ``,
         `BRAND: ${input.brand_name || ''}`,
         `PRODUCT: ${input.product || ''}`,
+        `PRODUCT_DESCRIPTION: ${productDescription || ''}`,
         `STYLE: ${input.style || ''}`,
         `ASPECT_RATIO: ${input.aspect_ratio || ''}`,
         `AVATAR_DESCRIPTION: ${usesAvatar ? (avatarDescription || '(use avatar image reference)') : 'NO AVATAR'}`,
+        `NEEDS_PRODUCT_IMAGE: ${needsProductImage}`,
+        `USE_PREV_SCENE_TRANSITION: ${usePrevSceneTransition}`,
         previousRefined ? `PREVIOUS_SCENE (for continuity):\n${JSON.stringify(previousRefined, null, 2)}` : '',
       ].filter(Boolean).join('\n');
 
@@ -858,24 +1081,133 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
 
       console.log(`[Storyboard] Refined scene ${outline.scene_number} (${outline.scene_name})`, {
         usesAvatar,
+        needsProductImage,
+        usePrevSceneTransition,
         hasPrompts: Boolean(firstPrompt && lastPrompt),
       });
 
-      // Generate frames
+      // =================================================================
+      // SEQUENTIAL FRAME GENERATION
+      // =================================================================
+      // 
+      // Step 1: Generate FIRST FRAME
+      //   - Use avatar reference (if avatar scene)
+      //   - Use previous scene's last frame (if smooth transition)
+      //   - Use product reference (if product scene)
+      //
+      // Step 2: WAIT for first frame to complete and get URL
+      //
+      // Step 3: Generate LAST FRAME
+      //   - Use FIRST FRAME URL as primary reference (scene consistency)
+      //   - This ensures setting, lighting, product placement are IDENTICAL
+      //
+      // =================================================================
+      
+      // Build reference images for FIRST FRAME
+      const firstFrameRefs: ReferenceImages = {};
+      
+      // For smooth transitions, use previous scene's last frame as PRIMARY reference
+      if (usePrevSceneTransition && prevSceneLastFrameUrl) {
+        firstFrameRefs.prevSceneLastFrameUrl = prevSceneLastFrameUrl;
+        console.log(`[Storyboard] Scene ${outline.scene_number}: Using prev scene last frame for smooth transition`);
+      }
+      
+      // Avatar reference (if not using prev scene transition as primary)
+      if (useAvatarReference && avatarUrl) {
+        firstFrameRefs.avatarUrl = avatarUrl;
+        firstFrameRefs.avatarDescription = avatarDescription;
+      }
+      
+      // Product reference
+      if (needsProductImage && productUrl) {
+        firstFrameRefs.productUrl = productUrl;
+        firstFrameRefs.productDescription = productDescription;
+      }
+      
+      // Generate FIRST FRAME
+      console.log(`[Storyboard] Scene ${outline.scene_number}: Generating FIRST FRAME...`);
       const firstFramePrediction = await generateSingleImage(
         safeFirst,
         input.aspect_ratio,
-        useAvatarReference ? avatarUrl : undefined,
-        useAvatarReference ? avatarDescription : undefined
+        firstFrameRefs
       );
-      await delay(350);
+      
+      let firstFrameUrl: string | undefined;
+      let firstFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'pending';
+      let firstFrameError: string | undefined;
+      
+      if (firstFramePrediction?.id) {
+        // Wait for first frame to complete (we need the URL for last frame generation)
+        console.log(`[Storyboard] Scene ${outline.scene_number}: Waiting for first frame (${firstFramePrediction.id})...`);
+        const firstFrameResult = await waitForPredictionComplete(firstFramePrediction.id, 90000, 2500);
+        
+        if (firstFrameResult.status === 'succeeded' && firstFrameResult.outputUrl) {
+          firstFrameUrl = firstFrameResult.outputUrl;
+          firstFrameStatus = 'succeeded';
+          console.log(`[Storyboard] Scene ${outline.scene_number}: First frame READY: ${firstFrameUrl.substring(0, 50)}...`);
+        } else {
+          firstFrameStatus = 'failed';
+          firstFrameError = firstFrameResult.error || 'First frame generation failed';
+          console.error(`[Storyboard] Scene ${outline.scene_number}: First frame FAILED:`, firstFrameError);
+        }
+      } else {
+        firstFrameStatus = 'failed';
+        firstFrameError = firstFramePrediction?.error || 'Failed to start first frame generation';
+      }
+      
+      // Build reference images for LAST FRAME
+      // KEY: Use the FIRST FRAME URL as primary reference for scene consistency!
+      const lastFrameRefs: ReferenceImages = {};
+      
+      if (firstFrameUrl) {
+        // THIS IS THE KEY: First frame URL ensures scene consistency
+        lastFrameRefs.firstFrameUrl = firstFrameUrl;
+        console.log(`[Storyboard] Scene ${outline.scene_number}: Using first frame as reference for last frame`);
+      } else if (useAvatarReference && avatarUrl) {
+        // Fallback to avatar if first frame failed
+        lastFrameRefs.avatarUrl = avatarUrl;
+        lastFrameRefs.avatarDescription = avatarDescription;
+      }
+      
+      // Product reference for last frame too
+      if (needsProductImage && productUrl) {
+        lastFrameRefs.productUrl = productUrl;
+        lastFrameRefs.productDescription = productDescription;
+      }
+      
+      // Generate LAST FRAME (with first frame as reference)
+      console.log(`[Storyboard] Scene ${outline.scene_number}: Generating LAST FRAME...`);
       const lastFramePrediction = await generateSingleImage(
         safeLast,
         input.aspect_ratio,
-        useAvatarReference ? avatarUrl : undefined,
-        useAvatarReference ? avatarDescription : undefined
+        lastFrameRefs
       );
-      await delay(350);
+      
+      let lastFrameUrl: string | undefined;
+      let lastFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'pending';
+      let lastFrameError: string | undefined;
+      
+      if (lastFramePrediction?.id) {
+        // Wait for last frame to complete (we need the URL for next scene's transition)
+        console.log(`[Storyboard] Scene ${outline.scene_number}: Waiting for last frame (${lastFramePrediction.id})...`);
+        const lastFrameResult = await waitForPredictionComplete(lastFramePrediction.id, 90000, 2500);
+        
+        if (lastFrameResult.status === 'succeeded' && lastFrameResult.outputUrl) {
+          lastFrameUrl = lastFrameResult.outputUrl;
+          lastFrameStatus = 'succeeded';
+          console.log(`[Storyboard] Scene ${outline.scene_number}: Last frame READY: ${lastFrameUrl.substring(0, 50)}...`);
+          
+          // Track this scene's last frame for the NEXT scene's smooth transition
+          prevSceneLastFrameUrl = lastFrameUrl;
+        } else {
+          lastFrameStatus = 'failed';
+          lastFrameError = lastFrameResult.error || 'Last frame generation failed';
+          console.error(`[Storyboard] Scene ${outline.scene_number}: Last frame FAILED:`, lastFrameError);
+        }
+      } else {
+        lastFrameStatus = 'failed';
+        lastFrameError = lastFramePrediction?.error || 'Failed to start last frame generation';
+      }
 
       const sceneOut: StoryboardScene = {
         scene_number: outline.scene_number,
@@ -897,15 +1229,35 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         lighting_description: refined.lighting_description ? String(refined.lighting_description) : undefined,
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
         last_frame_prediction_id: lastFramePrediction?.id || undefined,
-        first_frame_status: firstFramePrediction?.id ? 'generating' : 'failed',
-        last_frame_status: lastFramePrediction?.id ? 'generating' : 'failed',
-        first_frame_error: firstFramePrediction && !firstFramePrediction.id ? firstFramePrediction.error : undefined,
-        last_frame_error: lastFramePrediction && !lastFramePrediction.id ? lastFramePrediction.error : undefined,
+        first_frame_url: firstFrameUrl,
+        last_frame_url: lastFrameUrl,
+        first_frame_status: firstFrameStatus,
+        last_frame_status: lastFrameStatus,
+        first_frame_error: firstFrameError,
+        last_frame_error: lastFrameError,
+        needs_product_image: needsProductImage,
+        use_prev_scene_transition: usePrevSceneTransition,
       };
 
       scenesWithPredictions.push(sceneOut);
       previousRefined = sceneOut;
+      
+      // Small delay between scenes to avoid rate limiting
+      await delay(500);
     }
+    
+    // Identify which scenes need product image
+    const scenesNeedingProduct = scenesWithPredictions
+      .filter(s => s.needs_product_image)
+      .map(s => s.scene_number);
+    
+    // Determine overall status
+    const allFramesSucceeded = scenesWithPredictions.every(
+      s => s.first_frame_status === 'succeeded' && s.last_frame_status === 'succeeded'
+    );
+    const anyFrameFailed = scenesWithPredictions.some(
+      s => s.first_frame_status === 'failed' || s.last_frame_status === 'failed'
+    );
     
     const storyboard: Storyboard = {
       id: storyboardId,
@@ -919,10 +1271,13 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       aspect_ratio: input.aspect_ratio,
       avatar_image_url: input.avatar_image_url,
       avatar_description: input.avatar_description,
+      product_image_url: input.product_image_url,
+      product_image_description: productDescription,
       scenario,
       scenes: scenesWithPredictions,
       created_at: new Date().toISOString(),
-      status: 'generating',
+      status: allFramesSucceeded ? 'ready' : anyFrameFailed ? 'failed' : 'generating',
+      scenes_needing_product: scenesNeedingProduct.length > 0 ? scenesNeedingProduct : undefined,
     };
     
     return {
@@ -1040,6 +1395,13 @@ export async function POST(req: NextRequest) {
   const confirmedAvatarPredictionId = userConfirmedAvatar ? avatarCandidate?.predictionId : undefined;
   const confirmedAvatarStatus = userConfirmedAvatar ? avatarCandidate?.status : undefined;
 
+  // Check if user is confirming product image usage
+  const productCandidate = await getLastProductFromConversation(existingMessages);
+  const userConfirmedProduct = isProductImageConfirmation(body.message);
+  const confirmedProductUrl = userConfirmedProduct && productCandidate?.url && isHttpUrl(productCandidate.url) ? productCandidate.url : undefined;
+  const confirmedProductDescription = userConfirmedProduct ? productCandidate?.description : undefined;
+  const confirmedProductPredictionId = userConfirmedProduct ? productCandidate?.predictionId : undefined;
+
     // Read previously selected avatar from plan (server-side persisted)
     const planSelectedAvatarUrl =
       typeof existingPlan?.selected_avatar?.url === 'string' && isHttpUrl(existingPlan.selected_avatar.url)
@@ -1050,7 +1412,17 @@ export async function POST(req: NextRequest) {
         ? String(existingPlan.selected_avatar.description)
         : undefined;
 
-    // If user confirmed, persist selection server-side (so we never rely on model-supplied URLs)
+    // Read previously selected product from plan (server-side persisted)
+    const planSelectedProductUrl =
+      typeof existingPlan?.selected_product?.url === 'string' && isHttpUrl(existingPlan.selected_product.url)
+        ? String(existingPlan.selected_product.url).trim()
+        : undefined;
+    const planSelectedProductDescription =
+      typeof existingPlan?.selected_product?.description === 'string'
+        ? String(existingPlan.selected_product.description)
+        : undefined;
+
+    // If user confirmed avatar, persist selection server-side
     let selectedAvatarUrl: string | undefined = planSelectedAvatarUrl;
     let selectedAvatarDescription: string | undefined = planSelectedAvatarDescription;
     if (userConfirmedAvatar && confirmedAvatarUrl) {
@@ -1072,14 +1444,39 @@ export async function POST(req: NextRequest) {
         .eq('id', conversationId);
       existingPlan = nextPlan;
     }
+
+    // If user confirmed product, persist selection server-side
+    let selectedProductUrl: string | undefined = planSelectedProductUrl;
+    let selectedProductDescription: string | undefined = planSelectedProductDescription;
+    if (userConfirmedProduct && confirmedProductUrl) {
+      const cached = await maybeCacheImageToR2({ sourceUrl: confirmedProductUrl, conversationId: String(conversationId), type: 'product' });
+      selectedProductUrl = cached.url;
+      selectedProductDescription = confirmedProductDescription || selectedProductDescription;
+      const nextPlan = {
+        ...(existingPlan || {}),
+        selected_product: {
+          url: selectedProductUrl,
+          prediction_id: confirmedProductPredictionId,
+          description: confirmedProductDescription,
+          selected_at: new Date().toISOString(),
+        },
+      };
+      await supabase
+        .from('assistant_conversations')
+        .update({ plan: nextPlan, updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+      existingPlan = nextPlan;
+    }
   
     // Build conversation context for Claude (now includes avatar generation results)
     const conversationContext = buildConversationContext(existingMessages, { includeAvatarResults: true });
     
-    // Build avatar context block if we have a confirmed avatar
-    let avatarContextBlock = '';
+    // Build context blocks for avatar and product images
+    let contextBlock = '';
+    
+    // Avatar context
     if (selectedAvatarUrl) {
-      avatarContextBlock = `
+      contextBlock += `
 ═══════════════════════════════════════════════════════════════════════════
 🎭 CONFIRMED AVATAR FOR THIS VIDEO
 ═══════════════════════════════════════════════════════════════════════════
@@ -1099,7 +1496,7 @@ CRITICAL INSTRUCTIONS FOR STORYBOARD GENERATION:
       // Check if there's an unconfirmed avatar in the conversation
       const avatarInConversation = extractAvatarContextFromMessages(existingMessages);
       if (avatarInConversation?.url) {
-        avatarContextBlock = `
+        contextBlock += `
 ═══════════════════════════════════════════════════════════════════════════
 📷 AVATAR IMAGE GENERATED (awaiting confirmation)
 ═══════════════════════════════════════════════════════════════════════════
@@ -1112,6 +1509,39 @@ NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this
 `;
       }
     }
+    
+    // Product image context
+    if (selectedProductUrl) {
+      contextBlock += `
+═══════════════════════════════════════════════════════════════════════════
+📦 CONFIRMED PRODUCT IMAGE FOR THIS VIDEO
+═══════════════════════════════════════════════════════════════════════════
+Product Image URL: ${selectedProductUrl}
+${selectedProductDescription ? `Product Description: ${selectedProductDescription}` : 'Product Description: (Use the image URL as visual reference)'}
+
+CRITICAL INSTRUCTIONS FOR STORYBOARD GENERATION:
+- You MUST use this exact product image for all scenes with needs_product_image=true
+- Mark scenes that display the product with needs_product_image: true
+- The product will be rendered IDENTICALLY across all product scenes
+- Include "Same product from reference," when describing the product in prompts
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    } else if (productCandidate?.url) {
+      contextBlock += `
+═══════════════════════════════════════════════════════════════════════════
+📦 PRODUCT IMAGE GENERATED (awaiting confirmation)
+═══════════════════════════════════════════════════════════════════════════
+Product Image URL: ${productCandidate.url}
+${productCandidate.description ? `Product Description: ${productCandidate.description}` : ''}
+
+NOTE: The user has NOT yet confirmed this product image. Wait for them to say "Use this product image" before proceeding.
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    }
+    
+    const avatarContextBlock = contextBlock;
     
     const fullPrompt = avatarContextBlock + (conversationContext 
       ? `Previous conversation:\n${conversationContext}\n\nUser: ${body.message}`
@@ -1226,11 +1656,12 @@ NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this
           const toolResults: Array<{ tool: string; result: unknown }> = [];
           
           for (const toolCall of filteredToolCalls) {
-            // Enforce server-tracked avatar URL for storyboard creation.
+            // Enforce server-tracked avatar and product URLs for storyboard creation.
             // Never trust model-supplied random URLs.
             if (toolCall.tool === 'storyboard_creation') {
               const input = toolCall.input as any;
               const originalAvatarUrl = input.avatar_image_url;
+              const originalProductUrl = input.product_image_url;
               
               // If we have a selected avatar stored server-side, force it.
               if (selectedAvatarUrl) {
@@ -1259,6 +1690,36 @@ NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this
                   originalUrl: originalAvatarUrl ? String(originalAvatarUrl).substring(0, 50) : 'none',
                   selectedAvatarUrl: selectedAvatarUrl || 'none',
                   confirmedAvatarUrl: confirmedAvatarUrl || 'none',
+                });
+              }
+              
+              // If we have a selected product stored server-side, force it.
+              if (selectedProductUrl) {
+                input.product_image_url = selectedProductUrl;
+                if (!input.product_image_description && selectedProductDescription) {
+                  input.product_image_description = selectedProductDescription;
+                }
+                console.log('[Product Injection] Using server-tracked product:', {
+                  originalUrl: originalProductUrl ? String(originalProductUrl).substring(0, 50) : 'none',
+                  injectedUrl: selectedProductUrl.substring(0, 50),
+                  description: selectedProductDescription || 'none',
+                });
+              } else if (confirmedProductUrl && !isHttpUrl(input.product_image_url)) {
+                // Fallback: user confirmed in this same message
+                input.product_image_url = confirmedProductUrl;
+                if (!input.product_image_description && confirmedProductDescription) {
+                  input.product_image_description = confirmedProductDescription;
+                }
+                console.log('[Product Injection] Using just-confirmed product:', {
+                  originalUrl: originalProductUrl ? String(originalProductUrl).substring(0, 50) : 'none',
+                  injectedUrl: confirmedProductUrl.substring(0, 50),
+                  description: confirmedProductDescription || 'none',
+                });
+              } else {
+                console.log('[Product Injection] No product to inject:', {
+                  originalUrl: originalProductUrl ? String(originalProductUrl).substring(0, 50) : 'none',
+                  selectedProductUrl: selectedProductUrl || 'none',
+                  confirmedProductUrl: confirmedProductUrl || 'none',
                 });
               }
             }
@@ -1338,8 +1799,8 @@ NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this
                 ...(toolResult.result as Record<string, unknown>),
               };
               
-              // For image generation, include purpose and avatar_description in the output
-              // so they can be retrieved later for avatar context
+              // For image generation, include purpose and descriptions in the output
+              // so they can be retrieved later for avatar/product context
               if (toolCall.tool === 'image_generation') {
                 const input = toolCall.input as any;
                 if (input?.purpose) {
@@ -1347,6 +1808,10 @@ NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this
                 }
                 if (input?.avatar_description) {
                   enhancedToolOutput.avatar_description = input.avatar_description;
+                }
+                if (input?.prompt) {
+                  // Store prompt for product description retrieval
+                  enhancedToolOutput.prompt = input.prompt;
                 }
               }
               

@@ -204,6 +204,8 @@ For each scene, explicitly determine:
 - setting_change: true/false
 - product_focus: true/false for product-focused scenes
 - text_overlay: Any on-screen text
+- needs_product_image: true/false - whether this scene displays the product
+- use_prev_scene_transition: true/false - whether to use previous scene's last frame for smooth transition
 
 **Complete Example - Vitamin C Serum UGC Ad (30 seconds):**
 
@@ -418,6 +420,63 @@ Before creating a storyboard with an actor/person:
    - B-roll: Describe exactly what should appear
    - Text cards: Describe background/style, any motion
 
+**📦 PRODUCT IMAGE WORKFLOW - MANDATORY:**
+
+After drafting the complete video scenario, BEFORE generating the storyboard images:
+
+1. **Identify Product Scenes:**
+   - Review all scenes and identify which ones display the product
+   - Mark these scenes with needs_product_image: true
+   - Common product scenes: product reveals, demonstrations, end cards, close-ups
+
+2. **Request Product Image:**
+   - If ANY scene needs the product, you MUST ask the user for a product image
+   - Say: "I've finished drafting the video scenario. I noticed that scenes [X, Y, Z] will display the product. For visual consistency, could you:
+     - Send me an image of your product, OR
+     - Tell me if I should generate one based on your product description: [product description]?"
+
+3. **After Product Image:**
+   - User sends an image: Store as product_image_url
+   - User asks to generate: Generate with purpose="product" and product_image_description="..."
+   - User confirms: Reply "Use this product image"
+
+4. **Product Image Placement:**
+   - ONLY scenes with needs_product_image: true will receive the product image reference
+   - The product image ensures the SAME product appears identically in all relevant scenes
+
+**🔄 SCENE TRANSITION CONSISTENCY - MANDATORY:**
+
+For smooth visual transitions between consecutive scenes:
+
+1. **Same Avatar Consecutive Scenes:**
+   - When scene N and scene N+1 BOTH use the same avatar with transition_type: "smooth"
+   - Mark scene N+1 with: use_prev_scene_transition: true
+   - The system will use scene N's last_frame as reference for scene N+1's first_frame
+   - This creates SEAMLESS transitions where the avatar appears in the EXACT same position
+
+2. **When to Use Transitions:**
+   - Set use_prev_scene_transition: true when:
+     - Both scenes use the same avatar
+     - The avatar should appear in a continuous flow (same setting, continuous action)
+     - The transition_type is "smooth" (not "cut")
+   - Set use_prev_scene_transition: false (or omit) when:
+     - Scene changes to a different setting
+     - Scene is a "cut" to a different shot
+     - Scene is non-avatar (product only, b-roll, etc.)
+
+3. **Frame Generation Order:**
+   - The system generates frames SEQUENTIALLY, not in parallel
+   - For each scene: first_frame is generated FIRST, then last_frame
+   - last_frame generation receives first_frame as reference for consistency
+   - This ensures setting, lighting, product placement stay IDENTICAL within a scene
+
+**⚠️ CRITICAL - REFERENCE IMAGE HIERARCHY:**
+When generating scene frames, the system applies reference images in this priority:
+1. Previous scene's last_frame (if use_prev_scene_transition: true) → for first_frame only
+2. Avatar image (if uses_avatar: true) → for all frames with avatar
+3. Scene's first_frame (when generating last_frame) → ensures scene consistency
+4. Product image (if needs_product_image: true) → for product appearance
+
 **IMPORTANT GUIDELINES:**
 1. ALWAYS think cinematically - each scene should have visual PURPOSE
 2. Frame prompts should be HYPER-DETAILED and leave NOTHING to imagination
@@ -612,6 +671,8 @@ export const TOOLS_SCHEMA = [
         creative_direction: { type: 'string', description: 'Any specific creative requests or directions' },
         avatar_image_url: { type: 'string', description: 'URL of the avatar/actor reference image for consistency (required if any scene uses_avatar = true)' },
         avatar_description: { type: 'string', description: 'Detailed description of the avatar for prompt consistency' },
+        product_image_url: { type: 'string', description: 'URL of the product image for consistent product appearance across scenes' },
+        product_image_description: { type: 'string', description: 'Detailed description of the product for prompt consistency' },
         scenes: {
           type: 'array',
           description: 'Array of scene objects. Keep these minimal/outlines; server will generate detailed frame prompts and audio.',
@@ -635,7 +696,9 @@ export const TOOLS_SCHEMA = [
               },
               setting_change: { type: 'boolean', description: 'Whether this scene has a different setting' },
               product_focus: { type: 'boolean', description: 'Whether this is a product-focused scene' },
-              text_overlay: { type: 'string', description: 'Any text that should appear on screen' }
+              text_overlay: { type: 'string', description: 'Any text that should appear on screen' },
+              needs_product_image: { type: 'boolean', description: 'Whether this scene displays the product and needs the product image reference' },
+              use_prev_scene_transition: { type: 'boolean', description: 'Whether to use previous scene last frame for smooth visual transition' }
             },
             required: ['scene_number', 'scene_name', 'description']
           }
@@ -728,6 +791,8 @@ Your task is to take a scene outline and create EXTREMELY DETAILED frame prompts
 - A specific scene outline to refine
 - Avatar description (if the scene uses an avatar)
 - Previous scene details (for continuity)
+- Product description (if the scene displays the product)
+- Whether to use previous scene's last frame for smooth transition
 
 **OUTPUT:** You must provide JSON with:
 1. first_frame_prompt: HYPER-DETAILED opening frame (every visual element explicit)
@@ -740,6 +805,8 @@ Your task is to take a scene outline and create EXTREMELY DETAILED frame prompts
 8. sound_effects: Array of specific sounds
 9. camera_movement: Any camera motion during scene
 10. lighting_description: Exact lighting setup
+11. needs_product_image: boolean - whether product reference is needed
+12. use_prev_scene_transition: boolean - whether to use prev scene's last frame
 
 **RULES:**
 1. For avatar scenes: ALWAYS start prompts with "Same avatar character from reference: [full description]"
@@ -752,6 +819,8 @@ Your task is to take a scene outline and create EXTREMELY DETAILED frame prompts
 8. Include aspect ratio in every prompt
 9. Include style keywords (UGC authentic, cinematic, etc.)
 10. Video prompts = MOTION only, not static descriptions
+11. For product scenes: Reference "Same product from reference image" and describe the EXACT product appearance
+12. For smooth transitions: The first_frame should describe avatar in EXACT same position/pose as previous scene's last_frame
 
 **EXAMPLE OUTPUT:**
 {
@@ -784,6 +853,8 @@ Output JSON schema:
   "narrative_arc": string,
   "target_emotion": string,
   "key_message": string,
+  "needs_product_image": boolean,
+  "scenes_requiring_product": number[],
   "scene_breakdown": [
     {
       "scene_number": number,
@@ -793,7 +864,9 @@ Output JSON schema:
       "needs_avatar": boolean,
       "scene_type": "talking_head"|"product_showcase"|"b_roll"|"demonstration"|"text_card"|"transition",
       "needs_user_details": boolean,
-      "user_question": string
+      "user_question": string,
+      "needs_product_image": boolean,
+      "use_prev_scene_transition": boolean
     }
   ]
 }
@@ -801,4 +874,8 @@ Output JSON schema:
 Rules:
 - Total duration should approximately match the requested duration.
 - If a scene is non-avatar and ambiguous without more info (e.g., b-roll setting), set needs_user_details=true and ask a specific question in user_question.
+- Mark needs_product_image=true for ANY scene that displays the product (product reveals, demos, end cards, close-ups).
+- Mark use_prev_scene_transition=true when: (1) previous scene uses same avatar, (2) transition should be smooth/continuous, (3) avatar stays in similar position.
+- Set scenes_requiring_product to an array of scene_numbers that need the product image.
+- Set needs_product_image (top level) to true if ANY scene requires the product.
 - Keep the breakdown compact and clear.`;

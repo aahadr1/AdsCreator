@@ -38,6 +38,13 @@ export interface AssistantPlan {
     description?: string;
     selected_at?: string;
   };
+  // Optional: server-side persisted product image for consistent product appearance
+  selected_product?: {
+    url: string;
+    prediction_id?: string;
+    description?: string;
+    selected_at?: string;
+  };
 }
 
 export interface PlanStep {
@@ -150,8 +157,15 @@ export interface ImageGenerationInput {
   output_format?: 'jpg' | 'png';
   model?: string;
   image_input?: string[];
-  purpose?: 'avatar' | 'scene_frame' | 'product' | 'b_roll' | 'other';
+  purpose?: 'avatar' | 'scene_frame' | 'scene_first_frame' | 'scene_last_frame' | 'product' | 'b_roll' | 'other';
   avatar_description?: string;
+  // Reference images for consistency
+  reference_images?: {
+    avatar_url?: string;           // Avatar image for character consistency
+    first_frame_url?: string;      // Scene's first frame (when generating last frame)
+    product_url?: string;          // Product image for product consistency
+    prev_scene_last_frame_url?: string; // Previous scene's last frame (for smooth transitions)
+  };
 }
 
 export interface ImageGenerationOutput {
@@ -192,6 +206,10 @@ export interface SceneOutline {
   needs_user_details?: boolean;
   /** A short, direct question to ask the user to clarify this scene. */
   user_question?: string;
+  /** Whether this scene displays the product and needs the product image for consistency */
+  needs_product_image?: boolean;
+  /** Whether to use the previous scene's last frame for a smooth visual transition */
+  use_prev_scene_transition?: boolean;
 }
 
 /**
@@ -254,6 +272,10 @@ export interface StoryboardScene {
   last_frame_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
   first_frame_error?: string;
   last_frame_error?: string;
+  // Track whether this scene needs the product image
+  needs_product_image?: boolean;
+  // Track whether this scene should use previous scene's last frame for smooth transition
+  use_prev_scene_transition?: boolean;
 }
 
 export interface Storyboard {
@@ -269,11 +291,16 @@ export interface Storyboard {
   // Avatar reference for consistency
   avatar_image_url?: string;
   avatar_description?: string;
+  // Product image reference for consistent product appearance across scenes
+  product_image_url?: string;
+  product_image_description?: string;
   // Video scenario - the creative foundation
   scenario?: VideoScenario;
   scenes: StoryboardScene[];
   created_at: string;
-  status: 'draft' | 'planning' | 'refining_scenes' | 'generating' | 'ready' | 'failed';
+  status: 'draft' | 'planning' | 'refining_scenes' | 'awaiting_product_image' | 'generating' | 'ready' | 'failed';
+  // Scenes that need product image (populated during planning)
+  scenes_needing_product?: number[];
 }
 
 /**
@@ -330,6 +357,9 @@ export interface StoryboardCreationInput {
   // Avatar reference for image-to-image consistency
   avatar_image_url?: string;
   avatar_description?: string;
+  // Product image reference for consistent product appearance
+  product_image_url?: string;
+  product_image_description?: string;
   /**
    * Scenes can be:
    * - Minimal outlines (small tool_call payload; server will refine prompts), OR
@@ -362,6 +392,10 @@ export interface StoryboardCreationInput {
     avatar_position?: string;
     product_focus?: boolean;
     text_overlay?: string;
+    // Whether this scene needs the product image for consistency
+    needs_product_image?: boolean;
+    // Whether to use previous scene's last frame for smooth transition
+    use_prev_scene_transition?: boolean;
   }>;
 }
 
