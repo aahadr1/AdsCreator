@@ -681,11 +681,71 @@ export const TOOLS_SCHEMA = [
   }
 ];
 
-export function buildConversationContext(messages: Array<{ role: string; content: string }>): string {
+export function buildConversationContext(
+  messages: Array<{ role: string; content: string; tool_name?: string; tool_input?: Record<string, unknown>; tool_output?: Record<string, unknown> }>,
+  options?: { includeAvatarResults?: boolean }
+): string {
   if (!messages || messages.length === 0) return '';
   
-  return messages
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-    .join('\n\n');
+  const includeAvatarResults = options?.includeAvatarResults ?? true;
+  
+  const parts: string[] = [];
+  
+  for (const m of messages) {
+    if (m.role === 'user') {
+      parts.push(`User: ${m.content}`);
+    } else if (m.role === 'assistant') {
+      parts.push(`Assistant: ${m.content}`);
+    } else if (includeAvatarResults && m.role === 'tool_result' && m.tool_name === 'image_generation') {
+      // Check if this was an avatar generation by looking at the tool_output
+      const toolOutput = m.tool_output as any;
+      const outputUrl = toolOutput?.outputUrl || toolOutput?.output_url || 
+        (typeof m.content === 'string' && m.content.startsWith('http') ? m.content : null);
+      
+      // Find the corresponding tool_call to get the avatar description
+      const avatarDescription = toolOutput?.avatar_description;
+      const purpose = toolOutput?.purpose;
+      
+      if (outputUrl && (purpose === 'avatar' || avatarDescription)) {
+        parts.push(`[AVATAR GENERATED]\nAvatar Image URL: ${outputUrl}\nAvatar Description: ${avatarDescription || 'See image for visual reference'}`);
+      } else if (outputUrl) {
+        // Include other image generations briefly
+        parts.push(`[IMAGE GENERATED]: ${outputUrl}`);
+      }
+    }
+  }
+  
+  return parts.join('\n\n');
+}
+
+/**
+ * Extract avatar information from messages for context injection
+ */
+export function extractAvatarContextFromMessages(
+  messages: Array<{ role: string; content: string; tool_name?: string; tool_input?: Record<string, unknown>; tool_output?: Record<string, unknown> }>
+): { url?: string; description?: string } | null {
+  // Look backwards through messages to find the most recent avatar
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'tool_result' || msg.tool_name !== 'image_generation') continue;
+    
+    // Find the matching tool_call to check if it was an avatar
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = messages[j];
+      if (prev.role === 'tool_call' && prev.tool_name === 'image_generation') {
+        const input = prev.tool_input as any;
+        if (input?.purpose === 'avatar') {
+          const toolOutput = msg.tool_output as any;
+          const url = toolOutput?.outputUrl || toolOutput?.output_url || 
+            (typeof msg.content === 'string' && msg.content.startsWith('http') ? msg.content : null);
+          return {
+            url: url || undefined,
+            description: input?.avatar_description || undefined,
+          };
+        }
+        break;
+      }
+    }
+  }
+  return null;
 }

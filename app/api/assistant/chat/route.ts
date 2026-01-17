@@ -4,7 +4,7 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
-import { ASSISTANT_SYSTEM_PROMPT, buildConversationContext } from '../../../../lib/prompts/assistant/system';
+import { ASSISTANT_SYSTEM_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, Storyboard, StoryboardScene } from '../../../../types/assistant';
 
@@ -223,26 +223,49 @@ async function getLastAvatarFromConversation(messages: Message[]): Promise<{ url
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'tool_result' || msg.tool_name !== 'image_generation') continue;
-    // Find the closest previous tool_call to determine if it was an avatar generation
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = messages[j];
-      if (prev.role === 'tool_call' && prev.tool_name === 'image_generation') {
-        const input = prev.tool_input as any;
-        if (input?.purpose === 'avatar') {
-          const url = extractImageUrlFromToolResult(msg);
-          const predictionId = extractPredictionIdFromToolResult(msg);
-          if (url) return { url, predictionId: predictionId || undefined, status: 'succeeded', description: input?.avatar_description || undefined };
-          if (predictionId) {
-            const resolved = await resolveReplicateOutputUrl(predictionId);
-            if (resolved.outputUrl) {
-              return { url: resolved.outputUrl, predictionId, status: resolved.status || undefined, description: input?.avatar_description || undefined };
-            }
-            return { predictionId, status: resolved.status || undefined, description: input?.avatar_description || undefined };
+    
+    // First, check if this tool_result itself has purpose='avatar' in tool_output
+    // (this is now included when we save the tool result)
+    const toolOutput = msg.tool_output as any;
+    const purposeFromOutput = toolOutput?.purpose;
+    const descriptionFromOutput = toolOutput?.avatar_description;
+    
+    // If we have purpose='avatar' directly in output, use it
+    let isAvatar = purposeFromOutput === 'avatar';
+    let avatarDescription = descriptionFromOutput;
+    
+    // Also check the corresponding tool_call as fallback
+    if (!isAvatar) {
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = messages[j];
+        if (prev.role === 'tool_call' && prev.tool_name === 'image_generation') {
+          const input = prev.tool_input as any;
+          if (input?.purpose === 'avatar') {
+            isAvatar = true;
+            avatarDescription = avatarDescription || input?.avatar_description;
           }
-          return { description: input?.avatar_description || undefined };
+          break;
         }
-        break;
       }
+    }
+    
+    if (isAvatar) {
+      const url = extractImageUrlFromToolResult(msg);
+      const predictionId = extractPredictionIdFromToolResult(msg);
+      
+      if (url) {
+        return { url, predictionId: predictionId || undefined, status: 'succeeded', description: avatarDescription || undefined };
+      }
+      
+      if (predictionId) {
+        const resolved = await resolveReplicateOutputUrl(predictionId);
+        if (resolved.outputUrl) {
+          return { url: resolved.outputUrl, predictionId, status: resolved.status || undefined, description: avatarDescription || undefined };
+        }
+        return { predictionId, status: resolved.status || undefined, description: avatarDescription || undefined };
+      }
+      
+      return { description: avatarDescription || undefined };
     }
   }
   return null;
@@ -486,7 +509,8 @@ async function getModelVersionId(token: string, model: string): Promise<string |
 async function generateSingleImage(
   prompt: string, 
   aspectRatio?: string,
-  referenceImageUrl?: string
+  referenceImageUrl?: string,
+  avatarDescription?: string
 ): Promise<{ id: string; status: string; error?: string } | null> {
   try {
     const token = process.env.REPLICATE_API_TOKEN;
@@ -528,9 +552,18 @@ async function generateSingleImage(
     // If reference image is provided, use it for image-to-image generation
     // This ensures consistency - same actor, same setting, same style
     const hasRef = referenceImageUrl && /^https?:\/\//i.test(referenceImageUrl);
-    const refPrompt = hasRef
-      ? `Maintain exact same person, same face, same setting, same camera angle, same lighting as reference image. Only change: ${enhancedPrompt}`
-      : enhancedPrompt;
+    
+    let refPrompt: string;
+    if (hasRef) {
+      // Build a comprehensive prompt that emphasizes maintaining the reference character
+      const avatarContext = avatarDescription 
+        ? `The person in the reference image is: ${avatarDescription}. ` 
+        : '';
+      refPrompt = `${avatarContext}CRITICAL: Maintain the EXACT same person, same face, same facial features, same hair, same skin tone, same body type as the reference image. Keep the same lighting style and visual quality. The ONLY changes should be: ${enhancedPrompt}`;
+      console.log('[Storyboard] Using avatar reference with description:', avatarDescription ? 'YES' : 'NO');
+    } else {
+      refPrompt = enhancedPrompt;
+    }
 
     // Use nano-banana for BOTH text-to-image and image-to-image.
     // The primary failure mode we observed (E006) is usually a bad/unreachable reference URL,
@@ -538,7 +571,7 @@ async function generateSingleImage(
     const model = 'google/nano-banana';
     const input: Record<string, unknown> = { ...baseInput, prompt: hasRef ? refPrompt : enhancedPrompt };
     if (hasRef) input.image_input = [String(referenceImageUrl)];
-    console.log('[Storyboard] Creating prediction:', model, hasRef ? '(img2img)' : '(t2i)');
+    console.log('[Storyboard] Creating prediction:', model, hasRef ? '(img2img)' : '(t2i)', 'RefURL:', referenceImageUrl ? referenceImageUrl.substring(0, 50) + '...' : 'none');
     const res = await createPrediction(model, input);
     if (res.ok) return { id: String(res.json.id), status: String(res.json.status) };
     return { id: '', status: 'failed', error: String((res as any).text || '') || 'Prediction failed' };
@@ -558,8 +591,16 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
   try {
     const storyboardId = crypto.randomUUID();
     
-    // Avatar reference URL for image-to-image consistency
+    // Avatar reference URL and description for image-to-image consistency
     const avatarUrl = input.avatar_image_url;
+    const avatarDescription = input.avatar_description;
+    
+    console.log('[Storyboard] Starting storyboard creation:', {
+      title: input.title,
+      avatarUrl: avatarUrl ? avatarUrl.substring(0, 50) + '...' : 'none',
+      avatarDescription: avatarDescription || 'none',
+      sceneCount: input.scenes.length,
+    });
     
     function inferUsesAvatar(scene: StoryboardCreationInput['scenes'][number]): boolean {
       if (typeof scene.uses_avatar === 'boolean') return scene.uses_avatar;
@@ -567,7 +608,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       const text = `${scene.description} ${scene.first_frame_prompt} ${scene.last_frame_prompt}`.toLowerCase();
       const noActorSignals = ['product only', 'no actor', 'no people', 'b-roll', 'b roll', 'flat lay', 'packaging', 'end card', 'logo', 'text card'];
       if (noActorSignals.some((s) => text.includes(s))) return false;
-      const actorSignals = ['creator', 'actor', 'person', 'woman', 'man', 'she', 'he', 'facecam', 'talk', 'speaking', 'holding', 'applying', 'unboxing', 'reaction'];
+      const actorSignals = ['creator', 'actor', 'person', 'woman', 'man', 'she', 'he', 'facecam', 'talk', 'speaking', 'holding', 'applying', 'unboxing', 'reaction', 'avatar', 'same actor', 'base avatar'];
       return actorSignals.some((s) => text.includes(s));
     }
     
@@ -580,11 +621,17 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       const usesAvatar = inferUsesAvatar(scene);
       const useAvatarReference = avatarUrl && usesAvatar;
       
+      console.log(`[Storyboard] Scene ${scene.scene_number} (${scene.scene_name}):`, {
+        usesAvatar,
+        useAvatarReference: Boolean(useAvatarReference),
+      });
+      
       // Generate first frame image with optional avatar reference
       const firstFramePrediction = await generateSingleImage(
         scene.first_frame_prompt,
         input.aspect_ratio,
-        useAvatarReference ? avatarUrl : undefined
+        useAvatarReference ? avatarUrl : undefined,
+        useAvatarReference ? avatarDescription : undefined
       );
       
       // Small delay to avoid rate limits
@@ -594,7 +641,8 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       const lastFramePrediction = await generateSingleImage(
         scene.last_frame_prompt,
         input.aspect_ratio,
-        useAvatarReference ? avatarUrl : undefined
+        useAvatarReference ? avatarUrl : undefined,
+        useAvatarReference ? avatarDescription : undefined
       );
       
       await delay(350);
@@ -786,12 +834,49 @@ export async function POST(req: NextRequest) {
       existingPlan = nextPlan;
     }
   
-    // Build conversation context for Claude
-    const conversationContext = buildConversationContext(existingMessages);
+    // Build conversation context for Claude (now includes avatar generation results)
+    const conversationContext = buildConversationContext(existingMessages, { includeAvatarResults: true });
     
-    const fullPrompt = conversationContext 
+    // Build avatar context block if we have a confirmed avatar
+    let avatarContextBlock = '';
+    if (selectedAvatarUrl) {
+      avatarContextBlock = `
+═══════════════════════════════════════════════════════════════════════════
+🎭 CONFIRMED AVATAR FOR THIS VIDEO
+═══════════════════════════════════════════════════════════════════════════
+Avatar Image URL: ${selectedAvatarUrl}
+${selectedAvatarDescription ? `Avatar Description: ${selectedAvatarDescription}` : 'Avatar Description: (Use the image URL as visual reference)'}
+
+CRITICAL INSTRUCTIONS FOR STORYBOARD GENERATION:
+- You MUST use this exact avatar for all scenes with uses_avatar=true
+- All scene prompts MUST describe THIS specific avatar's appearance
+- Reference the avatar description above when writing first_frame_prompt and last_frame_prompt
+- Do NOT invent new character descriptions - match the avatar exactly
+- Include "Same avatar character," at the start of each frame prompt that uses the avatar
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    } else {
+      // Check if there's an unconfirmed avatar in the conversation
+      const avatarInConversation = extractAvatarContextFromMessages(existingMessages);
+      if (avatarInConversation?.url) {
+        avatarContextBlock = `
+═══════════════════════════════════════════════════════════════════════════
+📷 AVATAR IMAGE GENERATED (awaiting confirmation)
+═══════════════════════════════════════════════════════════════════════════
+Avatar Image URL: ${avatarInConversation.url}
+${avatarInConversation.description ? `Avatar Description: ${avatarInConversation.description}` : ''}
+
+NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this avatar" before proceeding with storyboard creation.
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+      }
+    }
+    
+    const fullPrompt = avatarContextBlock + (conversationContext 
       ? `Previous conversation:\n${conversationContext}\n\nUser: ${body.message}`
-      : body.message;
+      : body.message);
     
     const replicate = new Replicate({ auth: replicateToken });
     
@@ -906,18 +991,36 @@ export async function POST(req: NextRequest) {
             // Never trust model-supplied random URLs.
             if (toolCall.tool === 'storyboard_creation') {
               const input = toolCall.input as any;
+              const originalAvatarUrl = input.avatar_image_url;
+              
               // If we have a selected avatar stored server-side, force it.
               if (selectedAvatarUrl) {
                 input.avatar_image_url = selectedAvatarUrl;
                 if (!input.avatar_description && selectedAvatarDescription) {
                   input.avatar_description = selectedAvatarDescription;
                 }
+                console.log('[Avatar Injection] Using server-tracked avatar:', {
+                  originalUrl: originalAvatarUrl ? String(originalAvatarUrl).substring(0, 50) : 'none',
+                  injectedUrl: selectedAvatarUrl.substring(0, 50),
+                  description: selectedAvatarDescription || 'none',
+                });
               } else if (confirmedAvatarUrl && !isHttpUrl(input.avatar_image_url)) {
                 // Fallback: user confirmed in this same message, but we don't have a plan-selected avatar yet
                 input.avatar_image_url = confirmedAvatarUrl;
                 if (!input.avatar_description && confirmedAvatarDescription) {
                   input.avatar_description = confirmedAvatarDescription;
                 }
+                console.log('[Avatar Injection] Using just-confirmed avatar:', {
+                  originalUrl: originalAvatarUrl ? String(originalAvatarUrl).substring(0, 50) : 'none',
+                  injectedUrl: confirmedAvatarUrl.substring(0, 50),
+                  description: confirmedAvatarDescription || 'none',
+                });
+              } else {
+                console.log('[Avatar Injection] No avatar to inject:', {
+                  originalUrl: originalAvatarUrl ? String(originalAvatarUrl).substring(0, 50) : 'none',
+                  selectedAvatarUrl: selectedAvatarUrl || 'none',
+                  confirmedAvatarUrl: confirmedAvatarUrl || 'none',
+                });
               }
             }
             
@@ -991,6 +1094,23 @@ export async function POST(req: NextRequest) {
             });
             
             if (toolResult) {
+              // Enhance tool_output with input metadata for avatar tracking
+              const enhancedToolOutput: Record<string, unknown> = {
+                ...(toolResult.result as Record<string, unknown>),
+              };
+              
+              // For image generation, include purpose and avatar_description in the output
+              // so they can be retrieved later for avatar context
+              if (toolCall.tool === 'image_generation') {
+                const input = toolCall.input as any;
+                if (input?.purpose) {
+                  enhancedToolOutput.purpose = input.purpose;
+                }
+                if (input?.avatar_description) {
+                  enhancedToolOutput.avatar_description = input.avatar_description;
+                }
+              }
+              
               messagesToSave.push({
                 id: crypto.randomUUID(),
                 role: 'tool_result',
@@ -999,7 +1119,7 @@ export async function POST(req: NextRequest) {
                   : JSON.stringify(toolResult.result),
                 timestamp: new Date().toISOString(),
                 tool_name: toolCall.tool,
-                tool_output: toolResult.result as Record<string, unknown>,
+                tool_output: enhancedToolOutput,
               });
             }
           }
