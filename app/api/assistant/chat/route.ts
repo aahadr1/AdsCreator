@@ -499,11 +499,65 @@ async function maybeCacheAvatarToR2({
 function cleanResponse(content: string): string {
   return content
     .replace(/<reflexion>[\s\S]*?<\/reflexion>/g, '')
+    // Remove dangling reflexion without a closing tag (prevents UI getting stuck mid-reflexion)
+    .replace(/<reflexion>[\s\S]*$/g, '')
     // Remove proper tool_call blocks
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
     // Remove dangling tool_call without a closing tag
     .replace(/<tool_call>[\s\S]*$/g, '')
     .trim();
+}
+
+function sanitizeStoryboardCreationInput(raw: any): any {
+  const input = (raw && typeof raw === 'object') ? raw : {};
+  const allowedTopKeys = new Set([
+    'title',
+    'brand_name',
+    'product',
+    'product_description',
+    'target_audience',
+    'platform',
+    'total_duration_seconds',
+    'style',
+    'aspect_ratio',
+    'key_benefits',
+    'pain_points',
+    'call_to_action',
+    'creative_direction',
+    'avatar_image_url',
+    'avatar_description',
+    'product_image_url',
+    'product_image_description',
+    'scenes',
+  ]);
+
+  const out: any = {};
+  for (const k of Object.keys(input)) {
+    if (allowedTopKeys.has(k)) out[k] = input[k];
+  }
+
+  const scenes = Array.isArray(input.scenes) ? input.scenes : [];
+  out.scenes = scenes.map((s: any) => {
+    const scene = (s && typeof s === 'object') ? s : {};
+    // IMPORTANT: keep tool_call payload SMALL. Do NOT accept large per-scene prompt blocks from the model.
+    // The server will generate first/last frame prompts and voiceover via multi-call refinement.
+    return {
+      scene_number: typeof scene.scene_number === 'number' ? scene.scene_number : undefined,
+      scene_name: typeof scene.scene_name === 'string' ? scene.scene_name : undefined,
+      description: typeof scene.description === 'string' ? scene.description : undefined,
+      duration_seconds: typeof scene.duration_seconds === 'number' ? scene.duration_seconds : undefined,
+      scene_type: typeof scene.scene_type === 'string' ? scene.scene_type : undefined,
+      uses_avatar: typeof scene.uses_avatar === 'boolean' ? scene.uses_avatar : undefined,
+      transition_type: typeof scene.transition_type === 'string' ? scene.transition_type : undefined,
+      setting_change: typeof scene.setting_change === 'boolean' ? scene.setting_change : undefined,
+      product_focus: typeof scene.product_focus === 'boolean' ? scene.product_focus : undefined,
+      text_overlay: typeof scene.text_overlay === 'string' ? scene.text_overlay : undefined,
+      needs_product_image: typeof scene.needs_product_image === 'boolean' ? scene.needs_product_image : undefined,
+      use_prev_scene_transition: typeof scene.use_prev_scene_transition === 'boolean' ? scene.use_prev_scene_transition : undefined,
+    };
+  }).filter((s: any) => s && (typeof s.scene_number === 'number' || typeof s.scene_name === 'string' || typeof s.description === 'string'));
+
+  return out;
 }
 
 // Execute script creation tool
@@ -1566,11 +1620,14 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             input: {
               prompt: fullPrompt,
               system_prompt: ASSISTANT_SYSTEM_PROMPT,
-              max_tokens: 4096,
+              // Higher budget to reduce mid-reflexion truncation for longer requests
+              max_tokens: 8192,
             }
           });
           
           let inReflexion = false;
+          let didSendReflexionEnd = false;
+          let didSendResponseStart = false;
           let reflexionBuffer = '';
           let responseBuffer = '';
           
@@ -1586,6 +1643,8 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_chunk', data: safeChunk })}\n\n`));
             } else if (inReflexion && fullResponse.includes('</reflexion>')) {
               inReflexion = false;
+              didSendReflexionEnd = true;
+              didSendResponseStart = true;
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_end' })}\n\n`));
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
             } else if (!inReflexion && fullResponse.includes('</reflexion>')) {
@@ -1594,6 +1653,19 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             } else if (!fullResponse.includes('<reflexion>')) {
               // No reflexion block yet, buffer it
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: chunk })}\n\n`));
+            }
+          }
+
+          // If the model got cut off mid-reflexion (missing </reflexion>), unblock the UI.
+          // We'll still parse tool calls from whatever was produced, and cleanResponse() strips dangling reflexion.
+          if (fullResponse.includes('<reflexion>') && !fullResponse.includes('</reflexion>')) {
+            if (!didSendReflexionEnd) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_end' })}\n\n`));
+              didSendReflexionEnd = true;
+            }
+            if (!didSendResponseStart) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
+              didSendResponseStart = true;
             }
           }
           
@@ -1656,6 +1728,11 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           const toolResults: Array<{ tool: string; result: unknown }> = [];
           
           for (const toolCall of filteredToolCalls) {
+            // Normalize/sanitize tool inputs to avoid massive payloads (and to force server-side multi-call refinement).
+            if (toolCall.tool === 'storyboard_creation') {
+              toolCall.input = sanitizeStoryboardCreationInput(toolCall.input);
+            }
+
             // Enforce server-tracked avatar and product URLs for storyboard creation.
             // Never trust model-supplied random URLs.
             if (toolCall.tool === 'storyboard_creation') {
@@ -1783,6 +1860,12 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           for (let i = 0; i < filteredToolCalls.length; i++) {
             const toolCall = filteredToolCalls[i];
             const toolResult = toolResults[i];
+
+            // Ensure we persist a sanitized input for storyboard_creation (DB size + determinism).
+            const toolInputToStore =
+              toolCall.tool === 'storyboard_creation'
+                ? sanitizeStoryboardCreationInput(toolCall.input)
+                : toolCall.input;
             
             messagesToSave.push({
               id: crypto.randomUUID(),
@@ -1790,7 +1873,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               content: `Calling ${toolCall.tool}`,
               timestamp: new Date().toISOString(),
               tool_name: toolCall.tool,
-              tool_input: toolCall.input,
+              tool_input: toolInputToStore,
             });
             
             if (toolResult) {
