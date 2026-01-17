@@ -103,11 +103,15 @@ export async function POST(req: NextRequest) {
         if (body.image) base.image = body.image;
         if (body.negative_prompt) base.negative_prompt = body.negative_prompt;
         if (typeof body.seed === 'number') base.seed = body.seed;
-        if (body.start_frame) base.start_image = body.start_frame;
-        if (!base.start_image && (body as any).start_image) base.start_image = (body as any).start_image;
-        if (!base.image && base.start_image) base.image = base.start_image;
+        
+        // Handle start_frame -> image mapping
+        if (body.start_frame) base.image = body.start_frame; // google/veo uses 'image' for start frame
+        if (!base.image && (body as any).start_image) base.image = (body as any).start_image;
+        
+        // Handle end_frame -> end_image mapping (if model supports it)
+        // Note: google/veo-3.1-fast often ignores end_image, but we pass it if provided just in case
         if (body.end_frame) base.end_image = body.end_frame;
-        if (!base.end_image && body.end_frame) base.end_image = body.end_frame;
+        if (!base.end_image && (body as any).end_image) base.end_image = (body as any).end_image;
       } else if (model === 'wan-video/wan-2.2-animate-replace') {
         // Without explicit input block, this model requires explicit URIs — reject to avoid ambiguous requests
         return new Response('Missing input for wan-video/wan-2.2-animate-replace', { status: 400 });

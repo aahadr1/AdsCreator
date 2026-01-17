@@ -1723,11 +1723,11 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               const endImage = scene.last_frame_url;
               const prompt = String(scene.video_generation_prompt || '').trim();
 
-              if (!startImage || !endImage || !/^https?:\/\//i.test(startImage) || !/^https?:\/\//i.test(endImage)) {
+              if (!startImage || !/^https?:\/\//i.test(startImage)) {
                 nextStoryboard.scenes[idx] = {
                   ...scene,
                   video_status: 'failed',
-                  video_error: 'Missing first_frame_url or last_frame_url for this scene. Regenerate the storyboard frames, then proceed again.',
+                  video_error: 'Missing or invalid first_frame_url. Please regenerate the frame.',
                 };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                   type: 'video_generation_update',
@@ -1735,6 +1735,24 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 })}\n\n`));
                 continue;
               }
+
+              // Verify start image is reachable
+              try {
+                const check = await fetch(startImage, { method: 'HEAD' });
+                if (!check.ok) throw new Error(`Image unreachable: ${check.status}`);
+              } catch (e) {
+                nextStoryboard.scenes[idx] = {
+                  ...scene,
+                  video_status: 'failed',
+                  video_error: 'First frame URL is unreachable. Please regenerate.',
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  type: 'video_generation_update',
+                  data: { message_id: videoMessageId, storyboard: nextStoryboard },
+                })}\n\n`));
+                continue;
+              }
+
               if (!prompt) {
                 nextStoryboard.scenes[idx] = {
                   ...scene,
