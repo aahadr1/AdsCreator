@@ -140,6 +140,44 @@ export default function AssistantPage() {
     }
   }, [authToken, activeConversationId]);
 
+  async function persistUrlIfPossible(url: string): Promise<string> {
+    try {
+      const res = await fetch('/api/persist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, filename: url.split('/').pop() || null, folder: 'assistant-videos' }),
+      });
+      if (!res.ok) return url;
+      const j = await res.json();
+      return typeof j?.url === 'string' ? j.url : url;
+    } catch {
+      return url;
+    }
+  }
+
+  const patchStoryboardInMessage = useCallback((
+    messageId: string,
+    updater: (prev: Storyboard) => Storyboard
+  ) => {
+    setMessages((prev) => {
+      const next = prev.map((m) => {
+        if (m.id !== messageId) return m;
+        const toolOutput = (m.tool_output || {}) as any;
+        const prevStoryboard: Storyboard | null =
+          toolOutput?.output?.storyboard || toolOutput?.storyboard || null;
+        if (!prevStoryboard) return m;
+        const updated = updater(prevStoryboard);
+        const nextToolOutput = {
+          ...(toolOutput || {}),
+          output: { ...(toolOutput?.output || {}), storyboard: updated },
+        };
+        return { ...m, tool_output: nextToolOutput, content: JSON.stringify({ storyboard_id: updated.id }, null, 2) };
+      });
+      void persistMessages(next);
+      return next;
+    });
+  }, [persistMessages]);
+
   const startNewConversation = () => {
     setActiveConversationId(null);
     setMessages([]);
@@ -281,9 +319,9 @@ export default function AssistantPage() {
                 break;
               
               case 'tool_result':
-                const toolResult = event.data as { tool: string; result: { success: boolean; output?: unknown; error?: string } };
+                const toolResult = event.data as { tool: string; result: { success: boolean; output?: unknown; error?: string; message_id?: string } };
                 setMessages(prev => [...prev, {
-                  id: crypto.randomUUID(),
+                  id: typeof toolResult.result?.message_id === 'string' ? toolResult.result.message_id : crypto.randomUUID(),
                   role: 'tool_result',
                   content: toolResult.result.success 
                     ? (typeof toolResult.result.output === 'string' 
@@ -295,6 +333,13 @@ export default function AssistantPage() {
                   tool_output: toolResult.result as Record<string, unknown>,
                 }]);
                 break;
+              
+              case 'video_generation_update': {
+                const payload = event.data as { message_id: string; storyboard: Storyboard };
+                if (!payload?.message_id || !payload?.storyboard) break;
+                patchStoryboardInMessage(payload.message_id, () => payload.storyboard);
+                break;
+              }
               
               case 'done':
                 // Add reflexion message if present
@@ -620,7 +665,128 @@ export default function AssistantPage() {
   }
 
   // Individual scene card component - Production Ready with Enhanced Fields
-  function SceneCard({ scene, aspectRatio }: { scene: StoryboardScene; aspectRatio?: string }) {
+  function SceneVideoPreview({
+    messageId,
+    sceneNumber,
+    predictionId,
+    initialUrl,
+    initialStatus,
+    errorMessage,
+  }: {
+    messageId: string;
+    sceneNumber: number;
+    predictionId?: string;
+    initialUrl?: string;
+    initialStatus?: string;
+    errorMessage?: string;
+  }) {
+    const [url, setUrl] = useState<string | null>(initialUrl || null);
+    const [status, setStatus] = useState<string>(initialUrl ? 'succeeded' : (initialStatus || 'pending'));
+    const [pollError, setPollError] = useState<string | null>(errorMessage || null);
+
+    useEffect(() => {
+      if (url || !predictionId) return;
+      let mounted = true;
+      let timeout: ReturnType<typeof setTimeout>;
+
+      async function poll() {
+        try {
+          const pid = predictionId;
+          if (!pid) return;
+          const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(pid)}`, { cache: 'no-store' });
+          if (!res.ok || !mounted) return;
+          const json = (await res.json()) as ReplicateStatusResponse;
+          if (!mounted) return;
+          setStatus(json.status || 'processing');
+          if (json.outputUrl) {
+            const persisted = await persistUrlIfPossible(String(json.outputUrl));
+            const proxied = `/api/proxy?type=video&url=${encodeURIComponent(persisted)}`;
+            setUrl(proxied);
+            setPollError(null);
+            patchStoryboardInMessage(messageId, (prevStoryboard) => {
+              const nextScenes = prevStoryboard.scenes.map((s): StoryboardScene => {
+                if (s.scene_number !== sceneNumber) return s;
+                return {
+                  ...s,
+                  video_status: 'succeeded',
+                  video_raw_url: persisted,
+                  video_url: proxied,
+                };
+              });
+              return { ...prevStoryboard, scenes: nextScenes };
+            });
+            return;
+          }
+          if (json.error) setPollError(json.error);
+          if (!['succeeded', 'failed', 'canceled'].includes(String(json.status || '').toLowerCase())) {
+            timeout = setTimeout(poll, 2500);
+          } else if (String(json.status || '').toLowerCase() !== 'succeeded') {
+            setPollError(json.error || 'Video generation failed');
+            patchStoryboardInMessage(messageId, (prevStoryboard) => {
+              const nextScenes = prevStoryboard.scenes.map((s): StoryboardScene => {
+                if (s.scene_number !== sceneNumber) return s;
+                return {
+                  ...s,
+                  video_status: 'failed',
+                  video_error: json.error || 'Video generation failed',
+                };
+              });
+              return { ...prevStoryboard, scenes: nextScenes };
+            });
+          }
+        } catch (e: any) {
+          if (!mounted) return;
+          setPollError(e?.message || 'Failed to fetch video status');
+          timeout = setTimeout(poll, 3500);
+        }
+      }
+
+      poll();
+      return () => { mounted = false; clearTimeout(timeout); };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [predictionId, url]);
+
+    const isGenerating = !url && Boolean(predictionId) && !['failed', 'canceled'].includes(status);
+    const isFailed = status === 'failed' || status === 'canceled';
+
+    return (
+      <div className={styles.toolCard}>
+        <div className={styles.toolHeader}>
+          <Film size={16} />
+          <span>Video (scene {sceneNumber})</span>
+          <span className={`${styles.pill} ${String(status).toLowerCase() === 'succeeded' ? styles.pillOk : ''} ${isFailed ? styles.pillBad : ''}`}>
+            {String(status)}
+          </span>
+          {isGenerating && <Loader2 size={14} className={styles.spinner} />}
+        </div>
+        <div className={styles.toolBody}>
+          {url ? (
+            <video controls preload="metadata" playsInline style={{ width: '100%', borderRadius: 14 }}>
+              <source src={url} type="video/mp4" />
+            </video>
+          ) : (
+            <div style={{ border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 14, padding: 14, color: 'rgba(231,233,238,0.65)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Loader2 size={16} className={styles.spinner} />
+                <span>{predictionId ? 'Generating video…' : 'Not started'}</span>
+              </div>
+              {pollError && <div style={{ marginTop: 8, color: 'rgba(239,68,68,0.95)', fontSize: 12, whiteSpace: 'pre-wrap' }}>{pollError}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function SceneCard({
+    scene,
+    aspectRatio,
+    messageId,
+  }: {
+    scene: StoryboardScene;
+    aspectRatio?: string;
+    messageId: string;
+  }) {
     const sceneTypeLabel = (type?: string) => {
       switch (type) {
         case 'talking_head': return '🎤 Talking Head';
@@ -744,6 +910,18 @@ export default function AssistantPage() {
           </div>
         )}
 
+        {/* Video Preview (if started) */}
+        {(scene.video_prediction_id || scene.video_url || scene.video_error) && (
+          <SceneVideoPreview
+            messageId={messageId}
+            sceneNumber={scene.scene_number}
+            predictionId={scene.video_prediction_id}
+            initialUrl={scene.video_url}
+            initialStatus={scene.video_status}
+            errorMessage={scene.video_error}
+          />
+        )}
+
         {/* Voiceover Text - New Enhanced Field */}
         {scene.voiceover_text && (
           <div className={styles.voiceoverBox}>
@@ -796,7 +974,7 @@ export default function AssistantPage() {
   }
 
   // Full storyboard card component - Production Ready
-  function StoryboardCard({ storyboard }: { storyboard: Storyboard }) {
+  function StoryboardCard({ storyboard, messageId }: { storyboard: Storyboard; messageId: string }) {
     const totalDuration = storyboard.total_duration_seconds || 
       storyboard.scenes.reduce((sum, s) => sum + (s.duration_seconds || 0), 0);
     
@@ -882,6 +1060,7 @@ export default function AssistantPage() {
               key={scene.scene_number} 
               scene={scene} 
               aspectRatio={storyboard.aspect_ratio}
+              messageId={messageId}
             />
           ))}
         </div>
@@ -970,7 +1149,7 @@ export default function AssistantPage() {
       
       // Extract storyboard data
       const storyboardData =
-        message.tool_name === 'storyboard_creation'
+        (message.tool_name === 'storyboard_creation' || message.tool_name === 'video_generation')
           ? (message.tool_output as any)?.output?.storyboard ||
             (message.tool_output as any)?.storyboard ||
             null
@@ -981,7 +1160,7 @@ export default function AssistantPage() {
           <div className={`${styles.avatar} ${styles.avatarAssistant}`}>
             {success ? <Check size={16} /> : <AlertCircle size={16} />}
           </div>
-          <div className={`${styles.bubble} ${message.tool_name === 'storyboard_creation' ? styles.bubbleWide : ''}`}>
+          <div className={`${styles.bubble} ${(message.tool_name === 'storyboard_creation' || message.tool_name === 'video_generation') ? styles.bubbleWide : ''}`}>
             {message.tool_name === 'image_generation' && predictionId ? (
               <ImagePredictionCard
                 messageId={message.id}
@@ -991,8 +1170,8 @@ export default function AssistantPage() {
               />
             ) : message.tool_name === 'script_creation' ? (
               <ScriptCard content={message.content} />
-            ) : message.tool_name === 'storyboard_creation' && storyboardData ? (
-              <StoryboardCard storyboard={storyboardData as Storyboard} />
+            ) : (message.tool_name === 'storyboard_creation' || message.tool_name === 'video_generation') && storyboardData ? (
+              <StoryboardCard storyboard={storyboardData as Storyboard} messageId={message.id} />
             ) : (
               <Markdown content={message.content} />
             )}

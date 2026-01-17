@@ -45,6 +45,15 @@ export interface AssistantPlan {
     description?: string;
     selected_at?: string;
   };
+
+  /**
+   * When a storyboard is generated, we prompt the user to either modify it or proceed to video generation.
+   * This flag stores the latest storyboard id awaiting confirmation.
+   */
+  pending_storyboard_action?: {
+    storyboard_id: string;
+    created_at: string;
+  };
 }
 
 export interface PlanStep {
@@ -57,7 +66,7 @@ export interface PlanStep {
 }
 
 // Tool Definitions
-export type ToolName = 'script_creation' | 'image_generation' | 'storyboard_creation';
+export type ToolName = 'script_creation' | 'image_generation' | 'storyboard_creation' | 'video_generation';
 
 export interface Tool {
   name: ToolName;
@@ -232,6 +241,14 @@ export interface StoryboardScene {
   
   // Video generation prompt - describes the motion/action between frames
   video_generation_prompt: string;
+
+  // Video generation output (populated when user proceeds to generation)
+  video_model?: string;
+  video_prediction_id?: string;
+  video_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
+  video_url?: string; // (typically proxied/persisted)
+  video_raw_url?: string; // direct output from provider
+  video_error?: string;
   
   // Audio specification
   voiceover_text?: string; // Exact text the creator should say

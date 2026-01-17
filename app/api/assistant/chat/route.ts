@@ -17,6 +17,33 @@ function getSupabase() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+function normalizeText(s: string): string {
+  return String(s || '').trim().toLowerCase();
+}
+
+function userWantsToProceed(text: string): boolean {
+  const t = normalizeText(text);
+  // Accept short confirmations and explicit "proceed/generate"
+  if (t === 'proceed' || t === 'generate' || t === 'yes' || t === 'ok' || t === 'go' || t === 'continue') return true;
+  if (t.includes('proceed') || t.includes('generate') || t.includes('start generation') || t.includes('make the video') || t.includes('render')) return true;
+  return false;
+}
+
+function extractLatestStoryboard(messages: Message[]): Storyboard | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'tool_result' || m.tool_name !== 'storyboard_creation') continue;
+    const storyboard =
+      (m.tool_output as any)?.output?.storyboard ||
+      (m.tool_output as any)?.storyboard ||
+      null;
+    if (storyboard && typeof storyboard === 'object' && Array.isArray((storyboard as any).scenes)) {
+      return storyboard as Storyboard;
+    }
+  }
+  return null;
+}
+
 interface ChatRequestBody {
   conversation_id?: string;
   message: string;
@@ -712,6 +739,33 @@ async function getModelVersionId(token: string, model: string): Promise<string |
   if (versionId) cachedModelVersions.set(model, { versionId, at: now });
   
   return versionId || null;
+}
+
+async function createReplicatePrediction({
+  token,
+  model,
+  input,
+}: {
+  token: string;
+  model: string;
+  input: Record<string, any>;
+}): Promise<{ id: string; status: string }> {
+  const versionId = await getModelVersionId(token, model);
+  if (!versionId) throw new Error(`No latest version found for ${model}`);
+  const res = await fetch(`${REPLICATE_API}/predictions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Token ${token}`,
+    },
+    body: JSON.stringify({ version: versionId, input }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const json: any = await res.json();
+  const id = String(json?.id || '').trim();
+  const status = String(json?.status || 'starting');
+  if (!id) throw new Error(`Replicate prediction create returned no id for ${model}`);
+  return { id, status };
 }
 
 /**
@@ -1607,6 +1661,168 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
     const readable = new ReadableStream({
       async start(controller) {
         try {
+          // ---------------------------------------------------------------------------
+          // Storyboard post-step gate: if we are awaiting user choice, handle proceed
+          // ---------------------------------------------------------------------------
+          const pendingStoryboardId =
+            typeof existingPlan?.pending_storyboard_action?.storyboard_id === 'string'
+              ? String(existingPlan.pending_storyboard_action.storyboard_id)
+              : null;
+
+          if (pendingStoryboardId && userWantsToProceed(body.message)) {
+            const storyboard = extractLatestStoryboard(existingMessages);
+            if (!storyboard || storyboard.id !== pendingStoryboardId) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: 'I could not find the storyboard you want to proceed with. Please regenerate the storyboard, then say “proceed”.' })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+              controller.close();
+              return;
+            }
+
+            // Send conversation id first (client expects this sometimes)
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'conversation_id', data: conversationId })}\n\n`));
+
+            // Emit an initial assistant response message (non-LLM path)
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
+            const proceedText = `Proceeding to video generation with Google VEO 3.1 Fast. I’ll generate each scene one-by-one and show previews as they’re ready.`;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: proceedText })}\n\n`));
+
+            const videoMessageId = crypto.randomUUID();
+            const model = 'google/veo-3.1-fast';
+
+            // Build a storyboard copy with video placeholders
+            const nextStoryboard: Storyboard = {
+              ...storyboard,
+              status: 'generating',
+              scenes: storyboard.scenes.map((s) => ({
+                ...s,
+                video_model: model,
+                video_status: 'pending',
+              })),
+            };
+
+            // Create a tool_result message placeholder for video generation and tell the client to render it
+            const videoToolResultMessage: Message = {
+              id: videoMessageId,
+              role: 'tool_result',
+              content: JSON.stringify({ storyboard_id: storyboard.id, status: 'generating' }, null, 2),
+              timestamp: new Date().toISOString(),
+              tool_name: 'video_generation',
+              tool_output: { success: true, output: { storyboard: nextStoryboard } } as any,
+            };
+
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: 'tool_result',
+              data: { tool: 'video_generation', result: { success: true, output: { storyboard: nextStoryboard }, message_id: videoMessageId } },
+            })}\n\n`));
+
+            // Launch predictions sequentially to show results one-by-one
+            const tokenStr = String(replicateToken);
+            for (let idx = 0; idx < nextStoryboard.scenes.length; idx++) {
+              const scene = nextStoryboard.scenes[idx];
+              const startImage = scene.first_frame_url;
+              const endImage = scene.last_frame_url;
+              const prompt = String(scene.video_generation_prompt || '').trim();
+
+              if (!startImage || !endImage || !/^https?:\/\//i.test(startImage) || !/^https?:\/\//i.test(endImage)) {
+                nextStoryboard.scenes[idx] = {
+                  ...scene,
+                  video_status: 'failed',
+                  video_error: 'Missing first_frame_url or last_frame_url for this scene. Regenerate the storyboard frames, then proceed again.',
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  type: 'video_generation_update',
+                  data: { message_id: videoMessageId, storyboard: nextStoryboard },
+                })}\n\n`));
+                continue;
+              }
+              if (!prompt) {
+                nextStoryboard.scenes[idx] = {
+                  ...scene,
+                  video_status: 'failed',
+                  video_error: 'Missing video_generation_prompt for this scene.',
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  type: 'video_generation_update',
+                  data: { message_id: videoMessageId, storyboard: nextStoryboard },
+                })}\n\n`));
+                continue;
+              }
+
+              nextStoryboard.scenes[idx] = { ...scene, video_status: 'generating' };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: 'video_generation_update',
+                data: { message_id: videoMessageId, storyboard: nextStoryboard },
+              })}\n\n`));
+
+              try {
+                const prediction = await createReplicatePrediction({
+                  token: tokenStr,
+                  model,
+                  input: {
+                    prompt,
+                    resolution: '720p',
+                    start_image: startImage,
+                    end_image: endImage,
+                  },
+                });
+                nextStoryboard.scenes[idx] = {
+                  ...nextStoryboard.scenes[idx],
+                  video_prediction_id: prediction.id,
+                  video_status: 'generating',
+                };
+              } catch (e: any) {
+                nextStoryboard.scenes[idx] = {
+                  ...nextStoryboard.scenes[idx],
+                  video_status: 'failed',
+                  video_error: e?.message || 'Failed to start video generation',
+                };
+              }
+
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: 'video_generation_update',
+                data: { message_id: videoMessageId, storyboard: nextStoryboard },
+              })}\n\n`));
+            }
+
+            // Persist: clear pending_storyboard_action, and save messages including the video tool result message.
+            // Ensure we store the final storyboard snapshot (with prediction ids / errors)
+            (videoToolResultMessage.tool_output as any) = { success: true, output: { storyboard: nextStoryboard } };
+            videoToolResultMessage.content = JSON.stringify({ storyboard_id: storyboard.id, status: 'generating' }, null, 2);
+            const messagesToSave: Message[] = [
+              ...existingMessages,
+              videoToolResultMessage,
+              {
+                id: crypto.randomUUID(),
+                role: 'assistant',
+                content: proceedText,
+                timestamp: new Date().toISOString(),
+              },
+            ];
+
+            const nextPlan = {
+              ...(existingPlan || {}),
+              pending_storyboard_action: null,
+            };
+            await supabase
+              .from('assistant_conversations')
+              .update({ plan: nextPlan, messages: messagesToSave, updated_at: new Date().toISOString() })
+              .eq('id', conversationId);
+
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+            controller.close();
+            return;
+          }
+
+          // If the user replied with modifications (i.e., not "proceed"), clear the pending gate and continue normal LLM flow.
+          if (pendingStoryboardId && !userWantsToProceed(body.message)) {
+            const nextPlan = { ...(existingPlan || {}), pending_storyboard_action: null };
+            await supabase
+              .from('assistant_conversations')
+              .update({ plan: nextPlan, updated_at: new Date().toISOString() })
+              .eq('id', conversationId);
+            existingPlan = nextPlan;
+          }
+
           // Stream the LLM response
           let fullResponse = '';
           
@@ -1833,7 +2049,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             }
           }
           
-          // Save messages to conversation
+          // Save messages to conversation (keep tool results before the final assistant "wrap-up")
           const messagesToSave: Message[] = [...existingMessages];
           
           // Add reflexion message if present
@@ -1845,17 +2061,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               timestamp: new Date().toISOString(),
             });
           }
-          
-          // Add assistant response (only if non-empty)
-          if (cleanedResponse.trim()) {
-            messagesToSave.push({
-              id: crypto.randomUUID(),
-              role: 'assistant',
-              content: cleanedResponse,
-              timestamp: new Date().toISOString(),
-            });
-          }
-          
+
           // Add tool calls and results
           for (let i = 0; i < filteredToolCalls.length; i++) {
             const toolCall = filteredToolCalls[i];
@@ -1909,6 +2115,54 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 tool_output: enhancedToolOutput,
               });
             }
+          }
+
+          // If a storyboard was generated successfully, ask user to modify or proceed and set a server-side flag.
+          const storyboardToolResult = toolResults.find((tr) => tr.tool === 'storyboard_creation')?.result as any;
+          const storyboardObj: Storyboard | null =
+            storyboardToolResult?.success && storyboardToolResult?.output?.storyboard ? (storyboardToolResult.output.storyboard as Storyboard) : null;
+          const shouldPromptProceed =
+            Boolean(storyboardObj?.id) &&
+            storyboardObj?.status === 'ready' &&
+            Array.isArray(storyboardObj?.scenes) &&
+            storyboardObj.scenes.length > 0 &&
+            storyboardToolResult?.success === true;
+
+          let finalAssistantResponse = cleanedResponse.trim();
+          if (shouldPromptProceed) {
+            const promptLine =
+              `Storyboard is ready. Do you want any modifications, or should I proceed with generation?\n\n` +
+              `- Reply **"modify"** + what to change (e.g. “modify scene 2: change setting to a kitchen”) \n` +
+              `- Reply **"proceed"** to generate videos for all scenes (VEO 3.1 Fast).`;
+            finalAssistantResponse = finalAssistantResponse ? `${finalAssistantResponse}\n\n${promptLine}` : promptLine;
+
+            const nextPlan = {
+              ...(existingPlan || {}),
+              pending_storyboard_action: { storyboard_id: String(storyboardObj!.id), created_at: new Date().toISOString() },
+            };
+            await supabase
+              .from('assistant_conversations')
+              .update({ plan: nextPlan, updated_at: new Date().toISOString() })
+              .eq('id', conversationId);
+            existingPlan = nextPlan;
+          }
+
+          // If we appended a post-storyboard prompt, stream it so the client sees it immediately (not only after reload).
+          if (finalAssistantResponse.trim() && finalAssistantResponse.trim() !== cleanedResponse.trim()) {
+            const delta = finalAssistantResponse.startsWith(cleanedResponse) ? finalAssistantResponse.slice(cleanedResponse.length) : `\n\n${finalAssistantResponse}`;
+            if (delta.trim()) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: delta })}\n\n`));
+            }
+          }
+
+          // Add assistant response (only if non-empty)
+          if (finalAssistantResponse.trim()) {
+            messagesToSave.push({
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: finalAssistantResponse,
+              timestamp: new Date().toISOString(),
+            });
           }
           
           // Update conversation in database
