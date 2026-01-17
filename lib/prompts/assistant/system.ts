@@ -147,9 +147,12 @@ When to use:
 **CRITICAL VIDEO GENERATION WORKFLOW:**
 1. Extract first and last frame image URLs from each scene in the storyboard
 2. Use video_generation_prompt from each scene to describe the motion between frames
-3. Generate videos scene by scene using VEO 3.1 Fast with audio output support
-4. Use first frame image as primary input, incorporate last frame information in enhanced prompt for motion guidance
-5. Ensure both frame references are validated and used to create precise motion control
+3. **INCLUDE VOICEOVER TEXT**: Incorporate scene's voiceover_text for proper lip sync and expressions
+4. Generate videos scene by scene using VEO 3.1 Fast with audio output support
+5. Use first frame image as primary input, incorporate last frame information in enhanced prompt for motion guidance
+6. Add dialogue context for avatar scenes: "The person is saying: [voiceover_text]" for natural lip movements
+7. Customize prompt based on scene type (talking_head, product_showcase, demonstration)
+8. Ensure both frame references and voiceover text are validated and used to create precise motion control
 
 Parameters:
 - storyboard_id (string, required): ID of the completed storyboard to generate videos from
@@ -217,10 +220,11 @@ For each scene, explicitly determine:
    - Any camera movement
    - Direction of motion
    
-4. **VOICEOVER TEXT must include:**
-   - Exact words to be spoken
+4. **VOICEOVER TEXT must include (CRITICAL FOR VIDEO GENERATION):**
+   - Exact words to be spoken (essential for lip sync in video generation)
    - Timing markers if needed
    - Emphasis/tone indicators in [brackets]
+   - Every talking scene MUST have voiceover_text for proper lip sync
 
 **Scene structure:**
 - scene_number: Sequential number

@@ -1816,6 +1816,12 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 continue;
               }
 
+              // Warn if avatar scene is missing voiceover text
+              const voiceoverText = scene.voiceover_text ? String(scene.voiceover_text).trim() : '';
+              if (scene.uses_avatar && scene.scene_type === 'talking_head' && !voiceoverText) {
+                console.warn(`[Video Generation] Scene ${scene.scene_number} is a talking head with avatar but missing voiceover_text. This may result in poor lip sync.`);
+              }
+
               nextStoryboard.scenes[idx] = { ...scene, video_status: 'generating' };
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                 type: 'video_generation_update',
@@ -1823,11 +1829,42 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               })}\n\n`));
 
               try {
-                // Enhanced prompt that incorporates both first and last frame information
-                // Since VEO 3.1 Fast doesn't support end_image directly, we encode the end state in the prompt
+                // Build comprehensive video generation prompt with all scene context
+                const voiceoverText = scene.voiceover_text ? String(scene.voiceover_text).trim() : '';
                 const lastFrameContext = scene.last_frame_visual_elements ? 
                   ` Target end state should show: ${scene.last_frame_visual_elements.join(', ')}` : '';
-                const enhancedPrompt = `${prompt}${lastFrameContext}. MOTION DIRECTION: Start from the provided first frame image and create natural progression towards the described end state. Ensure smooth transformation between start and end compositions with realistic motion flow.`;
+                
+                // Create enhanced prompt with voiceover, motion, and visual context
+                let enhancedPrompt = `${prompt}${lastFrameContext}`;
+                
+                // Add voiceover context for lip sync and expressions
+                if (voiceoverText && scene.uses_avatar) {
+                  enhancedPrompt += ` DIALOGUE: The person is saying: "${voiceoverText}". Generate appropriate lip movements, facial expressions, and gestures that match the speech content. Sync mouth movements naturally with the spoken words.`;
+                } else if (voiceoverText) {
+                  enhancedPrompt += ` AUDIO CONTEXT: Scene includes voiceover: "${voiceoverText}". Generate visuals that complement and support this narrative.`;
+                }
+                
+                // Add motion direction and timing
+                enhancedPrompt += ` MOTION DIRECTION: Start from the provided first frame image and create natural progression towards the described end state. Ensure smooth transformation between start and end compositions with realistic motion flow.`;
+                
+                // Add scene-specific enhancements based on scene type
+                if (scene.scene_type === 'talking_head' && scene.uses_avatar) {
+                  enhancedPrompt += ` PERFORMANCE: Focus on natural talking head movement with authentic expressions, subtle head movements, and engaging eye contact with camera.`;
+                } else if (scene.scene_type === 'product_showcase') {
+                  enhancedPrompt += ` PRODUCT FOCUS: Highlight the product with smooth camera movement or hand gestures that draw attention to key features.`;
+                } else if (scene.scene_type === 'demonstration') {
+                  enhancedPrompt += ` DEMONSTRATION: Show clear, instructional movements that demonstrate the action or process described.`;
+                }
+                
+                // Log the enhanced prompt for debugging
+                console.log(`[Video Generation] Scene ${scene.scene_number} enhanced prompt:`, {
+                  originalPrompt: prompt,
+                  voiceoverText: voiceoverText,
+                  hasVoiceover: Boolean(voiceoverText),
+                  usesAvatar: scene.uses_avatar,
+                  sceneType: scene.scene_type,
+                  enhancedPromptLength: enhancedPrompt.length
+                });
                 
                 const prediction = await createReplicatePrediction({
                   token: tokenStr,
