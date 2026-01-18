@@ -12,6 +12,8 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
+const ASSISTANT_IMAGE_MODEL = 'google/nano-banana-pro';
+const DEFAULT_IMAGE_ASPECT_RATIO = '9:16';
 
 function getSupabase() {
   return createClient(supabaseUrl, supabaseServiceKey);
@@ -685,8 +687,8 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       return { success: false, error: 'Server misconfigured: missing REPLICATE_API_TOKEN' };
     }
     
-    // Use nano-banana model
-    const model = 'google/nano-banana';
+    // Use nano-banana-pro for all assistant image generations
+    const model = ASSISTANT_IMAGE_MODEL;
     
     // Get latest version
     const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
@@ -713,6 +715,9 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       prompt: input.prompt,
       output_format: forcedOutputFormat,
     };
+
+    // Default aspect ratio to 9:16 (vertical) unless user/LLM specified it.
+    predictionInput.aspect_ratio = input.aspect_ratio || DEFAULT_IMAGE_ASPECT_RATIO;
     
     if (input.image_input && input.image_input.length > 0) {
       predictionInput.image_input = input.image_input;
@@ -996,14 +1001,16 @@ async function generateSingleImage(
     // Build the enhanced prompt
     let enhancedPrompt = prompt;
     
-    // Add aspect ratio hint to prompt if provided
-    if (aspectRatio && !prompt.includes(aspectRatio)) {
-      enhancedPrompt = `${enhancedPrompt}, ${aspectRatio} aspect ratio`;
+    // Add aspect ratio hint to prompt if provided (default to 9:16)
+    const ar = (aspectRatio || DEFAULT_IMAGE_ASPECT_RATIO).trim();
+    if (ar && !prompt.includes(ar)) {
+      enhancedPrompt = `${enhancedPrompt}, ${ar} aspect ratio`;
     }
     
     const baseInput: Record<string, unknown> = {
       prompt: enhancedPrompt,
       output_format: 'jpg',
+      aspect_ratio: ar,
     };
     
     // Collect all reference image URLs
@@ -1060,8 +1067,8 @@ async function generateSingleImage(
       finalPrompt = enhancedPrompt;
     }
 
-    // Use nano-banana for BOTH text-to-image and image-to-image
-    const model = 'google/nano-banana';
+    // Use nano-banana-pro for BOTH text-to-image and image-to-image
+    const model = ASSISTANT_IMAGE_MODEL;
     const input: Record<string, unknown> = { ...baseInput, prompt: finalPrompt };
     
     if (hasAnyRef) {

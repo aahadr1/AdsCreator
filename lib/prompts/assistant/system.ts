@@ -94,7 +94,7 @@ CRITICAL FOR VIDEOS: When generating videos, you MUST first generate a "first fr
 
 Parameters:
 - prompt (string, required): Detailed image description
-- aspect_ratio (string, optional): "1:1", "16:9", "9:16", "4:3", "3:4", etc.
+- aspect_ratio (string, optional): "1:1", "16:9", "9:16", "4:3", "3:4", etc. (DEFAULT: 9:16)
 - output_format (string, optional): "jpg" or "png"
 - purpose (string, optional): "avatar", "scene_frame", "product", "b_roll", "other"
 - avatar_description (string, optional): Short description of the avatar (required if purpose = "avatar")
