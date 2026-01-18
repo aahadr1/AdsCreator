@@ -392,7 +392,22 @@ export default function AssistantPage() {
       }
     } catch (e: any) {
       if (e.name !== 'AbortError') {
-        setError(e.message || 'Failed to send message');
+        const msg = String(e?.message || '');
+        const transient =
+          msg.includes('Failed to fetch') ||
+          msg.includes('NetworkError') ||
+          msg.includes('ERR_NETWORK_CHANGED') ||
+          msg.includes('ERR_HTTP2_PING_FAILED');
+
+        if (transient) {
+          // Roll back the optimistic user message so retry doesn't duplicate it,
+          // and restore the input for a seamless retry.
+          setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+          setInput(userMessage.content);
+          setError('Network connection interrupted (HTTP/2). Please try sending again.');
+        } else {
+          setError(e.message || 'Failed to send message');
+        }
       }
     } finally {
       setIsLoading(false);

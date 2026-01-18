@@ -148,9 +148,22 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
     }
 
     let cancelled = false;
+    let timeout: any = null;
+    let backoffMs = POLL_INTERVAL_MS;
+
+    const isTransientNetworkFailure = (e: unknown): boolean => {
+      const msg = e instanceof Error ? e.message : String(e || '');
+      return (
+        msg.includes('Failed to fetch') ||
+        msg.includes('NetworkError') ||
+        msg.includes('ERR_NETWORK_CHANGED') ||
+        msg.includes('ERR_HTTP2_PING_FAILED')
+      );
+    };
 
     const poll = async () => {
       try {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
         const res = await fetch(`/api/tasks/list?user_id=${encodeURIComponent(userId)}&limit=all`, { cache: 'no-store' });
         if (!res.ok) throw new Error();
         const json = (await res.json()) as {
@@ -195,16 +208,36 @@ const iconElementsRef = useRef<Array<{ element: HTMLLinkElement; original: strin
         }
 
         setFaviconState('idle');
-      } catch {
-        if (!cancelled) setFaviconState('idle');
+      } catch (e) {
+        // Don't thrash favicon state on transient network issues; just back off.
+        if (!cancelled) {
+          // eslint-disable-next-line no-console
+          console.warn('[FaviconTaskIndicator] Poll failed; backing off');
+        }
+        throw e;
       }
     };
 
-    void poll();
-    const interval = setInterval(() => { void poll(); }, POLL_INTERVAL_MS);
+    const loop = async () => {
+      if (cancelled) return;
+      try {
+        await poll();
+        backoffMs = POLL_INTERVAL_MS;
+      } catch (e) {
+        if (isTransientNetworkFailure(e)) {
+          backoffMs = Math.min(60_000, Math.floor(backoffMs * 1.7));
+        } else {
+          backoffMs = Math.min(60_000, Math.floor(backoffMs * 1.3));
+        }
+      } finally {
+        timeout = setTimeout(loop, backoffMs);
+      }
+    };
+
+    void loop();
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
     };
   }, [userId, setFaviconState]);
 

@@ -1917,7 +1917,18 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
     // Create streaming response
     const readable = new ReadableStream({
       async start(controller) {
+        let heartbeat: ReturnType<typeof setInterval> | null = null;
         try {
+          // Heartbeat to keep intermediaries/browser from treating the stream as idle.
+          // (Helps reduce flaky HTTP/2/SSE disconnects in the real world.)
+          heartbeat = setInterval(() => {
+            try {
+              controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
+            } catch {
+              // ignore
+            }
+          }, 15000);
+
           // ---------------------------------------------------------------------------
           // Storyboard post-step gate: if we are awaiting user choice, handle proceed
           // ---------------------------------------------------------------------------
@@ -2591,10 +2602,12 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           
           // Signal completion
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+          if (heartbeat) clearInterval(heartbeat);
           controller.close();
         } catch (e: any) {
           console.error('Stream error:', e);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', data: e.message })}\n\n`));
+          if (heartbeat) clearInterval(heartbeat);
           controller.close();
         }
       }
@@ -2602,9 +2615,11 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
     
     return new Response(readable, {
       headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
+        // Try to prevent buffering in some proxies
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (e: any) {

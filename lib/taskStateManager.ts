@@ -79,16 +79,39 @@ function updateFavicon(state: TaskState) {
 export function initFaviconPolling() {
   if (typeof window === 'undefined') return;
   
-  // Poll every 2 seconds to sync with server state
-  setInterval(() => {
-    const faviconUrl = `/api/favicon?t=${Date.now()}`;
-    const links = document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]');
-    links.forEach(link => {
-      // Force refresh by updating href
-      const currentHref = link.href;
-      link.href = '';
-      link.href = faviconUrl;
-    });
-  }, 2000);
+  // This used to refresh every 2s, which is noisy and amplifies transient network/HTTP2 issues.
+  // We only refresh occasionally, and only when we're online + a task is actually in progress.
+  let backoffMs = 10_000;
+  const tick = () => {
+    try {
+      if (!navigator.onLine) {
+        backoffMs = Math.min(60_000, Math.floor(backoffMs * 1.5));
+        setTimeout(tick, backoffMs);
+        return;
+      }
+      if (document.visibilityState !== 'visible') {
+        setTimeout(tick, 30_000);
+        return;
+      }
+      if (currentState === 'idle') {
+        setTimeout(tick, 30_000);
+        return;
+      }
+
+      const faviconUrl = `/api/favicon?t=${Date.now()}`;
+      const links = document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]');
+      links.forEach(link => {
+        link.href = faviconUrl;
+      });
+
+      backoffMs = 10_000;
+      setTimeout(tick, 10_000);
+    } catch {
+      backoffMs = Math.min(60_000, Math.floor(backoffMs * 1.5));
+      setTimeout(tick, backoffMs);
+    }
+  };
+
+  setTimeout(tick, 10_000);
 }
 
