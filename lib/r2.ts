@@ -1,4 +1,5 @@
-import { S3Client, PutObjectCommand, HeadBucketCommand, CreateBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, HeadBucketCommand, CreateBucketCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import type { Readable } from 'node:stream';
 
 type R2Config = {
   accountId: string;
@@ -58,6 +59,32 @@ export async function r2PutObject({
     ContentType: contentType || undefined,
     CacheControl: cacheControl || undefined,
   }));
+}
+
+async function readableToUint8Array(stream: Readable): Promise<Uint8Array> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
+export async function r2GetObject({
+  client,
+  bucket,
+  key,
+}: {
+  client: S3Client;
+  bucket: string;
+  key: string;
+}): Promise<{ body: Uint8Array; contentType: string | null; cacheControl: string | null }> {
+  const out: any = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const bodyStream = out?.Body as Readable | undefined;
+  if (!bodyStream) throw new Error('R2 getObject returned no body');
+  const body = await readableToUint8Array(bodyStream);
+  const contentType = typeof out?.ContentType === 'string' ? out.ContentType : null;
+  const cacheControl = typeof out?.CacheControl === 'string' ? out.CacheControl : null;
+  return { body, contentType, cacheControl };
 }
 
 export function r2PublicUrl({ publicBaseUrl, bucket, key }: { publicBaseUrl?: string | null; bucket: string; key: string }): string | null {

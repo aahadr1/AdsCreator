@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
 import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
-import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '../../../../lib/r2';
+import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline } from '../../../../types/assistant';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -484,11 +484,13 @@ async function getLastProductFromConversation(messages: Message[]): Promise<{ ur
 async function maybeCacheImageToR2({
   sourceUrl,
   conversationId,
+  origin,
   type = 'avatar',
 }: {
   sourceUrl: string;
   conversationId: string;
-  type?: 'avatar' | 'product';
+  origin: string;
+  type?: 'avatar' | 'product' | 'frame';
 }): Promise<{ url: string; cached: boolean; error?: string }> {
   try {
     const src = sourceUrl.trim();
@@ -499,11 +501,8 @@ async function maybeCacheImageToR2({
     const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
     const r2Endpoint = process.env.R2_S3_ENDPOINT || null;
     const bucket = process.env.R2_BUCKET || 'assets';
-    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL || null;
-
-    // If R2 isn't configured with a public base URL, we cannot produce a stable public URL for Replicate
-    if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey || !publicBaseUrl) {
-      return { url: sourceUrl, cached: false, error: 'R2 not configured (missing R2_* or R2_PUBLIC_BASE_URL)' };
+    if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey) {
+      return { url: sourceUrl, cached: false, error: 'R2 not configured (missing R2_* credentials)' };
     }
 
     const res = await fetch(src, { cache: 'no-store' });
@@ -513,7 +512,7 @@ async function maybeCacheImageToR2({
 
     // Keep extension consistent; default to jpg for maximum compatibility
     const ext = contentType.includes('png') ? 'png' : 'jpg';
-    const folder = type === 'product' ? 'products' : 'avatars';
+    const folder = type === 'product' ? 'products' : type === 'frame' ? 'storyboards' : 'avatars';
     const key = `${folder}/${conversationId}/${crypto.randomUUID()}.${ext}`;
 
     const r2 = createR2Client({
@@ -522,7 +521,6 @@ async function maybeCacheImageToR2({
       secretAccessKey: r2SecretAccessKey,
       bucket,
       endpoint: r2Endpoint,
-      publicBaseUrl,
     });
     await ensureR2Bucket(r2, bucket);
     await r2PutObject({
@@ -534,9 +532,9 @@ async function maybeCacheImageToR2({
       cacheControl: '31536000',
     });
 
-    const publicUrl = r2PublicUrl({ publicBaseUrl, bucket, key });
-    if (!publicUrl) return { url: sourceUrl, cached: false, error: 'Could not compute R2 public URL' };
-    return { url: publicUrl, cached: true };
+    const base = origin.replace(/\/$/, '');
+    const appUrl = `${base}/api/r2/get?key=${encodeURIComponent(key)}`;
+    return { url: appUrl, cached: true };
   } catch (e: any) {
     return { url: sourceUrl, cached: false, error: e?.message || `maybeCacheImageToR2 (${type}) failed` };
   }
@@ -546,11 +544,13 @@ async function maybeCacheImageToR2({
 async function maybeCacheAvatarToR2({
   sourceUrl,
   conversationId,
+  origin,
 }: {
   sourceUrl: string;
   conversationId: string;
+  origin: string;
 }): Promise<{ url: string; cached: boolean; error?: string }> {
-  return maybeCacheImageToR2({ sourceUrl, conversationId, type: 'avatar' });
+  return maybeCacheImageToR2({ sourceUrl, conversationId, origin, type: 'avatar' });
 }
 
 // Remove tool calls and reflexion from visible response
@@ -1211,7 +1211,10 @@ async function executeVideoGeneration(input: VideoGenerationInput): Promise<{ su
 // 2. First frame URL passed to last frame generation for scene consistency
 // 3. Previous scene's last frame passed to next scene's first frame for smooth transitions
 // 4. Product image support for consistent product appearance
-async function executeStoryboardCreation(input: StoryboardCreationInput): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
+async function executeStoryboardCreation(
+  input: StoryboardCreationInput,
+  ctx: { origin: string; conversationId: string }
+): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
   try {
     const storyboardId = crypto.randomUUID();
     
@@ -1476,6 +1479,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       );
       
       let firstFrameUrl: string | undefined;
+      let firstFrameRawUrl: string | undefined;
       let firstFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'pending';
       let firstFrameError: string | undefined;
       
@@ -1485,7 +1489,14 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         const firstFrameResult = await waitForPredictionComplete(firstFramePrediction.id, 90000, 2500);
         
         if (firstFrameResult.status === 'succeeded' && firstFrameResult.outputUrl) {
-          firstFrameUrl = firstFrameResult.outputUrl;
+          firstFrameRawUrl = firstFrameResult.outputUrl;
+          const cached = await maybeCacheImageToR2({
+            sourceUrl: firstFrameRawUrl,
+            conversationId: ctx.conversationId,
+            origin: ctx.origin,
+            type: 'frame',
+          });
+          firstFrameUrl = cached.url;
           firstFrameStatus = 'succeeded';
           console.log(`[Storyboard] Scene ${outline.scene_number}: First frame READY: ${firstFrameUrl.substring(0, 50)}...`);
         } else {
@@ -1527,6 +1538,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
       );
       
       let lastFrameUrl: string | undefined;
+      let lastFrameRawUrl: string | undefined;
       let lastFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'pending';
       let lastFrameError: string | undefined;
       
@@ -1536,7 +1548,14 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         const lastFrameResult = await waitForPredictionComplete(lastFramePrediction.id, 90000, 2500);
         
         if (lastFrameResult.status === 'succeeded' && lastFrameResult.outputUrl) {
-          lastFrameUrl = lastFrameResult.outputUrl;
+          lastFrameRawUrl = lastFrameResult.outputUrl;
+          const cached = await maybeCacheImageToR2({
+            sourceUrl: lastFrameRawUrl,
+            conversationId: ctx.conversationId,
+            origin: ctx.origin,
+            type: 'frame',
+          });
+          lastFrameUrl = cached.url;
           lastFrameStatus = 'succeeded';
           console.log(`[Storyboard] Scene ${outline.scene_number}: Last frame READY: ${lastFrameUrl.substring(0, 50)}...`);
           
@@ -1574,6 +1593,8 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
         last_frame_prediction_id: lastFramePrediction?.id || undefined,
         first_frame_url: firstFrameUrl,
         last_frame_url: lastFrameUrl,
+        first_frame_raw_url: firstFrameRawUrl,
+        last_frame_raw_url: lastFrameRawUrl,
         first_frame_status: firstFrameStatus,
         last_frame_status: lastFrameStatus,
         first_frame_error: firstFrameError,
@@ -1635,6 +1656,7 @@ async function executeStoryboardCreation(input: StoryboardCreationInput): Promis
 
 export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
+  const origin = new URL(req.url).origin;
   
   try {
     const supabase = getSupabase();
@@ -1769,7 +1791,7 @@ export async function POST(req: NextRequest) {
     let selectedAvatarUrl: string | undefined = planSelectedAvatarUrl;
     let selectedAvatarDescription: string | undefined = planSelectedAvatarDescription;
     if (userConfirmedAvatar && confirmedAvatarUrl) {
-      const cached = await maybeCacheAvatarToR2({ sourceUrl: confirmedAvatarUrl, conversationId: String(conversationId) });
+      const cached = await maybeCacheAvatarToR2({ sourceUrl: confirmedAvatarUrl, conversationId: String(conversationId), origin });
       selectedAvatarUrl = cached.url;
       selectedAvatarDescription = confirmedAvatarDescription || selectedAvatarDescription;
       const nextPlan = {
@@ -1792,7 +1814,7 @@ export async function POST(req: NextRequest) {
     let selectedProductUrl: string | undefined = planSelectedProductUrl;
     let selectedProductDescription: string | undefined = planSelectedProductDescription;
     if (userConfirmedProduct && confirmedProductUrl) {
-      const cached = await maybeCacheImageToR2({ sourceUrl: confirmedProductUrl, conversationId: String(conversationId), type: 'product' });
+      const cached = await maybeCacheImageToR2({ sourceUrl: confirmedProductUrl, conversationId: String(conversationId), origin, type: 'product' });
       selectedProductUrl = cached.url;
       selectedProductDescription = confirmedProductDescription || selectedProductDescription;
       const nextPlan = {
@@ -2424,7 +2446,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             } else if (toolCall.tool === 'storyboard_creation') {
               const safeInput: unknown = toolCall.input;
               result = isStoryboardCreationInput(safeInput)
-                ? await executeStoryboardCreation(safeInput)
+                ? await executeStoryboardCreation(safeInput, { origin, conversationId: String(conversationId) })
                 : { success: false, error: 'Invalid storyboard_creation input: missing title/scenes or avatar_image_url required for scenes using avatar' };
             } else if (toolCall.tool === 'video_generation') {
               const safeInput: unknown = toolCall.input;

@@ -283,6 +283,10 @@ export interface StoryboardScene {
   // Generated image URLs and status (populated after generation)
   first_frame_url?: string;
   last_frame_url?: string;
+  /** Direct provider URL (e.g., Replicate). Kept for debugging; may expire. */
+  first_frame_raw_url?: string;
+  /** Direct provider URL (e.g., Replicate). Kept for debugging; may expire. */
+  last_frame_raw_url?: string;
   first_frame_prediction_id?: string;
   last_frame_prediction_id?: string;
   first_frame_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
