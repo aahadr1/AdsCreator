@@ -84,11 +84,17 @@ function isStoryboardCreationInput(v: unknown): v is StoryboardCreationInput {
     }
     
     // If any scene explicitly needs avatar, require a REAL url (not a placeholder)
-    if (scene.uses_avatar === true && !avatarUrlIsValid) return false;
+    if (scene.uses_avatar === true && !avatarUrlIsValid) {
+      console.warn(`[Storyboard Validation] Scene ${scene.scene_number} needs avatar but no valid avatar_image_url provided`);
+      return false;
+    }
     
     // If prompts explicitly reference avatar, require a real url too (only if prompts exist)
     const p = `${String(scene.first_frame_prompt || '')} ${String(scene.last_frame_prompt || '')}`.toLowerCase();
-    if (p && (p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar') || p.includes('same avatar character')) && !avatarUrlIsValid) return false;
+    if (p && (p.includes('base avatar') || p.includes('same actor from avatar') || p.includes('same avatar') || p.includes('same avatar character')) && !avatarUrlIsValid) {
+      console.warn(`[Storyboard Validation] Scene ${scene.scene_number} references avatar in prompts but no valid avatar_image_url provided`);
+      return false;
+    }
   }
   return true;
 }
@@ -712,6 +718,9 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       predictionInput.image_input = input.image_input;
     }
     
+    // Acquire rate limit slot before making request
+    await replicateRateLimiter.acquire();
+    
     const res = await fetch(`${REPLICATE_API}/predictions`, {
       method: 'POST',
       headers: {
@@ -739,6 +748,43 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
 // Cache for model version IDs to avoid repeated API calls
 const MODEL_VERSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const cachedModelVersions = new Map<string, { versionId: string; at: number }>();
+
+// Simple in-memory rate limiter for Replicate API calls
+class RateLimiter {
+  private requests: number[] = [];
+  private readonly windowMs: number;
+  private readonly maxRequests: number;
+
+  constructor(maxRequests: number, windowMs: number) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
+
+  async acquire(): Promise<void> {
+    const now = Date.now();
+    
+    // Clean old requests outside the window
+    this.requests = this.requests.filter(time => now - time < this.windowMs);
+    
+    if (this.requests.length >= this.maxRequests) {
+      // Calculate how long to wait
+      const oldestRequest = Math.min(...this.requests);
+      const waitTime = this.windowMs - (now - oldestRequest) + 100; // Add 100ms buffer
+      
+      console.log(`[RateLimiter] Waiting ${waitTime}ms to respect rate limits`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      
+      // Recursively try again
+      return this.acquire();
+    }
+    
+    // Record this request
+    this.requests.push(now);
+  }
+}
+
+// Conservative rate limiter - 5 requests per minute to stay well under the 6/min limit
+const replicateRateLimiter = new RateLimiter(5, 60 * 1000);
 
 // Helper to get model version with caching
 async function getModelVersionId(token: string, model: string): Promise<string | null> {
@@ -801,6 +847,10 @@ async function createReplicatePrediction({
 }): Promise<{ id: string; status: string }> {
   const versionId = await getModelVersionId(token, model);
   if (!versionId) throw new Error(`No latest version found for ${model}`);
+  
+  // Acquire rate limit slot before making request
+  await replicateRateLimiter.acquire();
+  
   const res = await fetch(`${REPLICATE_API}/predictions`, {
     method: 'POST',
     headers: {
@@ -856,6 +906,9 @@ async function generateSingleImage(
         try {
           console.log(`[Storyboard] Creating prediction (attempt ${attempt}/${maxRetries}):`, model);
           
+          // Acquire rate limit slot before making request
+          await replicateRateLimiter.acquire();
+          
           // Create AbortController for timeout handling
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -876,7 +929,35 @@ async function generateSingleImage(
             const errorText = await res.text();
             console.error(`[Storyboard] HTTP ${res.status} on attempt ${attempt}:`, errorText);
             
-            // Don't retry on client errors (4xx), only server errors (5xx) and network issues
+            // Handle 429 rate limiting specially - this should be retried
+            if (res.status === 429) {
+              let retryAfter = 1; // Default to 1 second
+              
+              try {
+                // Try to parse retry_after from error response
+                const errorObj = JSON.parse(errorText);
+                if (typeof errorObj.retry_after === 'number') {
+                  retryAfter = errorObj.retry_after;
+                } else if (res.headers.get('retry-after')) {
+                  retryAfter = parseInt(res.headers.get('retry-after') || '1', 10);
+                }
+              } catch (e) {
+                // Fallback to header or default
+                retryAfter = parseInt(res.headers.get('retry-after') || '1', 10);
+              }
+              
+              console.log(`[Storyboard] Rate limited, waiting ${retryAfter}s before retry ${attempt}/${maxRetries}`);
+              
+              if (attempt === maxRetries) {
+                return { ok: false as const, status: res.status, text: `Rate limited: ${errorText}` };
+              }
+              
+              // Wait for the specified retry_after time plus a small buffer
+              await new Promise(resolve => setTimeout(resolve, (retryAfter * 1000) + 500));
+              continue;
+            }
+            
+            // Don't retry on other client errors (4xx), only server errors (5xx) and network issues
             if (res.status >= 400 && res.status < 500) {
               return { ok: false as const, status: res.status, text: errorText };
             }
@@ -2079,14 +2160,74 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           // Signal reflexion start
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_start' })}\n\n`));
           
-          const stream = await replicate.stream('anthropic/claude-4-sonnet', {
-            input: {
-              prompt: fullPrompt,
-              system_prompt: ASSISTANT_SYSTEM_PROMPT,
-              // Higher budget to reduce mid-reflexion truncation for longer requests
-              max_tokens: 8192,
+          // Retry Claude streaming with rate limit handling
+          let stream: any;
+          const maxStreamRetries = 3;
+          const streamRetryDelay = 1000;
+          
+          for (let attempt = 1; attempt <= maxStreamRetries; attempt++) {
+            try {
+              console.log(`[Assistant] Starting Claude stream (attempt ${attempt}/${maxStreamRetries})`);
+              
+              // Acquire rate limit slot before making request
+              await replicateRateLimiter.acquire();
+              
+              stream = await replicate.stream('anthropic/claude-4-sonnet', {
+                input: {
+                  prompt: fullPrompt,
+                  system_prompt: ASSISTANT_SYSTEM_PROMPT,
+                  // Higher budget to reduce mid-reflexion truncation for longer requests
+                  max_tokens: 8192,
+                }
+              });
+              
+              console.log(`[Assistant] Claude stream started successfully`);
+              break; // Success, exit retry loop
+              
+            } catch (error: any) {
+              console.error(`[Assistant] Claude stream error on attempt ${attempt}:`, error.message);
+              
+              // Check if this is a rate limiting error
+              const isRateLimit = error.message?.includes('429') || 
+                                 error.message?.includes('Too Many Requests') ||
+                                 error.message?.includes('throttled');
+              
+              if (isRateLimit) {
+                let retryAfter = 1;
+                
+                // Try to extract retry_after from error message
+                const retryMatch = error.message.match(/retry_after['":](\d+)/);
+                if (retryMatch) {
+                  retryAfter = parseInt(retryMatch[1], 10);
+                } else if (error.message.includes('resets in ~')) {
+                  // Parse "resets in ~1s" format
+                  const resetMatch = error.message.match(/resets in ~(\d+)s/);
+                  if (resetMatch) {
+                    retryAfter = parseInt(resetMatch[1], 10);
+                  }
+                }
+                
+                console.log(`[Assistant] Rate limited, waiting ${retryAfter}s before retry ${attempt}/${maxStreamRetries}`);
+                
+                if (attempt === maxStreamRetries) {
+                  throw new Error(`Claude API rate limited after ${maxStreamRetries} attempts: ${error.message}`);
+                }
+                
+                // Wait for retry_after time plus buffer
+                await new Promise(resolve => setTimeout(resolve, (retryAfter * 1000) + 500));
+                continue;
+              } else {
+                // Non-rate-limit error
+                if (attempt === maxStreamRetries) {
+                  throw error;
+                }
+                
+                // Exponential backoff for other errors
+                await new Promise(resolve => setTimeout(resolve, streamRetryDelay * attempt));
+                continue;
+              }
             }
-          });
+          }
           
           let inReflexion = false;
           let didSendReflexionEnd = false;
@@ -2180,9 +2321,9 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   ? `Your avatar is still generating (status: ${confirmedAvatarStatus}). Please wait a moment, then reply again: "Use this avatar".`
                   : 'I could not access the avatar image URL yet. Please wait for the avatar image to finish generating, then reply: "Use this avatar".';
             } else if (hasAvatarImageCall) {
-              cleanedResponse = 'Avatar created. Please confirm with "Use this avatar" to proceed with the storyboard.';
+              cleanedResponse = 'Perfect! Here\'s your avatar for the video. Please review it and confirm with "Use this avatar" so I can create your storyboard with consistent character appearance across all scenes.';
             } else {
-              cleanedResponse = 'Before I can build the storyboard, I need an approved avatar. Say "Use this avatar" after you confirm one.';
+              cleanedResponse = 'This video needs a person/actor. Before I can create the storyboard, I need to generate and get approval for your avatar. This ensures perfect consistency across all scenes. Let me create your avatar first!';
             }
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: cleanedResponse })}\n\n`));
           }

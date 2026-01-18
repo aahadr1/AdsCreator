@@ -2,6 +2,35 @@ import { NextRequest } from 'next/server';
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
+// Simple rate limiter class
+class RateLimiter {
+  private requests: number[] = [];
+  private readonly windowMs: number;
+  private readonly maxRequests: number;
+
+  constructor(maxRequests: number, windowMs: number) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
+
+  async acquire(): Promise<void> {
+    const now = Date.now();
+    this.requests = this.requests.filter(time => now - time < this.windowMs);
+    
+    if (this.requests.length >= this.maxRequests) {
+      const oldestRequest = Math.min(...this.requests);
+      const waitTime = this.windowMs - (now - oldestRequest) + 100;
+      console.log(`[RateLimiter] Waiting ${waitTime}ms to respect rate limits`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      return this.acquire();
+    }
+    
+    this.requests.push(now);
+  }
+}
+
+const replicateRateLimiter = new RateLimiter(5, 60 * 1000);
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -26,6 +55,9 @@ export async function POST(req: NextRequest) {
     const proxyKey = process.env.SYNC_API_KEY || process.env.SYNC_PROXY_API_KEY || undefined;
     const inputPayload = proxyKey ? { ...input, proxy_api_key: proxyKey } : input;
 
+    // Acquire rate limit slot before making request
+    await replicateRateLimiter.acquire();
+    
     // Create prediction using version id
     const res = await fetch(`${REPLICATE_API}/predictions`, {
       method: 'POST',
@@ -38,6 +70,13 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const text = await res.text();
+      
+      // Handle 429 rate limiting with retry
+      if (res.status === 429) {
+        console.error(`[Replicate] Rate limited:`, text);
+        // The client should handle retries for streaming endpoints
+      }
+      
       return new Response(text, { status: res.status });
     }
 
