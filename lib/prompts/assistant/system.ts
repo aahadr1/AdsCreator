@@ -907,8 +907,14 @@ export const SCENE_REFINEMENT_PROMPT = `You are a precision visual director spec
 
 Your task is to take a scene outline and create EXTREMELY DETAILED frame prompts that leave NOTHING to chance.
 
+UPGRADE REQUIREMENT (NON-NEGOTIABLE):
+- The frame prompts must read like a senior brand creative director + cinematographer + production designer wrote them.
+- Each frame must feel like a crafted shot (composition, lighting, texture, styling, imperfections), not "generic AI".
+- Avoid vague adjectives ("beautiful", "nice", "high quality") unless immediately backed by concrete visual details.
+
 **INPUT:** You will receive:
 - The overall video scenario context
+- A CREATIVE BRIEF / VISUAL STYLE GUIDE (brand look & feel, palette, motifs, camera language)
 - A specific scene outline to refine
 - Avatar description (if the scene uses an avatar)
 - Previous scene details (for continuity)
@@ -932,16 +938,28 @@ Your task is to take a scene outline and create EXTREMELY DETAILED frame prompts
 **RULES:**
 1. For avatar scenes: ALWAYS start prompts with "Same avatar character from reference: [full description]"
 2. For non-avatar scenes: ALWAYS state "NO PERSON" or "Product-only shot"
-3. Include EXACT camera angle, distance, lens feel
-4. Include EXACT lighting direction, quality, color temperature
-5. Include EXACT expressions with micro-details
-6. Include EXACT hand positions, body positioning
-7. Include EXACT background elements
-8. Include aspect ratio in every prompt
-9. Include style keywords (UGC authentic, cinematic, etc.)
-10. Video prompts = MOTION only, not static descriptions
-11. For product scenes: Reference "Same product from reference image" and describe the EXACT product appearance
-12. For smooth transitions: The first_frame should describe avatar in EXACT same position/pose as previous scene's last_frame
+3. Include EXACT camera language: lens/focal length feel, distance, angle, framing, depth of field, focus target
+4. Include EXACT lighting plan: key/fill/rim, direction, softness, color temperature, motivated source, shadow behavior
+5. Include EXACT art direction: set design, props, wardrobe, materials, textures, brand color accents, background story cues
+6. Include EXACT human realism: micro-expressions, imperfect hair strands, natural skin texture, believable hand placement
+7. Include EXACT composition: rule-of-thirds placement, leading lines, negative space for text (if needed), foreground/background separation
+8. Include aspect ratio in every prompt (e.g. "vertical 9:16")
+9. Include style constraints that fight AI-generic look:
+   - specify "authentic camera imperfections" (subtle grain, slight exposure roll-off, realistic motion blur cues)
+   - avoid "over-smooth plastic skin", "hyper-saturated neon", "perfect symmetry", "uncanny faces"
+10. Video prompts = MOTION only (describe action + pacing + camera motion), never restate the whole scene
+11. For product scenes: Reference "Same product from reference image" and describe the EXACT product appearance (packaging, label, finish, wear)
+12. For smooth transitions: The first_frame must match the previous last_frame pose/setting/lighting nearly exactly
+
+QUALITY BAR (MUST PASS):
+- If the prompt could fit ANY brand, it is not acceptable.
+- Inject brand-specific design language: palette, materials, typography vibe (even if no text), recurring motif, signature prop.
+- Every prompt must contain at least:
+  - camera/framing detail
+  - lighting detail
+  - set/prop/material detail
+  - a "human realism" detail
+  - a brand-specific detail
 
 **EXAMPLE OUTPUT:**
 {
@@ -966,6 +984,12 @@ export const SCENARIO_PLANNING_PROMPT = `You are a senior creative director and 
 Return STRICT JSON ONLY (no markdown, no commentary).
 
 Create a complete short-form ad scenario and break it into scenes.
+
+UPGRADE REQUIREMENT:
+- Think like the brand’s creative director + designer: define a distinct, ownable concept (not generic UGC).
+- The scenario must include a clear creative thesis, tension, payoff, and a signature "brand moment".
+- Scenes should be art-directable: each scene should have a specific setting + key prop + visual motif.
+- If a CREATIVE BRIEF is provided in the input, you MUST follow it.
 
 Output JSON schema:
 {
@@ -999,4 +1023,55 @@ Rules:
 - Mark use_prev_scene_transition=true when: (1) previous scene uses same avatar, (2) transition should be smooth/continuous, (3) avatar stays in similar position.
 - Set scenes_requiring_product to an array of scene_numbers that need the product image.
 - Set needs_product_image (top level) to true if ANY scene requires the product.
-- Keep the breakdown compact and clear.`;
+- Keep the breakdown compact and clear.
+
+ANTI-GENERIC CHECKLIST (must be true):
+- Each scene purpose is specific (not "introduce product"—state the emotional/job-to-be-done purpose).
+- The arc is not a template; it has a distinct angle or twist.
+- There is at least one "signature visual" moment that could be a thumbnail.
+`;
+
+/**
+ * Phase 0: Creative ideation prompt (pre-scenario).
+ * Produces a creative brief + visual style guide used by scenario planning and scene refinement.
+ */
+export const CREATIVE_IDEATION_PROMPT = `You are a senior brand creative director, production designer, and cinematographer.
+
+Return STRICT JSON ONLY. No markdown.
+
+Goal: produce an ownable, non-generic creative concept and a visual style guide that makes every frame feel designed.
+
+Output JSON schema:
+{
+  "brand_creative_thesis": string,
+  "concept_name": string,
+  "concept_logline": string,
+  "tone_words": string[],
+  "visual_style_guide": {
+    "palette": string[],
+    "materials_textures": string[],
+    "lighting_language": string,
+    "camera_language": string,
+    "recurring_motif": string,
+    "do_not_do": string[]
+  },
+  "signature_brand_moment": {
+    "what_happens": string,
+    "why_it_works": string,
+    "how_it_looks": string
+  },
+  "scene_design_notes": Array<{
+    "scene_number": number,
+    "set_design": string,
+    "key_prop": string,
+    "composition_notes": string,
+    "lighting_notes": string
+  }>
+}
+
+Rules:
+- No clichés. No generic UGC beats. No “cinematic, high quality” without specifics.
+- Make it art-directable: choose concrete sets, props, palette, lens vibe, lighting motivation.
+- Ensure compatibility with an AI avatar: avoid impossible multi-person crowd scenes unless explicitly requested.
+- Respect platform + aspect ratio (default 9:16).
+`;

@@ -4,7 +4,7 @@ export const maxDuration = 300;
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
-import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
+import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, CREATIVE_IDEATION_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline } from '../../../../types/assistant';
 
@@ -657,7 +657,27 @@ async function executeScriptCreation(input: ScriptCreationInput): Promise<{ succ
     
     const composedPrompt = parts.join(' ');
     
-    const scriptSystemPrompt = `You are a world-class direct-response copywriter specializing in high-converting ad scripts for short-form video ads. Create compelling, original scripts that drive action and engagement. Use strong hooks, benefits, sensory language, social proof, and bold CTAs. Format the script with clear timing markers like [0-3s] HOOK, [3-10s] BODY, etc.`;
+    const scriptSystemPrompt = `You are the brand’s lead creative director + senior copywriter for short-form ads.
+
+Goal: write a script that feels like a real brand campaign concept, not generic ad copy.
+
+Rules:
+- Start from a clear creative thesis (what is the fresh angle?).
+- Give the creator believable, human lines. Avoid AI-ish hype and generic superlatives.
+- Make the story art-directable: include specific on-screen actions, props, and setting cues in [BRACKETS].
+- Use cadence and subtext. Include micro-beats (pause, glance, gesture) where helpful.
+- Use the user’s tone/platform constraints. Keep it shootable.
+
+Output format (required):
+- [0-3s] HOOK: ...
+- [3-8s] PROBLEM: ...
+- [8-18s] MOMENT/DEMO: ...
+- [18-25s] PROOF/DETAIL: ...
+- [25-30s] CTA: ...
+
+Also include at the end:
+- VISUAL NOTES: 3-5 bullet points describing the signature look, palette, and props.
+`;
     
     let output = '';
     const stream = await replicate.stream('anthropic/claude-4-sonnet', {
@@ -1289,6 +1309,7 @@ async function executeStoryboardCreation(
     // Phase 1: scenario planning (or use provided outlines)
     let scenario: VideoScenario | undefined;
     let outlines: SceneOutline[] = [];
+    let creativeBrief: any | undefined;
 
     const inputLooksDetailed = input.scenes.every((s: any) => typeof s?.first_frame_prompt === 'string' && typeof s?.last_frame_prompt === 'string');
 
@@ -1304,7 +1325,35 @@ async function executeStoryboardCreation(
         scene_breakdown: outlines,
       };
     } else {
+      // Phase 0: creative ideation (brand designer / CD brief)
+      const ideationParts: string[] = [];
+      ideationParts.push(`TITLE: ${input.title}`);
+      if (input.brand_name) ideationParts.push(`BRAND: ${input.brand_name}`);
+      if (input.product) ideationParts.push(`PRODUCT: ${input.product}`);
+      if (input.product_description) ideationParts.push(`PRODUCT_DESCRIPTION: ${input.product_description}`);
+      if (input.target_audience) ideationParts.push(`TARGET_AUDIENCE: ${input.target_audience}`);
+      if (input.platform) ideationParts.push(`PLATFORM: ${input.platform}`);
+      if (input.total_duration_seconds) ideationParts.push(`TOTAL_DURATION_SECONDS: ${input.total_duration_seconds}`);
+      if (input.style) ideationParts.push(`STYLE_HINT: ${input.style}`);
+      ideationParts.push(`ASPECT_RATIO: ${input.aspect_ratio || DEFAULT_IMAGE_ASPECT_RATIO}`);
+      if (Array.isArray(input.key_benefits) && input.key_benefits.length) ideationParts.push(`KEY_BENEFITS: ${input.key_benefits.join('; ')}`);
+      if (Array.isArray(input.pain_points) && input.pain_points.length) ideationParts.push(`PAIN_POINTS: ${input.pain_points.join('; ')}`);
+      if (input.call_to_action) ideationParts.push(`CTA: ${input.call_to_action}`);
+      if (input.creative_direction) ideationParts.push(`CREATIVE_DIRECTION: ${input.creative_direction}`);
+      if (avatarDescription) ideationParts.push(`AVATAR_DESCRIPTION: ${avatarDescription}`);
+      if (productDescription) ideationParts.push(`PRODUCT_VISUAL_DESCRIPTION: ${productDescription}`);
+      ideationParts.push('Create an ownable concept + visual style guide + per-scene design notes.');
+
+      creativeBrief = await callClaudeJson<any>({
+        prompt: ideationParts.join('\n'),
+        system_prompt: CREATIVE_IDEATION_PROMPT,
+        max_tokens: 1400,
+      });
+
       const scenarioPromptParts: string[] = [];
+      scenarioPromptParts.push(`CREATIVE_BRIEF:`);
+      scenarioPromptParts.push(JSON.stringify(creativeBrief || {}, null, 2));
+      scenarioPromptParts.push('');
       scenarioPromptParts.push(`Title: ${input.title}`);
       if (input.brand_name) scenarioPromptParts.push(`Brand: ${input.brand_name}`);
       if (input.product) scenarioPromptParts.push(`Product: ${input.product}`);
@@ -1399,6 +1448,9 @@ async function executeStoryboardCreation(
 
       // Phase 2: refine scene in an individual LLM call
       const refinementPrompt = [
+        `CREATIVE_BRIEF:`,
+        JSON.stringify(creativeBrief || {}, null, 2),
+        ``,
         `SCENARIO:`,
         JSON.stringify(scenario || {}, null, 2),
         ``,
