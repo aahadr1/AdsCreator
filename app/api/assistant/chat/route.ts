@@ -314,11 +314,25 @@ async function resolveReplicateOutputUrl(predictionId: string): Promise<{ status
   try {
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return { status: null, outputUrl: null, error: 'missing REPLICATE_API_TOKEN' };
+    
+    // Create AbortController for timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
     const res = await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}`, {
       headers: { Authorization: `Token ${token}` },
       cache: 'no-store',
+      signal: controller.signal,
     });
-    if (!res.ok) return { status: null, outputUrl: null, error: await res.text() };
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[resolveReplicateOutputUrl] HTTP ${res.status} for ${predictionId}:`, errorText);
+      return { status: null, outputUrl: null, error: errorText };
+    }
+    
     const json: any = await res.json();
     let outputUrl: string | null = null;
     const out = json.output;
@@ -327,7 +341,11 @@ async function resolveReplicateOutputUrl(predictionId: string): Promise<{ status
     else if (out && typeof out === 'object' && typeof out.url === 'string') outputUrl = out.url;
     return { status: String(json.status || ''), outputUrl, error: json.error || json.logs || null };
   } catch (e: any) {
-    return { status: null, outputUrl: null, error: e?.message || 'resolveReplicateOutputUrl failed' };
+    const errorMessage = e.name === 'AbortError' 
+      ? 'Request timed out after 15 seconds'
+      : `Network error: ${e.message}`;
+    console.error(`[resolveReplicateOutputUrl] ${errorMessage} for ${predictionId}`);
+    return { status: null, outputUrl: null, error: errorMessage };
   }
 }
 
@@ -730,22 +748,46 @@ async function getModelVersionId(token: string, model: string): Promise<string |
     return cached.versionId;
   }
 
-  const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
-    headers: { Authorization: `Token ${token}` },
-    cache: 'no-store',
-  });
-  
-  if (!modelRes.ok) {
-    console.error('[Storyboard] Failed to fetch model:', await modelRes.text());
+  try {
+    console.log(`[Storyboard] Fetching model version for:`, model);
+    
+    // Create AbortController for timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
+    const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
+      headers: { Authorization: `Token ${token}` },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!modelRes.ok) {
+      const errorText = await modelRes.text();
+      console.error(`[Storyboard] Failed to fetch model ${model} (${modelRes.status}):`, errorText);
+      return null;
+    }
+    
+    const modelJson = await modelRes.json();
+    const versionId = modelJson?.latest_version?.id;
+    
+    if (versionId) {
+      cachedModelVersions.set(model, { versionId, at: now });
+      console.log(`[Storyboard] Cached version ID for ${model}:`, versionId);
+    } else {
+      console.error(`[Storyboard] No latest version found for model ${model}`);
+    }
+    
+    return versionId || null;
+    
+  } catch (error: any) {
+    const errorMessage = error.name === 'AbortError' 
+      ? 'Model fetch timed out after 15 seconds'
+      : `Model fetch error: ${error.message}`;
+    console.error(`[Storyboard] ${errorMessage} for model ${model}`);
     return null;
   }
-  
-  const modelJson = await modelRes.json();
-  const versionId = modelJson?.latest_version?.id;
-  
-  if (versionId) cachedModelVersions.set(model, { versionId, at: now });
-  
-  return versionId || null;
 }
 
 async function createReplicatePrediction({
@@ -805,17 +847,69 @@ async function generateSingleImage(
     async function createPrediction(model: string, input: Record<string, unknown>) {
       const versionId = await getModelVersionId(tokenStr, model);
       if (!versionId) return { ok: false as const, status: 0, text: `No latest version found for ${model}` };
-      const res = await fetch(`${REPLICATE_API}/predictions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Token ${tokenStr}`,
-        },
-        body: JSON.stringify({ version: versionId, input }),
-      });
-      if (!res.ok) return { ok: false as const, status: res.status, text: await res.text() };
-      const json = await res.json();
-      return { ok: true as const, json };
+      
+      // Retry logic for network resilience
+      const maxRetries = 3;
+      const retryDelay = 1000; // 1 second
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`[Storyboard] Creating prediction (attempt ${attempt}/${maxRetries}):`, model);
+          
+          // Create AbortController for timeout handling
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+          
+          const res = await fetch(`${REPLICATE_API}/predictions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Token ${tokenStr}`,
+            },
+            body: JSON.stringify({ version: versionId, input }),
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.error(`[Storyboard] HTTP ${res.status} on attempt ${attempt}:`, errorText);
+            
+            // Don't retry on client errors (4xx), only server errors (5xx) and network issues
+            if (res.status >= 400 && res.status < 500) {
+              return { ok: false as const, status: res.status, text: errorText };
+            }
+            
+            if (attempt === maxRetries) {
+              return { ok: false as const, status: res.status, text: errorText };
+            }
+            
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+            continue;
+          }
+          
+          const json = await res.json();
+          console.log(`[Storyboard] Prediction created successfully:`, json.id);
+          return { ok: true as const, json };
+          
+        } catch (error: any) {
+          console.error(`[Storyboard] Network error on attempt ${attempt}:`, error.message);
+          
+          if (attempt === maxRetries) {
+            const errorMessage = error.name === 'AbortError' 
+              ? 'Request timed out after 30 seconds'
+              : `Network error: ${error.message}`;
+            return { ok: false as const, status: 0, text: errorMessage };
+          }
+          
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+        }
+      }
+      
+      return { ok: false as const, status: 0, text: 'Max retries exceeded' };
     }
     
     // Build the enhanced prompt
@@ -932,22 +1026,41 @@ async function waitForPredictionComplete(
     return { status: 'failed', outputUrl: null, error: 'missing REPLICATE_API_TOKEN' };
   }
   
+  let consecutiveErrors = 0;
+  const maxConsecutiveErrors = 5;
+  
   while (Date.now() - startTime < maxWaitMs) {
     try {
+      // Create AbortController for timeout handling on each poll
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout per poll
+      
       const res = await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}`, {
         headers: { Authorization: `Token ${token}` },
         cache: 'no-store',
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
+      consecutiveErrors = 0; // Reset error counter on successful request
       
       if (!res.ok) {
         const errorText = await res.text();
-        console.error(`[waitForPrediction] HTTP error for ${predictionId}:`, errorText);
+        console.error(`[waitForPrediction] HTTP ${res.status} for ${predictionId}:`, errorText);
+        
+        // For 4xx errors, don't keep retrying
+        if (res.status >= 400 && res.status < 500) {
+          return { status: 'failed', outputUrl: null, error: `HTTP ${res.status}: ${errorText}` };
+        }
+        
         await delay(pollIntervalMs);
         continue;
       }
       
       const json: any = await res.json();
       const status = String(json.status || '');
+      
+      console.log(`[waitForPrediction] ${predictionId} status: ${status}`);
       
       if (status === 'succeeded') {
         let outputUrl: string | null = null;
@@ -968,9 +1081,26 @@ async function waitForPredictionComplete(
       
       // Still processing, wait and poll again
       await delay(pollIntervalMs);
+      
     } catch (e: any) {
-      console.error(`[waitForPrediction] Error polling ${predictionId}:`, e.message);
-      await delay(pollIntervalMs);
+      consecutiveErrors++;
+      const errorMessage = e.name === 'AbortError' 
+        ? 'Poll request timed out' 
+        : `Network error: ${e.message}`;
+      
+      console.error(`[waitForPrediction] ${errorMessage} for ${predictionId} (error ${consecutiveErrors}/${maxConsecutiveErrors})`);
+      
+      // If we've had too many consecutive errors, give up
+      if (consecutiveErrors >= maxConsecutiveErrors) {
+        return { 
+          status: 'failed', 
+          outputUrl: null, 
+          error: `Too many consecutive polling errors: ${errorMessage}` 
+        };
+      }
+      
+      // Exponential backoff for retries
+      await delay(pollIntervalMs * Math.pow(2, Math.min(consecutiveErrors, 4)));
     }
   }
   
