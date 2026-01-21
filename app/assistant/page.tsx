@@ -100,50 +100,53 @@ export default function AssistantPage() {
     loadConversations();
   }, [authToken]);
 
-  // Intelligent scroll behavior - only auto-scroll if user is near bottom
+  // Non-intrusive scroll behavior - NEVER force scroll, only follow if user wants
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [isUserScrolling, setIsUserScrolling] = useState(false);
-  const lastScrollTopRef = useRef(0);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const userScrolledAwayRef = useRef(false);
 
-  // Check if user is near bottom of scroll
-  const isNearBottom = useCallback(() => {
+  // Check if user is at bottom
+  const isAtBottom = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return true;
-    const threshold = 150; // pixels from bottom
+    const threshold = 50; // pixels from bottom
     const position = container.scrollHeight - container.scrollTop - container.clientHeight;
     return position < threshold;
   }, []);
 
-  // Smooth scroll to bottom only if user hasn't scrolled up
-  const scrollToBottom = useCallback((force = false) => {
-    if (force || (!isUserScrolling && isNearBottom())) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-  }, [isUserScrolling, isNearBottom]);
+  // Scroll to bottom smoothly (only called when user explicitly wants it)
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    setShouldAutoScroll(true);
+    setShowScrollButton(false);
+    userScrolledAwayRef.current = false;
+  }, []);
 
-  // Track user scrolling
+  // Track scroll position and show/hide scroll button
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
     let scrollTimeout: NodeJS.Timeout;
     const handleScroll = () => {
-      const currentScrollTop = container.scrollTop;
-      const isScrollingUp = currentScrollTop < lastScrollTopRef.current;
-      lastScrollTopRef.current = currentScrollTop;
-
-      // If user scrolls up, disable auto-scroll
-      if (isScrollingUp) {
-        setIsUserScrolling(true);
-      }
-
-      // Reset after user stops scrolling and is near bottom
       clearTimeout(scrollTimeout);
+      
       scrollTimeout = setTimeout(() => {
-        if (isNearBottom()) {
-          setIsUserScrolling(false);
+        const atBottom = isAtBottom();
+        
+        if (!atBottom && !userScrolledAwayRef.current) {
+          // User scrolled away from bottom
+          userScrolledAwayRef.current = true;
+          setShouldAutoScroll(false);
+          setShowScrollButton(true);
+        } else if (atBottom) {
+          // User scrolled back to bottom
+          userScrolledAwayRef.current = false;
+          setShouldAutoScroll(true);
+          setShowScrollButton(false);
         }
-      }, 1000);
+      }, 100);
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
@@ -151,19 +154,17 @@ export default function AssistantPage() {
       container.removeEventListener('scroll', handleScroll);
       clearTimeout(scrollTimeout);
     };
-  }, [isNearBottom]);
+  }, [isAtBottom]);
 
-  // Scroll on new messages or streaming content
+  // ONLY auto-scroll when shouldAutoScroll is true (user is at bottom)
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
-
-  // Scroll during streaming, but throttled
-  useEffect(() => {
-    if (currentReflexion || currentResponse) {
-      scrollToBottom();
+    if (shouldAutoScroll && !userScrolledAwayRef.current) {
+      // Use requestAnimationFrame for smoother scrolling
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      });
     }
-  }, [currentReflexion, currentResponse, scrollToBottom]);
+  }, [messages, currentReflexion, currentResponse, shouldAutoScroll]);
 
   // Auto-resize textarea
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1491,6 +1492,19 @@ export default function AssistantPage() {
 
         <div className={styles.scroll} ref={scrollContainerRef}>
           <div className={styles.content}>
+            {/* Scroll to bottom button - appears when user scrolls up */}
+            {showScrollButton && (
+              <button
+                className={styles.scrollToBottomBtn}
+                onClick={scrollToBottom}
+                type="button"
+                title="Scroll to bottom"
+              >
+                <ChevronRight size={16} style={{ transform: 'rotate(90deg)' }} />
+                <span>New messages</span>
+              </button>
+            )}
+            
             {messages.length === 0 && !isLoading ? (
               <div className={styles.welcome}>
                 <h2 className={styles.welcomeTitle}>What are we making today?</h2>
