@@ -12,6 +12,7 @@ function detectTypeFromMime(mime: string): 'image' | 'video' {
 
 export async function POST(req: NextRequest) {
   try {
+    const origin = new URL(req.url).origin;
     const r2AccountId = process.env.R2_ACCOUNT_ID || '';
     const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
     const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
@@ -33,10 +34,11 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const contentType = (file as any).type || 'application/octet-stream';
     await r2PutObject({ client: r2, bucket, key: path, body: new Uint8Array(arrayBuffer), contentType, cacheControl: '3600' });
+    const proxyUrl = `${origin.replace(/\/$/, '')}/api/r2/get?key=${encodeURIComponent(path)}`;
     const publicUrl = r2PublicUrl({ publicBaseUrl, bucket, key: path }) || '';
     const type = detectTypeFromMime(contentType);
 
-    return Response.json({ ok: true, url: publicUrl, path, type, mime: contentType });
+    return Response.json({ ok: true, url: proxyUrl, proxyUrl, publicUrl, path, type, mime: contentType });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Internal error';
     return new Response(`Error: ${message}`, { status: 500 });

@@ -43,10 +43,8 @@ async function persistToR2FromUrl(params: { url: string; keyPrefix: string; orig
   await ensureR2Bucket(r2, bucket);
   await r2PutObject({ client: r2, bucket, key, body: new Uint8Array(arrayBuffer), contentType, cacheControl: '31536000' });
 
-  // Prefer public URL if configured; otherwise use our stable app proxy endpoint.
-  const publicUrl = r2PublicUrl({ publicBaseUrl, bucket, key });
-  if (publicUrl) return publicUrl;
-
+  // Prefer our stable app proxy endpoint for reliability.
+  // (R2 public buckets can be misconfigured/private and return 404 even when upload succeeded.)
   const base = params.origin.replace(/\/$/, '');
   return `${base}/api/r2/get?key=${encodeURIComponent(key)}`;
 }
