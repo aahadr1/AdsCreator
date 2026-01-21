@@ -12,10 +12,8 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
-const ASSISTANT_IMAGE_MODEL = 'google/nano-banana-pro';
-const ASSISTANT_IMAGE_FALLBACK_MODEL = 'bytedance/seedream-4';
-const ASSISTANT_IMAGE_QUEUE_TIMEOUT_MS = 30_000;
-const ASSISTANT_IMAGE_QUEUE_POLL_MS = 1_500;
+// Seedream-4 is the ONLY assistant image model (Nano Banana removed)
+const ASSISTANT_IMAGE_MODEL = 'bytedance/seedream-4';
 const DEFAULT_IMAGE_ASPECT_RATIO = '9:16';
 
 function getSupabase() {
@@ -321,8 +319,14 @@ function extractImageUrlFromToolResult(message: Message): string | null {
   return typeof direct === 'string' && direct.startsWith('http') ? direct : null;
 }
 
-async function resolveReplicateOutputUrl(predictionId: string): Promise<{ status: string | null; outputUrl: string | null; error: string | null }> {
+async function resolveReplicateOutputUrl(params: {
+  predictionId: string;
+  conversationId?: string;
+  origin?: string;
+  type?: 'avatar' | 'product' | 'frame';
+}): Promise<{ status: string | null; outputUrl: string | null; error: string | null }> {
   try {
+    const { predictionId, conversationId, origin, type = 'frame' } = params;
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return { status: null, outputUrl: null, error: 'missing REPLICATE_API_TOKEN' };
     
@@ -350,17 +354,27 @@ async function resolveReplicateOutputUrl(predictionId: string): Promise<{ status
     if (typeof out === 'string') outputUrl = out;
     else if (Array.isArray(out)) outputUrl = typeof out[0] === 'string' ? out[0] : null;
     else if (out && typeof out === 'object' && typeof out.url === 'string') outputUrl = out.url;
+
+    // If we have a successful output and caching context, immediately store it in R2 so we never rely on replicate.delivery URLs.
+    if (String(json.status || '').toLowerCase() === 'succeeded' && outputUrl && conversationId && origin) {
+      const cached = await maybeCacheImageToR2({ sourceUrl: outputUrl, conversationId, origin, type });
+      outputUrl = cached.url || outputUrl;
+    }
+
     return { status: String(json.status || ''), outputUrl, error: json.error || json.logs || null };
   } catch (e: any) {
     const errorMessage = e.name === 'AbortError' 
       ? 'Request timed out after 15 seconds'
       : `Network error: ${e.message}`;
-    console.error(`[resolveReplicateOutputUrl] ${errorMessage} for ${predictionId}`);
+    console.error(`[resolveReplicateOutputUrl] ${errorMessage} for ${params.predictionId}`);
     return { status: null, outputUrl: null, error: errorMessage };
   }
 }
 
-async function getLastAvatarFromConversation(messages: Message[]): Promise<{ url?: string; predictionId?: string; status?: string; description?: string } | null> {
+async function getLastAvatarFromConversation(
+  messages: Message[],
+  ctx?: { conversationId?: string; origin?: string }
+): Promise<{ url?: string; predictionId?: string; status?: string; description?: string } | null> {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'tool_result' || msg.tool_name !== 'image_generation') continue;
@@ -399,7 +413,12 @@ async function getLastAvatarFromConversation(messages: Message[]): Promise<{ url
       }
       
       if (predictionId) {
-        const resolved = await resolveReplicateOutputUrl(predictionId);
+        const resolved = await resolveReplicateOutputUrl({
+          predictionId,
+          conversationId: ctx?.conversationId,
+          origin: ctx?.origin,
+          type: 'avatar',
+        });
         if (resolved.outputUrl) {
           return { url: resolved.outputUrl, predictionId, status: resolved.status || undefined, description: avatarDescription || undefined };
         }
@@ -437,7 +456,10 @@ function isProductImageConfirmation(text: string): boolean {
 /**
  * Get the last product image from the conversation (similar to avatar tracking)
  */
-async function getLastProductFromConversation(messages: Message[]): Promise<{ url?: string; predictionId?: string; status?: string; description?: string } | null> {
+async function getLastProductFromConversation(
+  messages: Message[],
+  ctx?: { conversationId?: string; origin?: string }
+): Promise<{ url?: string; predictionId?: string; status?: string; description?: string } | null> {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'tool_result' || msg.tool_name !== 'image_generation') continue;
@@ -473,7 +495,12 @@ async function getLastProductFromConversation(messages: Message[]): Promise<{ ur
       }
       
       if (predictionId) {
-        const resolved = await resolveReplicateOutputUrl(predictionId);
+        const resolved = await resolveReplicateOutputUrl({
+          predictionId,
+          conversationId: ctx?.conversationId,
+          origin: ctx?.origin,
+          type: 'product',
+        });
         if (resolved.outputUrl) {
           return { url: resolved.outputUrl, predictionId, status: resolved.status || undefined, description: productDescription || undefined };
         }
@@ -710,148 +737,29 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       return { success: false, error: 'Server misconfigured: missing REPLICATE_API_TOKEN' };
     }
     
-    // Use nano-banana-pro for all assistant image generations (with automatic fallback if it stays queued/starting)
+    // Seedream-4 only (Nano Banana removed)
     const model = ASSISTANT_IMAGE_MODEL;
-    
-    // Force avatar outputs to JPG to maximize compatibility with later img2img steps
-    const forcedOutputFormat =
-      input.purpose === 'avatar' ? 'jpg' : (input.output_format || 'jpg');
 
-    const predictionInput: Record<string, unknown> = {
+    const seedreamInput: Record<string, unknown> = {
       prompt: input.prompt,
-      output_format: forcedOutputFormat,
+      // Default aspect ratio to 9:16 (vertical) unless user/LLM specified it.
+      aspect_ratio: input.aspect_ratio || DEFAULT_IMAGE_ASPECT_RATIO,
+      sequential_image_generation: 'disabled',
+      max_images: 1,
+      enhance_prompt: false,
+      size: '1K',
     };
 
-    // Default aspect ratio to 9:16 (vertical) unless user/LLM specified it.
-    predictionInput.aspect_ratio = input.aspect_ratio || DEFAULT_IMAGE_ASPECT_RATIO;
-    
-    if (input.image_input && input.image_input.length > 0) {
-      predictionInput.image_input = input.image_input;
+    if (Array.isArray(input.image_input) && input.image_input.length > 0) {
+      seedreamInput.image_input = input.image_input;
     }
-    
-    const { id, status } = await createImagePredictionWithQueueFallback({
-      token: String(token),
-      primaryModel: model,
-      primaryInput: predictionInput,
-      purpose: input.purpose,
-    });
 
-    return { success: true, output: { id, status } };
+    const out = await createReplicatePrediction({ token: String(token), model, input: seedreamInput });
+    return { success: true, output: { id: out.id, status: out.status } };
   } catch (e: any) {
     console.error('Image generation error:', e);
     return { success: false, error: e.message };
   }
-}
-
-function seedreamInputFromNanoBananaInput(input: Record<string, unknown>): Record<string, unknown> {
-  const prompt = typeof input.prompt === 'string' ? input.prompt : '';
-  const image_input = Array.isArray((input as any).image_input) ? (input as any).image_input : undefined;
-  const aspect_ratio = typeof (input as any).aspect_ratio === 'string' ? (input as any).aspect_ratio : undefined;
-
-  // Best-effort size mapping; Seedream supports 1K/2K/4K or custom.
-  // Nano-banana-pro sometimes uses `resolution` strings; if unknown, omit size to let the model decide.
-  const resolutionRaw = typeof (input as any).resolution === 'string' ? String((input as any).resolution) : '';
-  const res = resolutionRaw.toLowerCase();
-  let size: '1K' | '2K' | '4K' | undefined;
-  if (res.includes('4k') || res.includes('4096')) size = '4K';
-  else if (res.includes('2k') || res.includes('2048')) size = '2K';
-  else if (res.includes('1k') || res.includes('1024')) size = '1K';
-
-  const out: Record<string, unknown> = { prompt };
-  if (Array.isArray(image_input) && image_input.length > 0) out.image_input = image_input;
-  if (aspect_ratio) out.aspect_ratio = aspect_ratio;
-  if (size) out.size = size;
-  return out;
-}
-
-function predictionLooksLikeProcessing(prediction: any): boolean {
-  const status = String(prediction?.status || '').toLowerCase();
-  if (status === 'processing' || status === 'succeeded' || status === 'failed' || status === 'canceled') return true;
-  // Sometimes logs show progress before status flips; use a conservative heuristic.
-  const logs = typeof prediction?.logs === 'string' ? prediction.logs : '';
-  return /running prediction|processing|download|loading model|step\s*\d+|sampler|cuda/i.test(logs);
-}
-
-async function cancelReplicatePrediction(token: string, predictionId: string): Promise<void> {
-  try {
-    await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}/cancel`, {
-      method: 'POST',
-      headers: { Authorization: `Token ${token}` },
-      cache: 'no-store',
-    });
-  } catch (e) {
-    // Best-effort; cancellation failures shouldn't block fallback.
-    console.warn('[Image] Failed to cancel prediction:', predictionId, e);
-  }
-}
-
-async function waitForPredictionToStartProcessing(params: {
-  token: string;
-  predictionId: string;
-  timeoutMs: number;
-  pollMs: number;
-}): Promise<{ started: boolean; lastStatus: string }> {
-  const { token, predictionId, timeoutMs, pollMs } = params;
-  const start = Date.now();
-  let lastStatus = 'starting';
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}`, {
-        headers: { Authorization: `Token ${token}` },
-        cache: 'no-store',
-      });
-      if (res.ok) {
-        const json: any = await res.json();
-        lastStatus = String(json?.status || lastStatus);
-        if (predictionLooksLikeProcessing(json)) return { started: true, lastStatus };
-      }
-    } catch (e) {
-      // Ignore transient polling errors and keep trying until timeout.
-    }
-    await delay(pollMs);
-  }
-
-  return { started: false, lastStatus };
-}
-
-async function createImagePredictionWithQueueFallback(params: {
-  token: string;
-  primaryModel: string;
-  primaryInput: Record<string, unknown>;
-  purpose?: string;
-}): Promise<{ id: string; status: string }> {
-  const { token, primaryModel, primaryInput, purpose } = params;
-
-  // Create primary prediction (nano-banana-pro)
-  const primary = await createReplicatePrediction({ token, model: primaryModel, input: primaryInput });
-
-  // If it quickly transitions into processing, keep it. Otherwise cancel + fallback.
-  const startedCheck = await waitForPredictionToStartProcessing({
-    token,
-    predictionId: primary.id,
-    timeoutMs: ASSISTANT_IMAGE_QUEUE_TIMEOUT_MS,
-    pollMs: ASSISTANT_IMAGE_QUEUE_POLL_MS,
-  });
-
-  if (startedCheck.started) {
-    return { id: primary.id, status: startedCheck.lastStatus || primary.status };
-  }
-
-  console.warn('[Image] Primary model stayed queued/starting past timeout; falling back', {
-    primaryModel,
-    fallbackModel: ASSISTANT_IMAGE_FALLBACK_MODEL,
-    predictionId: primary.id,
-    lastStatus: startedCheck.lastStatus,
-    purpose,
-  });
-
-  await cancelReplicatePrediction(token, primary.id);
-
-  // Seedream fallback (supports both t2i and img2img via image_input)
-  const fallbackInput = seedreamInputFromNanoBananaInput(primaryInput);
-  const fallback = await createReplicatePrediction({ token, model: ASSISTANT_IMAGE_FALLBACK_MODEL, input: fallbackInput });
-  return { id: fallback.id, status: fallback.status };
 }
 
 // Cache for model version IDs to avoid repeated API calls
@@ -1111,11 +1019,7 @@ async function generateSingleImage(
       enhancedPrompt = `${enhancedPrompt}, ${ar} aspect ratio`;
     }
     
-    const baseInput: Record<string, unknown> = {
-      prompt: enhancedPrompt,
-      output_format: 'jpg',
-      aspect_ratio: ar,
-    };
+    // Seedream input is built later; keep base vars for prompt construction only.
     
     // Collect all reference image URLs
     // Priority: prevSceneLastFrameUrl > firstFrameUrl > avatarUrl (for the primary reference)
@@ -1171,9 +1075,16 @@ async function generateSingleImage(
       finalPrompt = enhancedPrompt;
     }
 
-    // Use nano-banana-pro for BOTH text-to-image and image-to-image
+    // Seedream-4 only (Nano Banana removed)
     const model = ASSISTANT_IMAGE_MODEL;
-    const input: Record<string, unknown> = { ...baseInput, prompt: finalPrompt };
+    const input: Record<string, unknown> = {
+      prompt: finalPrompt,
+      aspect_ratio: ar,
+      sequential_image_generation: 'disabled',
+      max_images: 1,
+      enhance_prompt: false,
+      size: '1K',
+    };
     
     if (hasAnyRef) {
       input.image_input = referenceUrls;
@@ -1188,38 +1099,7 @@ async function generateSingleImage(
       });
     
     const res = await createPrediction(model, input);
-    if (res.ok) {
-      const predictionId = String(res.json.id);
-      const startedCheck = await waitForPredictionToStartProcessing({
-        token: tokenStr,
-        predictionId,
-        timeoutMs: ASSISTANT_IMAGE_QUEUE_TIMEOUT_MS,
-        pollMs: ASSISTANT_IMAGE_QUEUE_POLL_MS,
-      });
-
-      if (startedCheck.started) {
-        return { id: predictionId, status: startedCheck.lastStatus || String(res.json.status) };
-      }
-
-      console.warn('[Storyboard] Primary model stayed queued/starting past timeout; falling back', {
-        primaryModel: model,
-        fallbackModel: ASSISTANT_IMAGE_FALLBACK_MODEL,
-        predictionId,
-        lastStatus: startedCheck.lastStatus,
-      });
-
-      await cancelReplicatePrediction(tokenStr, predictionId);
-
-      const fallbackInput = seedreamInputFromNanoBananaInput(input);
-      const fallbackRes = await createPrediction(ASSISTANT_IMAGE_FALLBACK_MODEL, fallbackInput);
-      if (fallbackRes.ok) return { id: String(fallbackRes.json.id), status: String(fallbackRes.json.status) };
-
-      return {
-        id: '',
-        status: 'failed',
-        error: String((fallbackRes as any).text || '') || 'Fallback prediction failed',
-      };
-    }
+    if (res.ok) return { id: String(res.json.id), status: String(res.json.status) };
     return { id: '', status: 'failed', error: String((res as any).text || '') || 'Prediction failed' };
   } catch (e: any) {
     console.error('[Storyboard] generateSingleImage error:', e.message || e);
@@ -1927,7 +1807,7 @@ export async function POST(req: NextRequest) {
     existingMessages.push(userMessage);
     
   // Check if user is confirming avatar usage
-  const avatarCandidate = await getLastAvatarFromConversation(existingMessages);
+  const avatarCandidate = await getLastAvatarFromConversation(existingMessages, { conversationId: String(conversationId || ''), origin });
   const userConfirmedAvatar = isAvatarConfirmation(body.message);
   const confirmedAvatarUrl = userConfirmedAvatar && avatarCandidate?.url && isHttpUrl(avatarCandidate.url) ? avatarCandidate.url : undefined;
   const confirmedAvatarDescription = userConfirmedAvatar ? avatarCandidate?.description : undefined;
@@ -1935,7 +1815,7 @@ export async function POST(req: NextRequest) {
   const confirmedAvatarStatus = userConfirmedAvatar ? avatarCandidate?.status : undefined;
 
   // Check if user is confirming product image usage
-  const productCandidate = await getLastProductFromConversation(existingMessages);
+  const productCandidate = await getLastProductFromConversation(existingMessages, { conversationId: String(conversationId || ''), origin });
   const userConfirmedProduct = isProductImageConfirmation(body.message);
   const confirmedProductUrl = userConfirmedProduct && productCandidate?.url && isHttpUrl(productCandidate.url) ? productCandidate.url : undefined;
   const confirmedProductDescription = userConfirmedProduct ? productCandidate?.description : undefined;
@@ -2033,14 +1913,16 @@ CRITICAL INSTRUCTIONS FOR STORYBOARD GENERATION:
 `;
     } else {
       // Check if there's an unconfirmed avatar in the conversation
-      const avatarInConversation = extractAvatarContextFromMessages(existingMessages);
-      if (avatarInConversation?.url) {
+      // Prefer server-resolved/cached avatarCandidate (may include R2 URL even if client hasn't polled yet)
+      const avatarUrlCandidate = avatarCandidate?.url || extractAvatarContextFromMessages(existingMessages)?.url;
+      const avatarDescCandidate = avatarCandidate?.description || extractAvatarContextFromMessages(existingMessages)?.description;
+      if (avatarUrlCandidate) {
         contextBlock += `
 ═══════════════════════════════════════════════════════════════════════════
 📷 AVATAR IMAGE GENERATED (awaiting confirmation)
 ═══════════════════════════════════════════════════════════════════════════
-Avatar Image URL: ${avatarInConversation.url}
-${avatarInConversation.description ? `Avatar Description: ${avatarInConversation.description}` : ''}
+Avatar Image URL: ${avatarUrlCandidate}
+${avatarDescCandidate ? `Avatar Description: ${avatarDescCandidate}` : ''}
 
 NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this avatar" before proceeding with storyboard creation.
 ═══════════════════════════════════════════════════════════════════════════

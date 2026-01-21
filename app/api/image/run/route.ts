@@ -68,14 +68,15 @@ export async function POST(req: NextRequest) {
 
     const allowedModels = new Set([
       'black-forest-labs/flux-kontext-max',
-      'google/nano-banana',
-      'google/nano-banana-pro',
       'black-forest-labs/flux-krea-dev',
       'openai/gpt-image-1.5',
+      'bytedance/seedream-4',
+      'bytedance/seedream-4.5',
+      'bytedance/seededit-3.0',
     ]);
     const model = allowedModels.has(String(body.model || ''))
       ? String(body.model)
-      : 'black-forest-labs/flux-kontext-max';
+      : 'bytedance/seedream-4';
 
     let input: Record<string, any> = { prompt: body.prompt };
     if (model === 'black-forest-labs/flux-kontext-max') {
@@ -88,30 +89,18 @@ export async function POST(req: NextRequest) {
       if (typeof body.seed === 'number') input.seed = body.seed;
       if (typeof body.prompt_upsampling === 'boolean') input.prompt_upsampling = body.prompt_upsampling;
       if (typeof body.safety_tolerance === 'number') input.safety_tolerance = body.safety_tolerance;
-    } else if (model === 'google/nano-banana') {
+    } else if (model === 'bytedance/seedream-4' || model === 'bytedance/seedream-4.5' || model === 'bytedance/seededit-3.0') {
       input = {
         prompt: body.prompt,
-        output_format: body.output_format || 'jpg',
+        // Seedream supports 1K/2K/4K; default to fast 1K unless overridden.
+        size: typeof (body as any).size === 'string' ? (body as any).size : '1K',
+        aspect_ratio: typeof (body as any).aspect_ratio === 'string' ? (body as any).aspect_ratio : '9:16',
+        sequential_image_generation: 'disabled',
+        max_images: 1,
+        enhance_prompt: Boolean((body as any).enhance_prompt) || false,
       };
       if (Array.isArray(body.image_input) && body.image_input.length > 0) {
         input.image_input = body.image_input;
-      }
-    } else if (model === 'google/nano-banana-pro') {
-      input = {
-        prompt: body.prompt,
-        output_format: body.output_format || 'png',
-      };
-      if (Array.isArray(body.image_input) && body.image_input.length > 0) {
-        input.image_input = body.image_input;
-      }
-      if (typeof (body as any).aspect_ratio === 'string') {
-        input.aspect_ratio = (body as any).aspect_ratio;
-      }
-      if (typeof (body as any).resolution === 'string') {
-        input.resolution = (body as any).resolution;
-      }
-      if (typeof (body as any).safety_filter_level === 'string') {
-        input.safety_filter_level = (body as any).safety_filter_level;
       }
     } else if (model === 'openai/gpt-image-1.5') {
       const format = typeof body.output_format === 'string' ? body.output_format.toLowerCase() : undefined;

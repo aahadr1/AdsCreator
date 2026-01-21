@@ -9,8 +9,7 @@ This document verifies that all 28 models mentioned in the reference guide are a
 - ✅ `openai/gpt-image-1.5`
 - ✅ `black-forest-labs/flux-kontext-max`
 - ✅ `black-forest-labs/flux-krea-dev`
-- ✅ `google/nano-banana`
-- ✅ `google/nano-banana-pro`
+- ✅ `bytedance/seedream-4`
 
 ### 2. Video Generation (11 models)
 - ✅ `google/veo-3.1-fast`
@@ -51,8 +50,7 @@ This document verifies that all 28 models mentioned in the reference guide are a
 1. ✅ `openai/gpt-image-1.5`
 2. ✅ `black-forest-labs/flux-kontext-max`
 3. ✅ `black-forest-labs/flux-krea-dev`
-4. ✅ `google/nano-banana`
-5. ✅ `google/nano-banana-pro`
+4. ✅ `bytedance/seedream-4`
 
 ### Video Models (12)
 6-9. ✅ `google/veo-3.1-fast`, `google/veo-3-fast`, `google/veo-3.1`, `google/veo-3` (4 models)

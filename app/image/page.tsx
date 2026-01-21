@@ -6,7 +6,7 @@ import { supabaseClient as supabase } from '../../lib/supabaseClient';
 
 const FLUX_KONTEXT_ASPECT_RATIOS = ['match_input_image','1:1','16:9','9:16','4:3','3:4','3:2','2:3','4:5','5:4','21:9','9:21','2:1','1:2'] as const;
 const GENERIC_ASPECT_RATIOS = ['1:1','16:9','21:9','3:2','2:3','4:5','5:4','3:4','4:3','9:16','9:21'] as const;
-const MULTI_IMAGE_MODELS = new Set(['google/nano-banana','google/nano-banana-pro','openai/gpt-image-1.5','bytedance/seedream-4','bytedance/seedream-4.5']);
+const MULTI_IMAGE_MODELS = new Set(['openai/gpt-image-1.5','bytedance/seedream-4','bytedance/seedream-4.5']);
 
 type ReplicateStatus = 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'queued' | 'unknown';
 type ImageJobStatus = 'idle' | 'running' | 'success' | 'error';
@@ -201,13 +201,11 @@ const makeImageJob = (index: number): ImageJobRecord => ({
 
 export default function ImagePage() {
   const [model, setModel] = useState<
-    | 'google/nano-banana'
-    | 'google/nano-banana-pro'
     | 'openai/gpt-image-1.5'
     | 'bytedance/seedream-4'
     | 'bytedance/seedream-4.5'
     | 'bytedance/seededit-3.0'
-  >('openai/gpt-image-1.5');
+  >('bytedance/seedream-4');
   const [jobs, setJobs] = useState<ImageJobRecord[]>(() => [makeImageJob(1)]);
   const [activeJobId, setActiveJobId] = useState<string>(jobs[0]?.id || '');
   const [applyPromptToAll, setApplyPromptToAll] = useState(true);
@@ -336,16 +334,17 @@ const sharedPromptValue = useMemo(
       : '1:1';
     const seedNumber = seed.trim() === '' ? undefined : Number(seed);
     const clampOutputs = (max: number) => Math.min(max, Math.max(1, Number(numOutputs) || 1));
-    const base: Record<string, any> = { model, prompt: promptValue, output_format: normalizedFormat };
+    const base: Record<string, any> = { model, prompt: promptValue };
 
-    if (model === 'google/nano-banana') {
-      base.image_input = job.inputImages.length ? job.inputImages : undefined;
-    } else if (model === 'google/nano-banana-pro') {
+    if (model === 'bytedance/seedream-4' || model === 'bytedance/seedream-4.5') {
       base.image_input = job.inputImages.length ? job.inputImages : undefined;
       base.aspect_ratio = sanitizedGenericAspect;
-      base.resolution = resolution;
-      base.safety_filter_level = safetyFilterLevel;
+      base.size = resolution || '1K';
+      base.sequential_image_generation = 'disabled';
+      base.max_images = 1;
+      base.enhance_prompt = false;
     } else if (model === 'openai/gpt-image-1.5') {
+      base.output_format = normalizedFormat;
       base.aspect_ratio = sanitizedGenericAspect;
       if (job.inputImages.length) base.input_images = job.inputImages;
       base.input_fidelity = inputFidelity;
@@ -356,6 +355,9 @@ const sharedPromptValue = useMemo(
       base.moderation = moderationSetting;
       if (userId.trim()) base.user_id = userId.trim();
       if (includeSensitive && openAiApiKey.trim()) base.openai_api_key = openAiApiKey.trim();
+    } else {
+      // Seededit and any other legacy models keep output_format if needed.
+      base.output_format = normalizedFormat;
     }
 
     return base;
@@ -668,8 +670,6 @@ GPT Image 1.5, Nano Banana, Seedream, and more in one workspace. Layer reference
                   <div className="small">Model</div>
                   <select className="select" value={model} onChange={(e)=>setModel(e.target.value as any)}>
                     <option value="openai/gpt-image-1.5">OpenAI GPT Image 1.5</option>
-                    <option value="google/nano-banana">Google Nano Banana</option>
-                    <option value="google/nano-banana-pro">Google Nano Banana Pro 🍌🍌</option>
                     <option value="bytedance/seedream-4">ByteDance Seedream 4</option>
                     <option value="bytedance/seedream-4.5">ByteDance Seedream 4.5</option>
                     <option value="bytedance/seededit-3.0">ByteDance Seededit 3.0</option>
@@ -868,26 +868,7 @@ GPT Image 1.5, Nano Banana, Seedream, and more in one workspace. Layer reference
                 </div>
               </div>
 
-              {model === 'google/nano-banana-pro' && (
-                <div className="options">
-                  <div>
-                    <div className="small">Resolution</div>
-                    <select className="select" value={resolution} onChange={(e)=>setResolution(e.target.value)}>
-                      <option value="1K">1K</option>
-                      <option value="2K">2K</option>
-                      <option value="4K">4K</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div className="small">Safety Filter Level</div>
-                    <select className="select" value={safetyFilterLevel} onChange={(e)=>setSafetyFilterLevel(e.target.value)}>
-                      <option value="block_low_and_above">Block Low and Above (Strictest)</option>
-                      <option value="block_medium_and_above">Block Medium and Above</option>
-                      <option value="block_only_high">Block Only High (Most Permissive)</option>
-                    </select>
-                  </div>
-                </div>
-              )}
+              {/* Nano Banana removed */}
 
               {model === 'openai/gpt-image-1.5' && (
                 <>

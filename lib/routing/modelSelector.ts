@@ -57,50 +57,34 @@ export function selectImageModel(context: ModelSelectionContext): {
     };
   }
 
-  // RULE 2: Cinematic quality + budget allows → Seedream 4.5
-  if (qualityPriority === 'cinematic' && budget !== 'low') {
-    return {
-      model: 'bytedance/seedream-4.5',
-      reasoning: 'Cinematic quality requested with adequate budget. Seedream 4.5 provides best visual fidelity.',
-      adjustedParams: {
-        size: '2K',
-        aspect_ratio: aspectRatio === '9:16' ? '9:16' : aspectRatio === '16:9' ? '16:9' : '1:1'
-      }
-    };
-  }
+  // Seedream-4 is the only image model (Nano Banana removed)
+  const normalizedAR =
+    aspectRatio === 'match_input_image'
+      ? 'match_input_image'
+      : aspectRatio === '9:16'
+        ? '9:16'
+        : aspectRatio === '16:9'
+          ? '16:9'
+          : aspectRatio === '4:3'
+            ? '4:3'
+            : aspectRatio === '3:4'
+              ? '3:4'
+              : '1:1';
 
-  // RULE 3: High-quality with reference images → Seedream 4
-  if (hasReferenceImages && qualityPriority === 'quality') {
-    return {
-      model: 'bytedance/seedream-4',
-      reasoning: 'Reference images provided. Seedream 4 supports multi-reference generation with good quality.',
-      adjustedParams: {
-        size: '2K',
-        aspect_ratio: 'match_input_image'
-      }
-    };
-  }
+  // Prefer higher res when cinematic/quality; otherwise default to 1K.
+  const size = qualityPriority === 'cinematic' ? '2K' : qualityPriority === 'quality' ? '2K' : '1K';
+  const arForSeedream = hasReferenceImages ? 'match_input_image' : normalizedAR;
 
-  // RULE 4: Speed priority or low budget → Nano Banana
-  if (qualityPriority === 'speed' || budget === 'low') {
-    return {
-      model: 'google/nano-banana',
-      reasoning: 'Speed/budget priority. Nano Banana provides fast, cost-effective generation.',
-      adjustedParams: {
-        output_format: 'jpg'
-      }
-    };
-  }
-
-  // RULE 5: Default to GPT-1.5 for general use (best balance)
   return {
-    model: 'openai/gpt-image-1.5',
-    reasoning: 'General use case. GPT-1.5 provides best overall quality and reliability.',
+    model: 'bytedance/seedream-4',
+    reasoning: 'Seedream-4 is configured as the only image model for consistency and reliability.',
     adjustedParams: {
-      aspect_ratio: ['1:1', '3:2', '2:3'].includes(aspectRatio) ? aspectRatio : '2:3',
-      number_of_images: 1,
-      quality: 'high'
-    }
+      size,
+      aspect_ratio: arForSeedream,
+      sequential_image_generation: 'disabled',
+      max_images: 1,
+      enhance_prompt: false,
+    },
   };
 }
 
@@ -409,8 +393,6 @@ export function selectModel(
 export const MODEL_COSTS: Record<string, number> = {
   // Image models (per generation)
   'openai/gpt-image-1.5': 0.80,
-  'google/nano-banana': 0.10,
-  'google/nano-banana-pro': 0.15,
   'bytedance/seedream-4': 0.50,
   'bytedance/seedream-4.5': 0.70,
   'bytedance/seededit-3.0': 0.40,
@@ -452,8 +434,6 @@ export const MODEL_COSTS: Record<string, number> = {
 export const MODEL_LATENCIES: Record<string, number> = {
   // Image models
   'openai/gpt-image-1.5': 30,
-  'google/nano-banana': 10,
-  'google/nano-banana-pro': 15,
   'bytedance/seedream-4': 45,
   'bytedance/seedream-4.5': 60,
   'bytedance/seededit-3.0': 40,

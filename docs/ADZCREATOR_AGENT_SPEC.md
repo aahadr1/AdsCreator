@@ -567,9 +567,9 @@ function selectImageModel(context: {
     return 'bytedance/seedream-4';
   }
   
-  // RULE 4: Speed priority or low budget → Nano Banana
+  // RULE 4: Speed priority or low budget → Seedream 4 (single-model policy)
   if (context.qualityPriority === 'speed' || context.budget === 'low') {
-    return 'google/nano-banana';
+    return 'bytedance/seedream-4';
   }
   
   // RULE 5: Default to GPT-1.5 for general use
@@ -1913,8 +1913,6 @@ Every model has an estimated cost per generation:
 const MODEL_COSTS = {
   // Image models (per generation)
   'openai/gpt-image-1.5': 0.80,
-  'google/nano-banana': 0.10,
-  'google/nano-banana-pro': 0.15,
   'bytedance/seedream-4': 0.50,
   'bytedance/seedream-4.5': 0.70,
   'bytedance/seededit-3.0': 0.40,
@@ -1963,8 +1961,6 @@ const MODEL_COSTS = {
 const MODEL_LATENCIES = {
   // Image models (seconds)
   'openai/gpt-image-1.5': 30,
-  'google/nano-banana': 10,
-  'google/nano-banana-pro': 15,
   'bytedance/seedream-4': 45,
   'bytedance/seedream-4.5': 60,
   'bytedance/seededit-3.0': 40,
