@@ -13,6 +13,9 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 const ASSISTANT_IMAGE_MODEL = 'google/nano-banana-pro';
+const ASSISTANT_IMAGE_FALLBACK_MODEL = 'bytedance/seedream-4';
+const ASSISTANT_IMAGE_QUEUE_TIMEOUT_MS = 30_000;
+const ASSISTANT_IMAGE_QUEUE_POLL_MS = 1_500;
 const DEFAULT_IMAGE_ASPECT_RATIO = '9:16';
 
 function getSupabase() {
@@ -707,25 +710,8 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       return { success: false, error: 'Server misconfigured: missing REPLICATE_API_TOKEN' };
     }
     
-    // Use nano-banana-pro for all assistant image generations
+    // Use nano-banana-pro for all assistant image generations (with automatic fallback if it stays queued/starting)
     const model = ASSISTANT_IMAGE_MODEL;
-    
-    // Get latest version
-    const modelRes = await fetch(`${REPLICATE_API}/models/${model}`, {
-      headers: { Authorization: `Token ${token}` },
-      cache: 'no-store',
-    });
-    
-    if (!modelRes.ok) {
-      return { success: false, error: `Failed to fetch model: ${await modelRes.text()}` };
-    }
-    
-    const modelJson = await modelRes.json();
-    const versionId = modelJson?.latest_version?.id;
-    
-    if (!versionId) {
-      return { success: false, error: 'No latest version found for model' };
-    }
     
     // Force avatar outputs to JPG to maximize compatibility with later img2img steps
     const forcedOutputFormat =
@@ -743,31 +729,129 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       predictionInput.image_input = input.image_input;
     }
     
-    // Acquire rate limit slot before making request
-    await replicateRateLimiter.acquire();
-    
-    const res = await fetch(`${REPLICATE_API}/predictions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Token ${token}`,
-      },
-      body: JSON.stringify({ version: versionId, input: predictionInput }),
+    const { id, status } = await createImagePredictionWithQueueFallback({
+      token: String(token),
+      primaryModel: model,
+      primaryInput: predictionInput,
+      purpose: input.purpose,
     });
-    
-    if (!res.ok) {
-      return { success: false, error: `Prediction failed: ${await res.text()}` };
-    }
-    
-    const prediction = await res.json();
-    return { 
-      success: true, 
-      output: { id: prediction.id, status: prediction.status }
-    };
+
+    return { success: true, output: { id, status } };
   } catch (e: any) {
     console.error('Image generation error:', e);
     return { success: false, error: e.message };
   }
+}
+
+function seedreamInputFromNanoBananaInput(input: Record<string, unknown>): Record<string, unknown> {
+  const prompt = typeof input.prompt === 'string' ? input.prompt : '';
+  const image_input = Array.isArray((input as any).image_input) ? (input as any).image_input : undefined;
+  const aspect_ratio = typeof (input as any).aspect_ratio === 'string' ? (input as any).aspect_ratio : undefined;
+
+  // Best-effort size mapping; Seedream supports 1K/2K/4K or custom.
+  // Nano-banana-pro sometimes uses `resolution` strings; if unknown, omit size to let the model decide.
+  const resolutionRaw = typeof (input as any).resolution === 'string' ? String((input as any).resolution) : '';
+  const res = resolutionRaw.toLowerCase();
+  let size: '1K' | '2K' | '4K' | undefined;
+  if (res.includes('4k') || res.includes('4096')) size = '4K';
+  else if (res.includes('2k') || res.includes('2048')) size = '2K';
+  else if (res.includes('1k') || res.includes('1024')) size = '1K';
+
+  const out: Record<string, unknown> = { prompt };
+  if (Array.isArray(image_input) && image_input.length > 0) out.image_input = image_input;
+  if (aspect_ratio) out.aspect_ratio = aspect_ratio;
+  if (size) out.size = size;
+  return out;
+}
+
+function predictionLooksLikeProcessing(prediction: any): boolean {
+  const status = String(prediction?.status || '').toLowerCase();
+  if (status === 'processing' || status === 'succeeded' || status === 'failed' || status === 'canceled') return true;
+  // Sometimes logs show progress before status flips; use a conservative heuristic.
+  const logs = typeof prediction?.logs === 'string' ? prediction.logs : '';
+  return /running prediction|processing|download|loading model|step\s*\d+|sampler|cuda/i.test(logs);
+}
+
+async function cancelReplicatePrediction(token: string, predictionId: string): Promise<void> {
+  try {
+    await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}/cancel`, {
+      method: 'POST',
+      headers: { Authorization: `Token ${token}` },
+      cache: 'no-store',
+    });
+  } catch (e) {
+    // Best-effort; cancellation failures shouldn't block fallback.
+    console.warn('[Image] Failed to cancel prediction:', predictionId, e);
+  }
+}
+
+async function waitForPredictionToStartProcessing(params: {
+  token: string;
+  predictionId: string;
+  timeoutMs: number;
+  pollMs: number;
+}): Promise<{ started: boolean; lastStatus: string }> {
+  const { token, predictionId, timeoutMs, pollMs } = params;
+  const start = Date.now();
+  let lastStatus = 'starting';
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}`, {
+        headers: { Authorization: `Token ${token}` },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const json: any = await res.json();
+        lastStatus = String(json?.status || lastStatus);
+        if (predictionLooksLikeProcessing(json)) return { started: true, lastStatus };
+      }
+    } catch (e) {
+      // Ignore transient polling errors and keep trying until timeout.
+    }
+    await delay(pollMs);
+  }
+
+  return { started: false, lastStatus };
+}
+
+async function createImagePredictionWithQueueFallback(params: {
+  token: string;
+  primaryModel: string;
+  primaryInput: Record<string, unknown>;
+  purpose?: string;
+}): Promise<{ id: string; status: string }> {
+  const { token, primaryModel, primaryInput, purpose } = params;
+
+  // Create primary prediction (nano-banana-pro)
+  const primary = await createReplicatePrediction({ token, model: primaryModel, input: primaryInput });
+
+  // If it quickly transitions into processing, keep it. Otherwise cancel + fallback.
+  const startedCheck = await waitForPredictionToStartProcessing({
+    token,
+    predictionId: primary.id,
+    timeoutMs: ASSISTANT_IMAGE_QUEUE_TIMEOUT_MS,
+    pollMs: ASSISTANT_IMAGE_QUEUE_POLL_MS,
+  });
+
+  if (startedCheck.started) {
+    return { id: primary.id, status: startedCheck.lastStatus || primary.status };
+  }
+
+  console.warn('[Image] Primary model stayed queued/starting past timeout; falling back', {
+    primaryModel,
+    fallbackModel: ASSISTANT_IMAGE_FALLBACK_MODEL,
+    predictionId: primary.id,
+    lastStatus: startedCheck.lastStatus,
+    purpose,
+  });
+
+  await cancelReplicatePrediction(token, primary.id);
+
+  // Seedream fallback (supports both t2i and img2img via image_input)
+  const fallbackInput = seedreamInputFromNanoBananaInput(primaryInput);
+  const fallback = await createReplicatePrediction({ token, model: ASSISTANT_IMAGE_FALLBACK_MODEL, input: fallbackInput });
+  return { id: fallback.id, status: fallback.status };
 }
 
 // Cache for model version IDs to avoid repeated API calls
@@ -1104,7 +1188,38 @@ async function generateSingleImage(
       });
     
     const res = await createPrediction(model, input);
-    if (res.ok) return { id: String(res.json.id), status: String(res.json.status) };
+    if (res.ok) {
+      const predictionId = String(res.json.id);
+      const startedCheck = await waitForPredictionToStartProcessing({
+        token: tokenStr,
+        predictionId,
+        timeoutMs: ASSISTANT_IMAGE_QUEUE_TIMEOUT_MS,
+        pollMs: ASSISTANT_IMAGE_QUEUE_POLL_MS,
+      });
+
+      if (startedCheck.started) {
+        return { id: predictionId, status: startedCheck.lastStatus || String(res.json.status) };
+      }
+
+      console.warn('[Storyboard] Primary model stayed queued/starting past timeout; falling back', {
+        primaryModel: model,
+        fallbackModel: ASSISTANT_IMAGE_FALLBACK_MODEL,
+        predictionId,
+        lastStatus: startedCheck.lastStatus,
+      });
+
+      await cancelReplicatePrediction(tokenStr, predictionId);
+
+      const fallbackInput = seedreamInputFromNanoBananaInput(input);
+      const fallbackRes = await createPrediction(ASSISTANT_IMAGE_FALLBACK_MODEL, fallbackInput);
+      if (fallbackRes.ok) return { id: String(fallbackRes.json.id), status: String(fallbackRes.json.status) };
+
+      return {
+        id: '',
+        status: 'failed',
+        error: String((fallbackRes as any).text || '') || 'Fallback prediction failed',
+      };
+    }
     return { id: '', status: 'failed', error: String((res as any).text || '') || 'Prediction failed' };
   } catch (e: any) {
     console.error('[Storyboard] generateSingleImage error:', e.message || e);
