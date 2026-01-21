@@ -52,9 +52,12 @@ export default function AssistantPage() {
   const [expandedReflexions, setExpandedReflexions] = useState<Set<string>>(new Set());
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>('');
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ url: string; name: string; type: string }>>([]);
+  const [isUploading, setIsUploading] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Get auth token on mount
@@ -119,6 +122,61 @@ export default function AssistantPage() {
       }
       return next;
     });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      const uploadPromises = Array.from(files).map(async (file) => {
+        // Upload to R2
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('filename', file.name);
+
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error(`Failed to upload ${file.name}`);
+        }
+
+        const { url } = await uploadRes.json();
+        
+        return {
+          url,
+          name: file.name,
+          type: file.type,
+        };
+      });
+
+      const uploaded = await Promise.all(uploadPromises);
+      setUploadedFiles(prev => [...prev, ...uploaded]);
+
+      // Auto-append video URL to input if it's a video
+      const videoFiles = uploaded.filter(f => f.type.startsWith('video/'));
+      if (videoFiles.length > 0) {
+        const videoUrls = videoFiles.map(f => f.url).join('\n');
+        setInput(prev => prev ? `${prev}\n\nVideo: ${videoUrls}` : `Video: ${videoUrls}`);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload file');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const removeUploadedFile = (url: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.url !== url));
   };
 
   const persistMessages = useCallback(async (nextMessages: Message[]) => {
@@ -214,17 +272,28 @@ export default function AssistantPage() {
   };
 
   const sendMessage = useCallback(async () => {
-    if (!input.trim() || isLoading || !authToken) return;
+    if ((!input.trim() && uploadedFiles.length === 0) || isLoading || !authToken) return;
+
+    // Prepare message content with file URLs
+    let messageContent = input.trim();
+    if (uploadedFiles.length > 0) {
+      const fileUrls = uploadedFiles.map(f => f.url).join('\n');
+      messageContent = messageContent 
+        ? `${messageContent}\n\nAttached files:\n${fileUrls}` 
+        : `Attached files:\n${fileUrls}`;
+    }
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: input.trim(),
+      content: messageContent,
       timestamp: new Date().toISOString(),
+      files: uploadedFiles.map(f => f.url),
     };
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
+    setUploadedFiles([]);
     setIsLoading(true);
     setIsThinking(true);
     setCurrentReflexion('');
@@ -247,6 +316,7 @@ export default function AssistantPage() {
         body: JSON.stringify({
           conversation_id: activeConversationId,
           message: userMessage.content,
+          files: userMessage.files || [],
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -414,7 +484,7 @@ export default function AssistantPage() {
       setIsThinking(false);
       abortControllerRef.current = null;
     }
-  }, [input, isLoading, authToken, activeConversationId]);
+  }, [input, uploadedFiles, isLoading, authToken, activeConversationId]);
 
   function Markdown({ content }: { content: string }) {
     return (
@@ -1442,9 +1512,65 @@ export default function AssistantPage() {
         </div>
 
         <div className={styles.composerWrap}>
+          {uploadedFiles.length > 0 && (
+            <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', marginBottom: '8px' }}>
+              <div style={{ fontSize: '12px', color: 'rgba(231,233,238,0.6)', marginBottom: '6px' }}>
+                Attached files:
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {uploadedFiles.map((file) => (
+                  <div
+                    key={file.url}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 8px',
+                      background: 'rgba(255,255,255,0.05)',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                    }}
+                  >
+                    {file.type.startsWith('video/') ? <Film size={14} /> : <Paperclip size={14} />}
+                    <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {file.name}
+                    </span>
+                    <button
+                      onClick={() => removeUploadedFile(file.url)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'rgba(239,68,68,0.8)',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        display: 'flex',
+                      }}
+                      type="button"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className={styles.composer}>
-            <button className={styles.iconBtn} type="button" title="Attach (coming soon)">
-              <Paperclip size={18} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*,image/*"
+              multiple
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+            />
+            <button 
+              className={styles.iconBtn} 
+              type="button" 
+              title="Attach files (videos, images)"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading || isLoading}
+            >
+              {isUploading ? <Loader2 size={18} className={styles.spinner} /> : <Paperclip size={18} />}
             </button>
             <textarea
               ref={inputRef}
@@ -1458,7 +1584,7 @@ export default function AssistantPage() {
             <button
               className={`${styles.iconBtn} ${styles.sendBtn}`}
               onClick={sendMessage}
-              disabled={!input.trim() || isLoading}
+              disabled={((!input.trim() && uploadedFiles.length === 0) || isLoading)}
               type="button"
               title="Send"
             >
@@ -1466,7 +1592,7 @@ export default function AssistantPage() {
             </button>
           </div>
           <div className={styles.statusLine}>
-            {isThinking ? 'Reflexion running…' : isLoading ? 'Generating response…' : ' '}
+            {isUploading ? 'Uploading files…' : isThinking ? 'Reflexion running…' : isLoading ? 'Generating response…' : ' '}
           </div>
         </div>
       </main>
