@@ -1,6 +1,7 @@
 export const runtime = 'nodejs';
 // Seedream-based storyboard generation can be slower; allow more headroom where the platform supports it.
-export const maxDuration = 900;
+// Vercel Pro plan max: 800 seconds
+export const maxDuration = 800;
 
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
