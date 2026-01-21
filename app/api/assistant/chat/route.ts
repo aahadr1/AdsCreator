@@ -958,11 +958,99 @@ async function executeMotionControl(
       return { success: false, error: 'Valid image_url is required' };
     }
 
+    // Normalize internal asset URLs so Replicate/Kling can always fetch them.
+    // We accept a few historical URL shapes:
+    // - https://<site>/api/r2/get?key=...            (our stable proxy)
+    // - https://pub-<acct>.r2.dev/<key>             (R2 public base)
+    // - https://<site>/r2/<key>                     (legacy public base)
+    // If possible, convert everything into https://<site>/api/r2/get?key=<key>
+    // and verify it is actually retrievable before calling Replicate.
+    const origin = process.env.NEXT_PUBLIC_APP_URL?.trim() || null;
+
+    function extractKeyFromKnownUrl(u: string): string | null {
+      try {
+        const url = new URL(u);
+        // /api/r2/get?key=...
+        if (url.pathname === '/api/r2/get') {
+          const k = url.searchParams.get('key');
+          return k ? k.trim().replace(/^\/+/, '') : null;
+        }
+        // /r2/<key> (legacy)
+        if (url.pathname.startsWith('/r2/')) {
+          const k = url.pathname.replace(/^\/r2\//, '').trim();
+          return k ? k.replace(/^\/+/, '') : null;
+        }
+        // pub-*.r2.dev/<key>
+        if (url.hostname.endsWith('.r2.dev')) {
+          const k = url.pathname.replace(/^\/+/, '').trim();
+          return k ? k : null;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
+
+    function toProxyUrl(u: string): string {
+      const base = (() => {
+        try {
+          return new URL(u).origin;
+        } catch {
+          return null;
+        }
+      })();
+      const k = extractKeyFromKnownUrl(u);
+      if (!k) return u;
+      // Prefer the same origin as the provided URL (likely www.adzcreator.com),
+      // fall back to server's request origin via env if provided.
+      const proxyOrigin = (base && base !== 'null' ? base : (origin || '')) .replace(/\/$/, '');
+      if (!proxyOrigin) return u;
+      return `${proxyOrigin}/api/r2/get?key=${encodeURIComponent(k)}`;
+    }
+
+    async function verifyFetchable(u: string): Promise<{ ok: boolean; status: number; finalUrl: string }> {
+      // Some servers don't support HEAD well; try HEAD then small ranged GET.
+      try {
+        const head = await fetch(u, { method: 'HEAD', cache: 'no-store' });
+        if (head.ok) return { ok: true, status: head.status, finalUrl: u };
+      } catch {}
+      try {
+        const get = await fetch(u, { method: 'GET', headers: { Range: 'bytes=0-0' }, cache: 'no-store' });
+        return { ok: get.status >= 200 && get.status < 400, status: get.status, finalUrl: u };
+      } catch (e: any) {
+        return { ok: false, status: 0, finalUrl: u };
+      }
+    }
+
+    const normalizedImageUrl = toProxyUrl(input.image_url);
+    const normalizedVideoUrl = toProxyUrl(input.video_url);
+
+    const imgCheck = await verifyFetchable(normalizedImageUrl);
+    if (!imgCheck.ok) {
+      return {
+        success: false,
+        error:
+          `Reference image URL is not retrievable (HTTP ${imgCheck.status}). ` +
+          `This usually means the URL is stale/misconfigured (often /r2/... or r2.dev...). ` +
+          `Please re-upload the reference image in chat (paperclip) or regenerate it, then try again.`,
+      };
+    }
+
+    const vidCheck = await verifyFetchable(normalizedVideoUrl);
+    if (!vidCheck.ok) {
+      return {
+        success: false,
+        error:
+          `Reference video URL is not retrievable (HTTP ${vidCheck.status}). ` +
+          `Please re-upload the video in chat (paperclip) or provide a working public URL, then try again.`,
+      };
+    }
+
     const model = 'kwaivgi/kling-v2.6-motion-control';
 
     const motionControlInput: Record<string, unknown> = {
-      video: input.video_url,
-      image: input.image_url,
+      video: normalizedVideoUrl,
+      image: normalizedImageUrl,
     };
 
     // Add optional parameters
