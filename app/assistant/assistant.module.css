@@ -163,6 +163,11 @@
 
 .scroll {
   overflow: auto;
+  scroll-behavior: smooth;
+  /* Prevent layout shift during content loading */
+  overscroll-behavior: contain;
+  /* Hardware acceleration for smoother scrolling */
+  -webkit-overflow-scrolling: touch;
 }
 
 .content {
@@ -172,6 +177,8 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* Prevent content jumping during streaming */
+  min-height: 100%;
 }
 
 .welcome {
@@ -253,6 +260,8 @@
   flex: 1;
   min-width: 0;
   line-height: 1.5;
+  /* Prevent layout shift during content updates */
+  contain: layout style;
 }
 
 .bubbleUser {
