@@ -335,6 +335,30 @@ function extractImageUrlFromToolResult(message: Message): string | null {
   return typeof direct === 'string' && direct.startsWith('http') ? direct : null;
 }
 
+// Lightweight prediction status check (no caching, just return raw status and output)
+async function checkPredictionStatus(token: string, predictionId: string): Promise<{ status: string | null; outputUrl: string | null; error: string | null }> {
+  try {
+    const res = await fetch(`${REPLICATE_API}/predictions/${encodeURIComponent(predictionId)}`, {
+      headers: { Authorization: `Token ${token}` },
+      cache: 'no-store',
+    });
+    
+    if (!res.ok) {
+      return { status: null, outputUrl: null, error: await res.text() };
+    }
+    
+    const json: any = await res.json();
+    let outputUrl: string | null = null;
+    const out = json.output;
+    if (typeof out === 'string') outputUrl = out;
+    else if (Array.isArray(out)) outputUrl = typeof out[0] === 'string' ? out[0] : null;
+    else if (out && typeof out === 'object' && typeof out.url === 'string') outputUrl = out.url;
+    return { status: String(json.status || ''), outputUrl, error: json.error || json.logs || null };
+  } catch (e: any) {
+    return { status: null, outputUrl: null, error: e.message };
+  }
+}
+
 async function resolveReplicateOutputUrl(params: {
   predictionId: string;
   conversationId?: string;
@@ -2174,11 +2198,87 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               return;
             }
 
-            // Send conversation id first (client expects this sometimes)
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'conversation_id', data: conversationId })}\n\n`));
+            // Check if frames are still generating
+            const scenesWithPendingFrames = storyboard.scenes.filter(s => {
+              const firstNotReady = s.first_frame_prediction_id && !s.first_frame_url;
+              const lastNotReady = s.last_frame_prediction_id && !s.last_frame_url;
+              return firstNotReady || lastNotReady;
+            });
 
-            // Emit an initial assistant response message (non-LLM path)
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
+            // If frames are still generating, poll for completion with timeout
+            if (scenesWithPendingFrames.length > 0) {
+              const tokenStr = String(replicateToken);
+              console.log(`[Storyboard Proceed] ${scenesWithPendingFrames.length} scenes have pending frames, polling...`);
+              
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'conversation_id', data: conversationId })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: `I see some storyboard frames are still generating. Let me check their status...\n\n` })}\n\n`));
+
+              // Poll each pending frame with a reasonable timeout (max 60s total)
+              const maxPollTime = 60_000;
+              const pollStart = Date.now();
+              let allReady = false;
+              
+              while (Date.now() - pollStart < maxPollTime) {
+                let anyPending = false;
+                
+                for (const scene of scenesWithPendingFrames) {
+                  // Check first frame
+                  if (scene.first_frame_prediction_id && !scene.first_frame_url) {
+                    const result = await checkPredictionStatus(tokenStr, scene.first_frame_prediction_id);
+                    if (result.outputUrl) {
+                      // Update storyboard in messages with the URL
+                      scene.first_frame_url = result.outputUrl;
+                      scene.first_frame_status = 'succeeded';
+                    } else if (result.status === 'failed' || result.status === 'canceled') {
+                      scene.first_frame_status = 'failed';
+                      scene.first_frame_error = result.error || 'Frame generation failed';
+                    } else {
+                      anyPending = true;
+                    }
+                  }
+                  
+                  // Check last frame
+                  if (scene.last_frame_prediction_id && !scene.last_frame_url) {
+                    const result = await checkPredictionStatus(tokenStr, scene.last_frame_prediction_id);
+                    if (result.outputUrl) {
+                      scene.last_frame_url = result.outputUrl;
+                      scene.last_frame_status = 'succeeded';
+                    } else if (result.status === 'failed' || result.status === 'canceled') {
+                      scene.last_frame_status = 'failed';
+                      scene.last_frame_error = result.error || 'Frame generation failed';
+                    } else {
+                      anyPending = true;
+                    }
+                  }
+                }
+                
+                if (!anyPending) {
+                  allReady = true;
+                  break;
+                }
+                
+                // Wait before next poll
+                await delay(2000);
+              }
+
+              if (!allReady) {
+                const waitMsg = `⏳ Some storyboard frames are still generating. This can take 30-60 seconds with Seedream-4.\n\nYou can:\n- Wait a moment and say "proceed" again\n- Or check the frames above - they'll appear as they complete`;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: waitMsg })}\n\n`));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+                controller.close();
+                return;
+              }
+
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: `✅ All frames are ready! Starting video generation...\n\n` })}\n\n`));
+            } else {
+              // Send conversation id first (client expects this sometimes)
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'conversation_id', data: conversationId })}\n\n`));
+
+              // Emit an initial assistant response message (non-LLM path)
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
+            }
+            
             const proceedText = `Perfect! I'll now generate videos from your storyboard using the video_generation tool with VEO 3.1 Fast (which includes audio output). I'll use the first frame image and incorporate the last frame information into the prompt to guide the motion between frames.`;
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: proceedText })}\n\n`));
             
@@ -2785,19 +2885,32 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           const storyboardToolResult = toolResults.find((tr) => tr.tool === 'storyboard_creation')?.result as any;
           const storyboardObj: Storyboard | null =
             storyboardToolResult?.success && storyboardToolResult?.output?.storyboard ? (storyboardToolResult.output.storyboard as Storyboard) : null;
+          // Accept storyboards even if frames are still generating (UI will poll for completion)
           const shouldPromptProceed =
             Boolean(storyboardObj?.id) &&
-            storyboardObj?.status === 'ready' &&
+            (storyboardObj?.status === 'ready' || storyboardObj?.status === 'generating') &&
             Array.isArray(storyboardObj?.scenes) &&
             storyboardObj.scenes.length > 0 &&
             storyboardToolResult?.success === true;
 
           let finalAssistantResponse = cleanedResponse.trim();
           if (shouldPromptProceed) {
-            const promptLine =
-              `Storyboard is ready! Do you want any modifications, or should I proceed with video generation?\n\n` +
-              `- Reply **"modify"** + what to change (e.g. "modify scene 2: change setting to a kitchen") \n` +
-              `- Reply **"proceed"** to generate videos using VEO 3.1 Fast with audio output, incorporating both first and last frame information for motion control.`;
+            // Check if frames are still generating
+            const anyFramesGenerating = storyboardObj?.scenes.some(
+              s => s.first_frame_status === 'generating' || s.last_frame_status === 'generating' ||
+                   (s.first_frame_prediction_id && !s.first_frame_url) ||
+                   (s.last_frame_prediction_id && !s.last_frame_url)
+            );
+            
+            const promptLine = anyFramesGenerating
+              ? `✨ Storyboard created! Frame images are generating in the background (you'll see them appear as they complete).\n\n` +
+                `Once the frames are ready, you can:\n` +
+                `- Reply **"modify"** + what to change (e.g. "modify scene 2: change setting to a kitchen") \n` +
+                `- Reply **"proceed"** to generate videos using VEO 3.1 Fast with audio output\n\n` +
+                `The frames will populate automatically - feel free to say "proceed" whenever you're ready!`
+              : `Storyboard is ready! Do you want any modifications, or should I proceed with video generation?\n\n` +
+                `- Reply **"modify"** + what to change (e.g. "modify scene 2: change setting to a kitchen") \n` +
+                `- Reply **"proceed"** to generate videos using VEO 3.1 Fast with audio output, incorporating both first and last frame information for motion control.`;
             finalAssistantResponse = finalAssistantResponse ? `${finalAssistantResponse}\n\n${promptLine}` : promptLine;
 
             const nextPlan = {

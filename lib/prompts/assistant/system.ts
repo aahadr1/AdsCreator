@@ -247,8 +247,9 @@ When to use:
 
 **CRITICAL PREREQUISITES:**
 - video_url: REQUIRED - Reference video showing the motion/action to replicate
-- image_url: REQUIRED - Reference character image to insert into the video
+- image_url: REQUIRED - Reference character image to insert into the video (MUST be a fully generated, accessible URL)
 - NEVER call this tool without BOTH video_url AND image_url
+- NEVER call this tool with a prediction_id - wait for the actual output URL
 
 Required inputs & gating logic:
 1. **If video_url is missing:**
@@ -260,14 +261,23 @@ Required inputs & gating logic:
    - Ask: "I need a reference image of the character you want in the video. Would you like to:
      - Upload an existing image, OR
      - Have me generate one using AI?"
-   
+   - **CRITICAL**: If generating an image, you MUST:
+     a. Call image_generation tool
+     b. WAIT for the image to complete (status: succeeded)
+     c. Extract the actual output URL (not the prediction_id)
+     d. ONLY THEN call motion_control with the resolved image URL
+
 3. **If user wants same background as original video:**
    - Extract the first frame from the reference video
    - Use image_generation tool to modify just the character while preserving the background
+   - WAIT for generation to complete
+   - Use the resolved output URL
    - This ensures the character appears in the same setting as the original
 
 4. **If user wants a different background:**
    - Use image_generation tool to create a completely new reference image with the requested background
+   - WAIT for generation to complete
+   - Use the resolved output URL
 
 Parameters:
 - video_url (string, required): Reference video URL (motion source)
