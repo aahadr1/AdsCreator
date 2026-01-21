@@ -2286,6 +2286,51 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               return;
             }
 
+            // Normalize internal asset URLs so Replicate/VEO can always fetch them.
+            // We accept:
+            // - https://<site>/api/r2/get?key=...   (our stable proxy)
+            // - https://pub-<acct>.r2.dev/<key>    (R2 public base)
+            // - https://<site>/r2/<key>            (legacy)
+            // We'll convert to https://<site>/api/r2/get?key=<key> when possible, and verify it is fetchable.
+            const appOriginForAssets = (process.env.NEXT_PUBLIC_APP_URL?.trim() || origin).replace(/\/$/, '');
+            function extractKeyFromKnownUrl(u: string): string | null {
+              try {
+                const url = new URL(u);
+                if (url.pathname === '/api/r2/get') {
+                  const k = url.searchParams.get('key');
+                  return k ? k.trim().replace(/^\/+/, '') : null;
+                }
+                if (url.pathname.startsWith('/r2/')) {
+                  const k = url.pathname.replace(/^\/r2\//, '').trim();
+                  return k ? k.replace(/^\/+/, '') : null;
+                }
+                if (url.hostname.endsWith('.r2.dev')) {
+                  const k = url.pathname.replace(/^\/+/, '').trim();
+                  return k ? k : null;
+                }
+                return null;
+              } catch {
+                return null;
+              }
+            }
+            function toProxyUrl(u: string): string {
+              const k = extractKeyFromKnownUrl(u);
+              if (!k) return u;
+              return `${appOriginForAssets}/api/r2/get?key=${encodeURIComponent(k)}`;
+            }
+            async function verifyFetchable(u: string): Promise<boolean> {
+              try {
+                const head = await fetch(u, { method: 'HEAD', cache: 'no-store' });
+                if (head.ok) return true;
+              } catch {}
+              try {
+                const get = await fetch(u, { method: 'GET', headers: { Range: 'bytes=0-0' }, cache: 'no-store' });
+                return get.status >= 200 && get.status < 400;
+              } catch {
+                return false;
+              }
+            }
+
             // Check if frames are still generating
             const scenesWithPendingFrames = storyboard.scenes.filter(s => {
               const firstNotReady = s.first_frame_prediction_id && !s.first_frame_url;
@@ -2446,15 +2491,30 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 continue;
               }
 
-              // Verify start image is reachable
-              try {
-                const check = await fetch(startImage, { method: 'HEAD' });
-                if (!check.ok) throw new Error(`Image unreachable: ${check.status}`);
-              } catch (e) {
+              // Normalize + verify both frame URLs are fetchable by Replicate
+              const normalizedStartImage = toProxyUrl(startImage);
+              const normalizedEndImage = toProxyUrl(endImage);
+
+              const startOk = await verifyFetchable(normalizedStartImage);
+              if (!startOk) {
                 nextStoryboard.scenes[idx] = {
                   ...scene,
                   video_status: 'failed',
-                  video_error: 'First frame URL is unreachable. Please regenerate.',
+                  video_error: 'First frame URL is unreachable. Please regenerate or re-upload the frame.',
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                  type: 'video_generation_update',
+                  data: { message_id: videoMessageId, storyboard: nextStoryboard },
+                })}\n\n`));
+                continue;
+              }
+
+              const endOk = await verifyFetchable(normalizedEndImage);
+              if (!endOk) {
+                nextStoryboard.scenes[idx] = {
+                  ...scene,
+                  video_status: 'failed',
+                  video_error: 'Last frame URL is unreachable. Please regenerate or re-upload the frame.',
                 };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                   type: 'video_generation_update',
@@ -2495,7 +2555,10 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   ` Target end state should show: ${scene.last_frame_visual_elements.join(', ')}` : '';
                 
                 // Create enhanced prompt with voiceover, motion, and visual context
-                let enhancedPrompt = `${prompt}${lastFrameContext}`;
+                let enhancedPrompt =
+                  `START_FRAME_URL (image input): ${normalizedStartImage}\n` +
+                  `END_FRAME_URL (end_image input): ${normalizedEndImage}\n\n` +
+                  `${prompt}${lastFrameContext}`;
                 
                 // Add voiceover context for lip sync and expressions
                 if (voiceoverText && scene.uses_avatar) {
@@ -2505,7 +2568,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 }
                 
                 // Add motion direction and timing
-                enhancedPrompt += ` MOTION DIRECTION: Start from the provided first frame image and create natural progression towards the described end state. Ensure smooth transformation between start and end compositions with realistic motion flow.`;
+                enhancedPrompt += ` MOTION DIRECTION: Use the provided START frame (image) and END frame (end_image) to interpolate motion between them. Preserve identity, scene layout, lighting, and product placement. The output video should begin matching the start frame and end matching the end frame, with natural motion between.`;
                 
                 // Add scene-specific enhancements based on scene type
                 if (scene.scene_type === 'talking_head' && scene.uses_avatar) {
@@ -2532,8 +2595,10 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   input: {
                     prompt: enhancedPrompt,
                     resolution: '720p',
-                    image: startImage, // Primary image input (VEO 3.1 Fast supports this)
-                    // Note: end_image not directly supported by VEO 3.1 Fast, but we encode the end state in the prompt
+                    // VEO start + end frame guidance
+                    image: normalizedStartImage,
+                    start_image: normalizedStartImage,
+                    end_image: normalizedEndImage,
                   },
                 });
                 
