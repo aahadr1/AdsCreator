@@ -1,5 +1,6 @@
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+// Seedream-based storyboard generation can be slower; allow more headroom where the platform supports it.
+export const maxDuration = 900;
 
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -1239,6 +1240,10 @@ async function executeStoryboardCreation(
 ): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
   try {
     const storyboardId = crypto.randomUUID();
+    const startedAt = Date.now();
+    // Safety budget: always return a storyboard payload before route timeouts.
+    // We will enqueue frame predictions and let the client poll prediction IDs for URLs.
+    const timeBudgetMs = 4 * 60 * 1000; // 4 minutes for LLM + enqueues
     
     // Avatar reference URL and description for image-to-image consistency
     const avatarUrl = input.avatar_image_url;
@@ -1389,6 +1394,32 @@ async function executeStoryboardCreation(
 
     let previousRefined: StoryboardScene | undefined;
     for (const outline of outlines) {
+      if (Date.now() - startedAt > timeBudgetMs) {
+        console.warn('[Storyboard] Time budget exceeded; returning remaining scenes as placeholders', {
+          elapsedMs: Date.now() - startedAt,
+          remainingScene: outline.scene_number,
+        });
+        scenesWithPredictions.push({
+          scene_number: outline.scene_number,
+          scene_name: outline.scene_name,
+          description: outline.purpose,
+          duration_seconds: outline.duration_seconds,
+          scene_type: outline.scene_type,
+          uses_avatar: Boolean(outline.needs_avatar),
+          needs_user_details: true,
+          user_question: 'Storyboard is taking longer than expected. Reply “continue storyboard” to finish generating remaining frames.',
+          first_frame_prompt: `PENDING: ${outline.scene_name} — ${outline.purpose}`,
+          first_frame_visual_elements: [],
+          last_frame_prompt: `PENDING: ${outline.scene_name} — ${outline.purpose}`,
+          last_frame_visual_elements: [],
+          video_generation_prompt: 'PENDING',
+          first_frame_status: 'pending',
+          last_frame_status: 'pending',
+          needs_product_image: Boolean(outline.needs_product_image || outline.scene_type === 'product_showcase'),
+          use_prev_scene_transition: false,
+        });
+        continue;
+      }
       const usesAvatar = Boolean(outline.needs_avatar);
       const useAvatarReference = Boolean(avatarUrl && usesAvatar);
       const needsProductImage = Boolean(outline.needs_product_image || outline.scene_type === 'product_showcase');
@@ -1487,19 +1518,12 @@ async function executeStoryboardCreation(
       });
 
       // =================================================================
-      // SEQUENTIAL FRAME GENERATION
+      // FRAME GENERATION (NON-BLOCKING)
       // =================================================================
-      // 
-      // Step 1: Generate FIRST FRAME
-      //   - Use avatar reference (if avatar scene)
-      //   - Use previous scene's last frame (if smooth transition)
-      //   - Use product reference (if product scene)
       //
-      // Step 2: WAIT for first frame to complete and get URL
-      //
-      // Step 3: Generate LAST FRAME
-      //   - Use FIRST FRAME URL as primary reference (scene consistency)
-      //   - This ensures setting, lighting, product placement are IDENTICAL
+      // Seedream predictions can take long enough that blocking waits risk hitting route timeouts.
+      // We enqueue predictions and immediately return a storyboard containing prediction IDs.
+      // The client polls `/api/replicate/status` (which now persists outputs to R2) to fill URLs.
       //
       // =================================================================
       
@@ -1524,7 +1548,7 @@ async function executeStoryboardCreation(
         firstFrameRefs.productDescription = productDescription;
       }
       
-      // Generate FIRST FRAME
+      // Generate FIRST FRAME (enqueue only)
       console.log(`[Storyboard] Scene ${outline.scene_number}: Generating FIRST FRAME...`);
       const firstFramePrediction = await generateSingleImage(
         safeFirst,
@@ -1532,47 +1556,16 @@ async function executeStoryboardCreation(
         firstFrameRefs
       );
       
-      let firstFrameUrl: string | undefined;
-      let firstFrameRawUrl: string | undefined;
-      let firstFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'pending';
-      let firstFrameError: string | undefined;
-      
-      if (firstFramePrediction?.id) {
-        // Wait for first frame to complete (we need the URL for last frame generation)
-        console.log(`[Storyboard] Scene ${outline.scene_number}: Waiting for first frame (${firstFramePrediction.id})...`);
-        const firstFrameResult = await waitForPredictionComplete(firstFramePrediction.id, 90000, 2500);
-        
-        if (firstFrameResult.status === 'succeeded' && firstFrameResult.outputUrl) {
-          firstFrameRawUrl = firstFrameResult.outputUrl;
-          const cached = await maybeCacheImageToR2({
-            sourceUrl: firstFrameRawUrl,
-            conversationId: ctx.conversationId,
-            origin: ctx.origin,
-            type: 'frame',
-          });
-          firstFrameUrl = cached.url;
-          firstFrameStatus = 'succeeded';
-          console.log(`[Storyboard] Scene ${outline.scene_number}: First frame READY: ${firstFrameUrl.substring(0, 50)}...`);
-        } else {
-          firstFrameStatus = 'failed';
-          firstFrameError = firstFrameResult.error || 'First frame generation failed';
-          console.error(`[Storyboard] Scene ${outline.scene_number}: First frame FAILED:`, firstFrameError);
-        }
-      } else {
-        firstFrameStatus = 'failed';
-        firstFrameError = firstFramePrediction?.error || 'Failed to start first frame generation';
-      }
+      const firstFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' =
+        firstFramePrediction?.id ? 'generating' : 'failed';
+      const firstFrameError: string | undefined =
+        firstFramePrediction?.id ? undefined : (firstFramePrediction?.error || 'Failed to start first frame generation');
       
       // Build reference images for LAST FRAME
-      // KEY: Use the FIRST FRAME URL as primary reference for scene consistency!
+      // NOTE: We no longer wait for first_frame URL here. The client will display frames as they finish.
       const lastFrameRefs: ReferenceImages = {};
       
-      if (firstFrameUrl) {
-        // THIS IS THE KEY: First frame URL ensures scene consistency
-        lastFrameRefs.firstFrameUrl = firstFrameUrl;
-        console.log(`[Storyboard] Scene ${outline.scene_number}: Using first frame as reference for last frame`);
-      } else if (useAvatarReference && avatarUrl) {
-        // Fallback to avatar if first frame failed
+      if (useAvatarReference && avatarUrl) {
         lastFrameRefs.avatarUrl = avatarUrl;
         lastFrameRefs.avatarDescription = avatarDescription;
       }
@@ -1583,7 +1576,7 @@ async function executeStoryboardCreation(
         lastFrameRefs.productDescription = productDescription;
       }
       
-      // Generate LAST FRAME (with first frame as reference)
+      // Generate LAST FRAME (enqueue only)
       console.log(`[Storyboard] Scene ${outline.scene_number}: Generating LAST FRAME...`);
       const lastFramePrediction = await generateSingleImage(
         safeLast,
@@ -1591,39 +1584,10 @@ async function executeStoryboardCreation(
         lastFrameRefs
       );
       
-      let lastFrameUrl: string | undefined;
-      let lastFrameRawUrl: string | undefined;
-      let lastFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'pending';
-      let lastFrameError: string | undefined;
-      
-      if (lastFramePrediction?.id) {
-        // Wait for last frame to complete (we need the URL for next scene's transition)
-        console.log(`[Storyboard] Scene ${outline.scene_number}: Waiting for last frame (${lastFramePrediction.id})...`);
-        const lastFrameResult = await waitForPredictionComplete(lastFramePrediction.id, 90000, 2500);
-        
-        if (lastFrameResult.status === 'succeeded' && lastFrameResult.outputUrl) {
-          lastFrameRawUrl = lastFrameResult.outputUrl;
-          const cached = await maybeCacheImageToR2({
-            sourceUrl: lastFrameRawUrl,
-            conversationId: ctx.conversationId,
-            origin: ctx.origin,
-            type: 'frame',
-          });
-          lastFrameUrl = cached.url;
-          lastFrameStatus = 'succeeded';
-          console.log(`[Storyboard] Scene ${outline.scene_number}: Last frame READY: ${lastFrameUrl.substring(0, 50)}...`);
-          
-          // Track this scene's last frame for the NEXT scene's smooth transition
-          prevSceneLastFrameUrl = lastFrameUrl;
-        } else {
-          lastFrameStatus = 'failed';
-          lastFrameError = lastFrameResult.error || 'Last frame generation failed';
-          console.error(`[Storyboard] Scene ${outline.scene_number}: Last frame FAILED:`, lastFrameError);
-        }
-      } else {
-        lastFrameStatus = 'failed';
-        lastFrameError = lastFramePrediction?.error || 'Failed to start last frame generation';
-      }
+      const lastFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' =
+        lastFramePrediction?.id ? 'generating' : 'failed';
+      const lastFrameError: string | undefined =
+        lastFramePrediction?.id ? undefined : (lastFramePrediction?.error || 'Failed to start last frame generation');
 
       const sceneOut: StoryboardScene = {
         scene_number: outline.scene_number,
@@ -1645,10 +1609,10 @@ async function executeStoryboardCreation(
         lighting_description: refined.lighting_description ? String(refined.lighting_description) : undefined,
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
         last_frame_prediction_id: lastFramePrediction?.id || undefined,
-        first_frame_url: firstFrameUrl,
-        last_frame_url: lastFrameUrl,
-        first_frame_raw_url: firstFrameRawUrl,
-        last_frame_raw_url: lastFrameRawUrl,
+        first_frame_url: undefined,
+        last_frame_url: undefined,
+        first_frame_raw_url: undefined,
+        last_frame_raw_url: undefined,
         first_frame_status: firstFrameStatus,
         last_frame_status: lastFrameStatus,
         first_frame_error: firstFrameError,
@@ -1660,8 +1624,8 @@ async function executeStoryboardCreation(
       scenesWithPredictions.push(sceneOut);
       previousRefined = sceneOut;
       
-      // Small delay between scenes to avoid rate limiting
-      await delay(500);
+      // Small delay between scenes to reduce burstiness (Seedream can queue heavily)
+      await delay(200);
     }
     
     // Identify which scenes need product image
@@ -1675,6 +1639,9 @@ async function executeStoryboardCreation(
     );
     const anyFrameFailed = scenesWithPredictions.some(
       s => s.first_frame_status === 'failed' || s.last_frame_status === 'failed'
+    );
+    const anyFrameGenerating = scenesWithPredictions.some(
+      s => s.first_frame_status === 'generating' || s.last_frame_status === 'generating'
     );
     
     const storyboard: Storyboard = {
@@ -1694,7 +1661,7 @@ async function executeStoryboardCreation(
       scenario,
       scenes: scenesWithPredictions,
       created_at: new Date().toISOString(),
-      status: allFramesSucceeded ? 'ready' : anyFrameFailed ? 'failed' : 'generating',
+      status: allFramesSucceeded ? 'ready' : (anyFrameFailed && !anyFrameGenerating) ? 'failed' : 'generating',
       scenes_needing_product: scenesNeedingProduct.length > 0 ? scenesNeedingProduct : undefined,
     };
     
