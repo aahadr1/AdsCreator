@@ -54,6 +54,16 @@ export interface AssistantPlan {
     storyboard_id: string;
     created_at: string;
   };
+
+  /**
+   * Store analyzed videos for future motion control use
+   */
+  analyzed_videos?: Array<{
+    asset_id: string;
+    video_url: string;
+    analysis_result: VideoAnalysisOutput;
+    analyzed_at: string;
+  }>;
 }
 
 export interface PlanStep {
@@ -66,7 +76,7 @@ export interface PlanStep {
 }
 
 // Tool Definitions
-export type ToolName = 'script_creation' | 'image_generation' | 'storyboard_creation' | 'video_generation';
+export type ToolName = 'script_creation' | 'image_generation' | 'storyboard_creation' | 'video_generation' | 'video_analysis' | 'motion_control';
 
 export interface Tool {
   name: ToolName;
@@ -434,4 +444,55 @@ export interface VideoGenerationInput {
 
 export interface VideoGenerationOutput {
   storyboard: Storyboard;
+}
+
+// Video analysis specific types
+export interface VideoAnalysisInput {
+  video_url?: string;
+  video_file?: string; // For uploaded files
+  max_duration_seconds?: number; // Default 30
+}
+
+export interface VideoAnalysisFrame {
+  timestamp_seconds: number;
+  image_url: string;
+  description: string;
+  people_count: number;
+  broll_detected: boolean;
+  has_text_overlay: boolean;
+  scene_change: boolean;
+  confidence: number;
+}
+
+export interface VideoAnalysisOutput {
+  asset_id: string;
+  video_url: string;
+  duration_seconds: number;
+  fps_estimate?: number;
+  aspect_ratio?: string;
+  frames: VideoAnalysisFrame[];
+  summary: string;
+  eligibility: {
+    is_single_character_only: boolean;
+    has_b_roll: boolean;
+    recommended_for_motion_control: boolean;
+    reasoning: string;
+  };
+}
+
+// Motion control specific types
+export interface MotionControlInput {
+  video_url: string; // Reference video (motion source)
+  image_url: string; // Reference character image
+  prompt?: string; // Optional text prompt for additional context
+  character_orientation?: 'image' | 'video'; // 'image': same as person in picture (max 10s), 'video': consistent with video (max 30s)
+  mode?: 'std' | 'pro'; // 'std': Standard (cost-effective), 'pro': Professional (higher quality)
+  keep_original_sound?: boolean;
+}
+
+export interface MotionControlOutput {
+  prediction_id: string;
+  status: string;
+  output_url?: string;
+  output_raw_url?: string;
 }

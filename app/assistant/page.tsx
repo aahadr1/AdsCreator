@@ -1114,6 +1114,8 @@ export default function AssistantPage() {
         switch (message.tool_name) {
           case 'script_creation': return <FileText size={16} />;
           case 'storyboard_creation': return <Film size={16} />;
+          case 'video_analysis': return <Film size={16} />;
+          case 'motion_control': return <Play size={16} />;
           default: return <ImageIcon size={16} />;
         }
       };
@@ -1121,6 +1123,8 @@ export default function AssistantPage() {
         switch (message.tool_name) {
           case 'script_creation': return 'Generating script…';
           case 'storyboard_creation': return 'Creating storyboard…';
+          case 'video_analysis': return 'Analyzing video…';
+          case 'motion_control': return 'Creating motion control video…';
           default: return 'Generating image…';
         }
       };
@@ -1185,6 +1189,66 @@ export default function AssistantPage() {
               />
             ) : message.tool_name === 'script_creation' ? (
               <ScriptCard content={message.content} />
+            ) : message.tool_name === 'video_analysis' ? (
+              <div className={styles.toolCard}>
+                <div className={styles.toolHeader}>
+                  <Film size={16} />
+                  <span>Video Analysis</span>
+                  <span className={`${styles.pill} ${success ? styles.pillGood : styles.pillBad}`}>
+                    {success ? 'complete' : 'failed'}
+                  </span>
+                </div>
+                <div className={styles.toolBody}>
+                  {success && message.tool_output ? (
+                    <>
+                      <div style={{ marginBottom: '12px', color: 'rgba(231,233,238,0.8)' }}>
+                        {(message.tool_output as any).output?.summary || 'Video analyzed successfully'}
+                      </div>
+                      <div style={{ display: 'grid', gap: '8px', fontSize: '13px' }}>
+                        <div style={{ display: 'flex', gap: '8px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                          <span style={{ color: 'rgba(231,233,238,0.6)' }}>Duration:</span>
+                          <span>{(message.tool_output as any).output?.duration_seconds || 0}s</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                          <span style={{ color: 'rgba(231,233,238,0.6)' }}>Motion Control Eligible:</span>
+                          <span style={{ color: (message.tool_output as any).output?.eligibility?.recommended_for_motion_control ? '#22c55e' : '#ef4444' }}>
+                            {(message.tool_output as any).output?.eligibility?.recommended_for_motion_control ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                        {(message.tool_output as any).output?.eligibility?.reasoning && (
+                          <div style={{ padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '12px', color: 'rgba(231,233,238,0.65)' }}>
+                            {(message.tool_output as any).output.eligibility.reasoning}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <Markdown content={message.content} />
+                  )}
+                </div>
+              </div>
+            ) : message.tool_name === 'motion_control' ? (
+              <div className={styles.toolCard}>
+                <div className={styles.toolHeader}>
+                  <Play size={16} />
+                  <span>Motion Control Video</span>
+                  <span className={`${styles.pill} ${success ? styles.pillGood : styles.pillBad}`}>
+                    {success ? 'generating' : 'failed'}
+                  </span>
+                </div>
+                <div className={styles.toolBody}>
+                  {success && (message.tool_output as any)?.output?.id ? (
+                    <div style={{ color: 'rgba(231,233,238,0.8)' }}>
+                      Video generation started. Prediction ID: {(message.tool_output as any).output.id}
+                      <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(231,233,238,0.6)' }}>
+                        Check status via the API or wait for the result.
+                      </div>
+                    </div>
+                  ) : (
+                    <Markdown content={message.content} />
+                  )}
+                </div>
+              </div>
             ) : (message.tool_name === 'storyboard_creation' || message.tool_name === 'video_generation') && storyboardData ? (
               <StoryboardCard storyboard={storyboardData as Storyboard} messageId={message.id} />
             ) : (

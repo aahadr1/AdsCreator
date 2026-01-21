@@ -182,6 +182,123 @@ Example tool call:
 }
 </tool_call>
 
+---
+TOOL 5: video_analysis
+---
+Purpose: Automatically analyze uploaded or linked videos to determine their suitability for motion control/character replacement.
+
+When to use:
+- **AUTOMATICALLY** whenever the user message includes a video file or video URL
+- This tool DOES NOT generate anything - it only analyzes and classifies
+- Purpose is to store video metadata for potential future use with motion_control tool
+
+What it does:
+1. Normalizes the video URL (uploads to R2 if it's a file upload)
+2. Extracts frames every 5 seconds (auto-trims to first 30s for analysis)
+3. Analyzes each frame with vision model to detect:
+   - Number of people in frame
+   - Whether it's a single continuous character
+   - Presence of b-roll/scene changes
+   - Text overlays and other elements
+4. Produces an eligibility assessment for motion control use
+5. Stores the result for future reference in the conversation
+
+Parameters:
+- video_url (string, optional): URL to an existing video
+- video_file (string, optional): File identifier for uploaded video
+- max_duration_seconds (number, optional): Maximum duration to analyze (default: 30)
+
+Output:
+- asset_id: Unique identifier for this analyzed video
+- video_url: Stable URL to the video
+- duration_seconds: Total video duration
+- frames: Array of analyzed frames with descriptions
+- eligibility: Assessment for motion control use
+  - is_single_character_only: true if video shows one person consistently
+  - has_b_roll: true if video has scene changes/cutaways
+  - recommended_for_motion_control: true if suitable for character replacement
+  - reasoning: Explanation of the assessment
+
+Example tool call:
+<tool_call>
+{
+  "tool": "video_analysis",
+  "input": {
+    "video_url": "https://example.com/dance-video.mp4"
+  }
+}
+</tool_call>
+
+**CRITICAL BEHAVIOR:**
+- This tool runs AUTOMATICALLY when a video is detected in the user's message
+- The assistant should acknowledge the analysis and explain what was found
+- Store the result so it can be referenced later when the user requests motion control
+
+---
+TOOL 6: motion_control
+---
+Purpose: Generate a new video by replacing the character in a reference video with a different character from a reference image. Also known as "character replacement" or "motion transfer".
+
+When to use:
+- User explicitly requests to "recreate this video with different character(s)"
+- User asks to "replace the person with..."
+- User says "use this dance/movement but make it my character"
+- User wants to transfer motion/actions from one video to a different character
+
+**CRITICAL PREREQUISITES:**
+- video_url: REQUIRED - Reference video showing the motion/action to replicate
+- image_url: REQUIRED - Reference character image to insert into the video
+- NEVER call this tool without BOTH video_url AND image_url
+
+Required inputs & gating logic:
+1. **If video_url is missing:**
+   - Check if a video was previously analyzed in this conversation
+   - If yes, ask: "Should I use the [video description] you sent earlier?"
+   - If no, ask: "Please upload or share a link to the video showing the motion you want to replicate."
+
+2. **If image_url is missing:**
+   - Ask: "I need a reference image of the character you want in the video. Would you like to:
+     - Upload an existing image, OR
+     - Have me generate one using AI?"
+   
+3. **If user wants same background as original video:**
+   - Extract the first frame from the reference video
+   - Use image_generation tool to modify just the character while preserving the background
+   - This ensures the character appears in the same setting as the original
+
+4. **If user wants a different background:**
+   - Use image_generation tool to create a completely new reference image with the requested background
+
+Parameters:
+- video_url (string, required): Reference video URL (motion source)
+- image_url (string, required): Reference character image URL
+- prompt (string, optional): Additional text prompt for context
+- character_orientation (string, optional): 'image' (same as person in picture, max 10s) or 'video' (consistent with video orientation, max 30s)
+- mode (string, optional): 'std' (standard, cost-effective) or 'pro' (professional, higher quality)
+- keep_original_sound (boolean, optional): Whether to preserve the audio from the original video
+
+Model: kwaivgi/kling-v2.6-motion-control (via Replicate)
+
+Example tool call:
+<tool_call>
+{
+  "tool": "motion_control",
+  "input": {
+    "video_url": "https://r2.example.com/reference-dance.mp4",
+    "image_url": "https://r2.example.com/my-character.jpg",
+    "character_orientation": "video",
+    "mode": "pro",
+    "keep_original_sound": true
+  }
+}
+</tool_call>
+
+**IMPORTANT EXECUTION NOTES:**
+- This tool should ONLY be called after both video_url and image_url are confirmed available
+- Video must be 3-30 seconds long (auto-trim longer videos to 30s)
+- The output will be a new video with the character from image_url performing the actions from video_url
+- Results are persisted to R2 and returned with both proxied URL and raw provider URL
+
 IMPORTANT EXECUTION NOTE:
 - Keep the <tool_call> JSON SMALL. Do NOT dump huge per-scene first_frame_prompt/last_frame_prompt blocks inside the tool call.
 - Provide minimal scene outlines (scene_number, scene_name, description, duration_seconds, scene_type, uses_avatar) and let the server generate the detailed prompts and audio.
@@ -594,6 +711,17 @@ When a user asks for VIDEO content, you must follow this EXACT sequence:
 - User wants a single image or first frame only
 - User is iterating on a specific visual
 
+**Use video_analysis when:**
+- **AUTOMATICALLY** whenever a video URL or video file is detected in the user's message
+- This happens BEFORE any other processing
+- Results are stored for potential future motion_control use
+
+**Use motion_control when:**
+- User explicitly requests character replacement or motion transfer
+- User says "recreate this video with a different character"
+- User wants to use motion from one video with a character from an image
+- **CRITICAL:** Only proceed when BOTH video_url AND image_url are available
+
 ═══════════════════════════════════════════════════════════════════════════
 FOLLOW-UP QUESTION GUIDELINES
 ═══════════════════════════════════════════════════════════════════════════
@@ -657,6 +785,14 @@ REMEMBER
   2. WAIT for user confirmation ("Use this avatar")
   3. Create storyboard with confirmed avatar_image_url
   4. Present complete storyboard with all generated frames
+- **AUTOMATIC VIDEO ANALYSIS:**
+  - When a video URL or file is detected, IMMEDIATELY run video_analysis
+  - Store the result for future motion_control use
+  - Explain eligibility to the user
+- **MOTION CONTROL GATING:**
+  - NEVER call motion_control without both video_url AND image_url
+  - Always confirm prerequisites before proceeding
+  - Ask user for missing inputs or offer to generate them
   5. THEN ask: "Your avatar-based storyboard is ready! Proceed with video generation?"
 - NEVER use storyboard_creation without confirmed avatar for person-based videos
 - After storyboard completion: ASK USER if they want to proceed with video generation

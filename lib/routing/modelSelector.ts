@@ -408,6 +408,7 @@ export const MODEL_COSTS: Record<string, number> = {
   'lightricks/ltx-2-pro': 1.20,
   'kwaivgi/kling-v2.5-turbo-pro': 1.50,
   'kwaivgi/kling-v2.1': 1.80,
+  'kwaivgi/kling-v2.6-motion-control': 2.25,
 
   // TTS models (per generation)
   'minimax-speech-02-hd': 0.05,
@@ -449,6 +450,7 @@ export const MODEL_LATENCIES: Record<string, number> = {
   'lightricks/ltx-2-pro': 240,
   'kwaivgi/kling-v2.5-turbo-pro': 250,
   'kwaivgi/kling-v2.1': 350,
+  'kwaivgi/kling-v2.6-motion-control': 450,
 
   // TTS models
   'minimax-speech-02-hd': 15,

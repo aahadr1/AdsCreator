@@ -1,7 +1,7 @@
 # Assistant Tools Accessibility Check
 
 ## Summary
-This document verifies that all 28 models mentioned in the reference guide are accessible to the assistant.
+This document verifies that all 29 models mentioned in the reference guide are accessible to the assistant.
 
 ## Tools Defined in TOOL_SPECS
 
@@ -11,7 +11,7 @@ This document verifies that all 28 models mentioned in the reference guide are a
 - ✅ `black-forest-labs/flux-krea-dev`
 - ✅ `bytedance/seedream-4`
 
-### 2. Video Generation (11 models)
+### 2. Video Generation (12 models)
 - ✅ `google/veo-3.1-fast`
 - ✅ `google/veo-3-fast`
 - ✅ `google/veo-3.1`
@@ -20,6 +20,7 @@ This document verifies that all 28 models mentioned in the reference guide are a
 - ✅ `openai/sora-2-pro`
 - ✅ `kwaivgi/kling-v2.5-turbo-pro`
 - ✅ `kwaivgi/kling-v2.1`
+- ✅ `kwaivgi/kling-v2.6-motion-control`
 - ✅ `wan-video/wan-2.2-i2v-fast`
 - ✅ `wan-video/wan-2.2-animate-replace`
 - ✅ `bytedance/seedance-1-lite`
@@ -44,7 +45,7 @@ This document verifies that all 28 models mentioned in the reference guide are a
 ### 7. Transcription (1 model)
 - ✅ `openai/gpt-4o-transcribe`
 
-## Reference Guide Models (28 total)
+## Reference Guide Models (29 total)
 
 ### Image Models (5)
 1. ✅ `openai/gpt-image-1.5`
@@ -52,16 +53,17 @@ This document verifies that all 28 models mentioned in the reference guide are a
 3. ✅ `black-forest-labs/flux-krea-dev`
 4. ✅ `bytedance/seedream-4`
 
-### Video Models (12)
+### Video Models (13)
 6-9. ✅ `google/veo-3.1-fast`, `google/veo-3-fast`, `google/veo-3.1`, `google/veo-3` (4 models)
 10. ✅ `openai/sora-2`
 11. ✅ `openai/sora-2-pro`
 12. ✅ `kwaivgi/kling-v2.5-turbo-pro`
 13. ✅ `kwaivgi/kling-v2.1`
-14. ✅ `wan-video/wan-2.2-i2v-fast`
-15. ✅ `wan-video/wan-2.2-animate-replace`
-16. ✅ `bytedance/seedance-1-lite`
-17. ✅ `bytedance/seedance-1-pro`
+14. ✅ `kwaivgi/kling-v2.6-motion-control`
+15. ✅ `wan-video/wan-2.2-i2v-fast`
+16. ✅ `wan-video/wan-2.2-animate-replace`
+17. ✅ `bytedance/seedance-1-lite`
+18. ✅ `bytedance/seedance-1-pro`
 
 ### TTS Models (3)
 20. ✅ `minimax-speech-02-hd`
@@ -69,14 +71,14 @@ This document verifies that all 28 models mentioned in the reference guide are a
 22. ✅ `dia-tts` (zsxkib/dia)
 
 ### Lip Sync Models (3)
-18. ✅ `wan-video/wan-2.2-s2v` (also listed as #25 in reference)
-23. ✅ `sievesync-1.1`
-24. ✅ `bytedance/latentsync` (also listed as #19 in reference)
+19. ✅ `wan-video/wan-2.2-s2v` (also listed as #25 in reference)
+24. ✅ `sievesync-1.1`
+25. ✅ `bytedance/latentsync` (also listed as #19 in reference)
 
 ### Other Tools (3)
-26. ✅ `background-remover` (851-labs/background-remover)
-27. ✅ `topazlabs/image-upscale`
-28. ✅ `openai/gpt-4o-transcribe`
+27. ✅ `background-remover` (851-labs/background-remover)
+28. ✅ `topazlabs/image-upscale`
+29. ✅ `openai/gpt-4o-transcribe`
 
 ## Execution Routes
 
@@ -91,7 +93,7 @@ All tools have corresponding execution functions in `/app/api/assistant/run/rout
 
 ## Conclusion
 
-✅ **ALL 28 MODELS ARE ACCESSIBLE**
+✅ **ALL 29 MODELS ARE ACCESSIBLE**
 
 All models mentioned in the reference guide are:
 1. Defined in `TOOL_SPECS` with proper model IDs
@@ -99,5 +101,5 @@ All models mentioned in the reference guide are:
 3. Are included in the system prompt via `buildUnifiedPlannerSystemPrompt()`
 4. Have detailed specifications in the MODEL_FIELDS array
 
-The assistant has full access to all 28 models across 7 tool categories.
+The assistant has full access to all 29 models across 7 tool categories.
 
