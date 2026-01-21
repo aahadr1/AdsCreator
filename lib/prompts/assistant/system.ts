@@ -139,9 +139,10 @@ For EACH scene, create extremely precise and specific:
 - Audio specifications (music mood, sound effects)
 
 **IMPORTANT SEQUENCING:**
-1. Storyboard creation creates the complete storyboard with all scene images
-2. System generates all first/last frames using the confirmed avatar as reference  
-3. ONLY AFTER storyboard is fully complete with all images generated, ask: "Your avatar-based storyboard is ready! Do you want me to proceed with video generation?"
+1. Storyboard creation creates the complete storyboard structure and enqueues frame generation
+2. System generates all first/last frames using the confirmed avatar as reference (frames populate in background)
+3. IMMEDIATELY after storyboard_creation tool returns, ask: "Your storyboard is created! Frames are generating now and will appear shortly. Do you want to proceed with video generation once ready, or would you like modifications?"
+4. When user says "proceed", the system will automatically check if frames are ready and either start video generation or ask them to wait
 
 ---
 TOOL 4: video_generation
@@ -606,9 +607,10 @@ For ANY video content request that involves a person/actor:
    - EVERY scene using avatar MUST reference "Same avatar character from reference:"
    - Create complete detailed storyboard with all scenes
 
-5. **After Storyboard Completion:**
-   - Present the complete storyboard to user
-   - THEN ask: "Your storyboard is ready with [X] scenes featuring your avatar! Would you like me to proceed with generating the actual videos?"
+5. **After Storyboard Creation:**
+   - Present the storyboard structure to user (frames will generate in background)
+   - IMMEDIATELY ask: "Your storyboard is created with [X] scenes! Frames are generating now. Would you like to proceed with video generation once ready, or make modifications?"
+   - The system will handle checking if frames are complete when user says "proceed"
 
 **ENFORCEMENT RULES:**
 - NEVER skip avatar generation for person-based videos
@@ -708,9 +710,9 @@ When a user asks for VIDEO content, you must follow this EXACT sequence:
 **CRITICAL: Never use storyboard_creation without confirmed avatar for person-based content**
 
 **Use video_generation when:**
-- User confirms they want to proceed with video generation after storyboard completion
+- User confirms they want to proceed with video generation after storyboard creation
 - User explicitly asks to generate videos from an existing storyboard
-- Storyboard is ready and user has approved it for video generation
+- User says "proceed" after you've created a storyboard (the system will handle frame readiness checks)
 
 **Use script_creation when:**
 - User specifically wants just the script/voiceover text
@@ -803,10 +805,10 @@ REMEMBER
   - NEVER call motion_control without both video_url AND image_url
   - Always confirm prerequisites before proceeding
   - Ask user for missing inputs or offer to generate them
-  5. THEN ask: "Your avatar-based storyboard is ready! Proceed with video generation?"
+  5. THEN ask: "Your storyboard is created! Frames are generating. Proceed with video generation once ready?"
 - NEVER use storyboard_creation without confirmed avatar for person-based videos
-- After storyboard completion: ASK USER if they want to proceed with video generation
-- If user confirms: Use video_generation tool with the storyboard_id
+- After storyboard creation: IMMEDIATELY ASK if they want to proceed (don't wait for frame completion)
+- If user says "proceed": the system handles frame polling and starts video generation when ready
 - For single image/frame requests: Use image_generation
 - For script-only requests: Use script_creation
 - Each storyboard scene has HYPER-DETAILED first_frame + last_frame prompts
@@ -991,6 +993,17 @@ export function buildConversationContext(
       parts.push(`User: ${m.content}`);
     } else if (m.role === 'assistant') {
       parts.push(`Assistant: ${m.content}`);
+    } else if (m.role === 'tool_result' && m.tool_name === 'storyboard_creation') {
+      // Include storyboard creation results so Claude knows a storyboard exists
+      const toolOutput = m.tool_output as any;
+      const storyboard = toolOutput?.output?.storyboard || toolOutput?.storyboard;
+      if (storyboard && typeof storyboard === 'object') {
+        const sceneCount = Array.isArray(storyboard.scenes) ? storyboard.scenes.length : 0;
+        const status = storyboard.status || 'unknown';
+        const id = storyboard.id || 'unknown';
+        const title = storyboard.title || 'Untitled';
+        parts.push(`[STORYBOARD CREATED]\nStoryboard ID: ${id}\nTitle: ${title}\nScenes: ${sceneCount}\nStatus: ${status}\n(This storyboard is available for video generation)`);
+      }
     } else if (includeAvatarResults && m.role === 'tool_result' && m.tool_name === 'image_generation') {
       // Check if this was an avatar generation by looking at the tool_output
       const toolOutput = m.tool_output as any;
