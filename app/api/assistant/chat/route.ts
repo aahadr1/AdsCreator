@@ -2864,6 +2864,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           const toolResults: Array<{ tool: string; result: unknown }> = [];
           
           for (const toolCall of filteredToolCalls) {
+            const toolMessageId = crypto.randomUUID();
             // Normalize/sanitize tool inputs to avoid massive payloads (and to force server-side multi-call refinement).
             if (toolCall.tool === 'storyboard_creation') {
               toolCall.input = sanitizeStoryboardCreationInput(toolCall.input);
@@ -2939,7 +2940,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
               type: 'tool_call', 
-              data: { tool: toolCall.tool, input: toolCall.input }
+              data: { tool: toolCall.tool, input: toolCall.input, message_id: toolMessageId }
             })}\n\n`));
             
             let result;
@@ -2976,10 +2977,15 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             }
             
             if (result) {
-              toolResults.push({ tool: toolCall.tool, result });
+              const resultWithMessageId =
+                result && typeof result === 'object'
+                  ? { ...(result as any), message_id: toolMessageId }
+                  : { success: false, error: 'Invalid tool result', message_id: toolMessageId };
+
+              toolResults.push({ tool: toolCall.tool, result: resultWithMessageId });
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                 type: 'tool_result', 
-                data: { tool: toolCall.tool, result }
+                data: { tool: toolCall.tool, result: resultWithMessageId }
               })}\n\n`));
             }
           }

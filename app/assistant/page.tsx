@@ -438,9 +438,23 @@ export default function AssistantPage() {
                 break;
               
               case 'tool_call':
-                const toolCall = event.data as { tool: string; input: unknown };
+                const toolCall = event.data as { tool: string; input: unknown; message_id?: string };
+                // For image generation, render the image card immediately (placeholder),
+                // then overwrite it when tool_result arrives with the same message_id.
+                if (toolCall.tool === 'image_generation') {
+                  setMessages(prev => [...prev, {
+                    id: typeof toolCall.message_id === 'string' ? toolCall.message_id : crypto.randomUUID(),
+                    role: 'tool_result',
+                    content: '',
+                    timestamp: new Date().toISOString(),
+                    tool_name: toolCall.tool,
+                    tool_input: toolCall.input as Record<string, unknown>,
+                    tool_output: { success: true, output: { status: 'starting' } } as any,
+                  }]);
+                  break;
+                }
                 setMessages(prev => [...prev, {
-                  id: crypto.randomUUID(),
+                  id: typeof toolCall.message_id === 'string' ? toolCall.message_id : crypto.randomUUID(),
                   role: 'tool_call',
                   content: `Executing ${toolCall.tool}...`,
                   timestamp: new Date().toISOString(),
@@ -451,18 +465,29 @@ export default function AssistantPage() {
               
               case 'tool_result':
                 const toolResult = event.data as { tool: string; result: { success: boolean; output?: unknown; error?: string; message_id?: string } };
-                setMessages(prev => [...prev, {
-                  id: typeof toolResult.result?.message_id === 'string' ? toolResult.result.message_id : crypto.randomUUID(),
-                  role: 'tool_result',
-                  content: toolResult.result.success 
+                setMessages(prev => {
+                  const msgId = typeof toolResult.result?.message_id === 'string' ? toolResult.result.message_id : crypto.randomUUID();
+                  const content = toolResult.result.success 
                     ? (typeof toolResult.result.output === 'string' 
                         ? toolResult.result.output 
                         : JSON.stringify(toolResult.result.output, null, 2))
-                    : `Error: ${toolResult.result.error}`,
-                  timestamp: new Date().toISOString(),
-                  tool_name: toolResult.tool,
-                  tool_output: toolResult.result as Record<string, unknown>,
-                }]);
+                    : `Error: ${toolResult.result.error}`;
+                  
+                  const nextMsg: Message = {
+                    id: msgId,
+                    role: 'tool_result',
+                    content,
+                    timestamp: new Date().toISOString(),
+                    tool_name: toolResult.tool,
+                    tool_output: toolResult.result as Record<string, unknown>,
+                  };
+
+                  const idx = prev.findIndex((m) => m.id === msgId);
+                  if (idx === -1) return [...prev, nextMsg];
+                  const next = [...prev];
+                  next[idx] = { ...prev[idx], ...nextMsg };
+                  return next;
+                });
                 break;
               
               case 'video_generation_update': {
@@ -1311,10 +1336,10 @@ export default function AssistantPage() {
             {success ? <Check size={16} /> : <AlertCircle size={16} />}
           </div>
           <div className={`${styles.bubble} ${(message.tool_name === 'storyboard_creation' || message.tool_name === 'video_generation') ? styles.bubbleWide : ''}`}>
-            {message.tool_name === 'image_generation' && predictionId ? (
+            {message.tool_name === 'image_generation' ? (
               <ImagePredictionCard
                 messageId={message.id}
-                predictionId={String(predictionId)}
+                predictionId={predictionId ? String(predictionId) : ''}
                 initialStatus={initialStatus}
                 initialUrl={persistedUrl}
               />
