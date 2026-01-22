@@ -1878,33 +1878,14 @@ async function executeStoryboardCreation(
       const firstFrameError: string | undefined =
         firstFramePrediction?.id ? undefined : (firstFramePrediction?.error || 'Failed to start first frame generation');
       
-      // Build reference images for LAST FRAME
-      // NOTE: We no longer wait for first_frame URL here. The client will display frames as they finish.
-      const lastFrameRefs: ReferenceImages = {};
-      
-      if (useAvatarReference && avatarUrl) {
-        lastFrameRefs.avatarUrl = avatarUrl;
-        lastFrameRefs.avatarDescription = avatarDescription;
-      }
-      
-      // Product reference for last frame too
-      if (needsProductImage && productUrl) {
-        lastFrameRefs.productUrl = productUrl;
-        lastFrameRefs.productDescription = productDescription;
-      }
-      
-      // Generate LAST FRAME (enqueue only)
-      console.log(`[Storyboard] Scene ${outline.scene_number}: Generating LAST FRAME...`);
-      const lastFramePrediction = await generateSingleImage(
-        safeLast,
-        input.aspect_ratio,
-        lastFrameRefs
-      );
-      
+      // LAST FRAME GENERATION POLICY:
+      // The last frame MUST use the first frame image as an input reference (delta prompting).
+      // Therefore we DO NOT start last-frame prediction until first_frame_url is available.
+      // We'll enqueue last frames later (e.g. when user proceeds), using first_frame_url as the reference input.
       const lastFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' =
-        lastFramePrediction?.id ? 'generating' : 'failed';
+        firstFramePrediction?.id ? 'pending' : 'failed';
       const lastFrameError: string | undefined =
-        lastFramePrediction?.id ? undefined : (lastFramePrediction?.error || 'Failed to start last frame generation');
+        firstFramePrediction?.id ? undefined : 'Cannot generate last frame: first frame prediction was not created.';
 
       const sceneOut: StoryboardScene = {
         scene_number: outline.scene_number,
@@ -1925,7 +1906,7 @@ async function executeStoryboardCreation(
         camera_movement: refined.camera_movement ? String(refined.camera_movement) : undefined,
         lighting_description: refined.lighting_description ? String(refined.lighting_description) : undefined,
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
-        last_frame_prediction_id: lastFramePrediction?.id || undefined,
+        last_frame_prediction_id: undefined,
         first_frame_url: undefined,
         last_frame_url: undefined,
         first_frame_raw_url: undefined,
@@ -2335,7 +2316,8 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             const scenesWithPendingFrames = storyboard.scenes.filter(s => {
               const firstNotReady = s.first_frame_prediction_id && !s.first_frame_url;
               const lastNotReady = s.last_frame_prediction_id && !s.last_frame_url;
-              return firstNotReady || lastNotReady;
+              const lastNeedsCreate = !s.last_frame_prediction_id && !s.last_frame_url && Boolean(s.first_frame_url) && Boolean(s.last_frame_prompt);
+              return firstNotReady || lastNotReady || lastNeedsCreate;
             });
 
             // If frames are still generating, poll for completion with timeout
@@ -2360,8 +2342,14 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   if (scene.first_frame_prediction_id && !scene.first_frame_url) {
                     const result = await checkPredictionStatus(tokenStr, scene.first_frame_prediction_id);
                     if (result.outputUrl) {
-                      // Update storyboard in messages with the URL
-                      scene.first_frame_url = result.outputUrl;
+                      const cached = await maybeCacheImageToR2({
+                        sourceUrl: result.outputUrl,
+                        conversationId: String(conversationId),
+                        origin,
+                        type: 'frame',
+                      });
+                      // Update storyboard in messages with the URL (prefer our stable R2 proxy)
+                      scene.first_frame_url = cached.url;
                       scene.first_frame_status = 'succeeded';
                     } else if (result.status === 'failed' || result.status === 'canceled') {
                       scene.first_frame_status = 'failed';
@@ -2370,12 +2358,42 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                       anyPending = true;
                     }
                   }
+
+                  // If first frame is ready but we haven't created the last frame prediction yet,
+                  // create it now using the FIRST FRAME URL as the input reference.
+                  if (!scene.last_frame_prediction_id && !scene.last_frame_url && scene.first_frame_url && scene.last_frame_prompt) {
+                    const lp = String(scene.last_frame_prompt || '').trim();
+                    // Avoid creating for placeholder/user-input scenes
+                    if (lp && !lp.startsWith('NEEDS USER INPUT') && !lp.startsWith('PENDING:')) {
+                      try {
+                        const refs: ReferenceImages = { firstFrameUrl: scene.first_frame_url };
+                        const pred = await generateSingleImage(lp, storyboard.aspect_ratio, refs);
+                        if (pred?.id) {
+                          scene.last_frame_prediction_id = pred.id;
+                          scene.last_frame_status = 'generating';
+                          anyPending = true;
+                        } else {
+                          scene.last_frame_status = 'failed';
+                          scene.last_frame_error = pred?.error || 'Failed to start last frame generation';
+                        }
+                      } catch (e: any) {
+                        scene.last_frame_status = 'failed';
+                        scene.last_frame_error = e?.message || 'Failed to start last frame generation';
+                      }
+                    }
+                  }
                   
                   // Check last frame
                   if (scene.last_frame_prediction_id && !scene.last_frame_url) {
                     const result = await checkPredictionStatus(tokenStr, scene.last_frame_prediction_id);
                     if (result.outputUrl) {
-                      scene.last_frame_url = result.outputUrl;
+                      const cached = await maybeCacheImageToR2({
+                        sourceUrl: result.outputUrl,
+                        conversationId: String(conversationId),
+                        origin,
+                        type: 'frame',
+                      });
+                      scene.last_frame_url = cached.url;
                       scene.last_frame_status = 'succeeded';
                     } else if (result.status === 'failed' || result.status === 'canceled') {
                       scene.last_frame_status = 'failed';
