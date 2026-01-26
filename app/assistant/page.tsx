@@ -55,7 +55,6 @@ export default function AssistantPage() {
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ url: string; name: string; type: string }>>([]);
   const [isUploading, setIsUploading] = useState(false);
   
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -116,8 +115,10 @@ export default function AssistantPage() {
   }, []);
 
   // Scroll to bottom smoothly (only called when user explicitly wants it)
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
     setShouldAutoScroll(true);
     setShowScrollButton(false);
     userScrolledAwayRef.current = false;
@@ -128,49 +129,46 @@ export default function AssistantPage() {
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    let scrollTimeout: NodeJS.Timeout;
+    let ticking = false;
     const handleScroll = () => {
-      clearTimeout(scrollTimeout);
-      
-      scrollTimeout = setTimeout(() => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
         const atBottom = isAtBottom();
-        
+
         if (!atBottom && !userScrolledAwayRef.current) {
-          // User scrolled away from bottom
           userScrolledAwayRef.current = true;
           setShouldAutoScroll(false);
           setShowScrollButton(true);
         } else if (atBottom) {
-          // User scrolled back to bottom
           userScrolledAwayRef.current = false;
           setShouldAutoScroll(true);
           setShowScrollButton(false);
         }
-      }, 100);
+      });
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
       container.removeEventListener('scroll', handleScroll);
-      clearTimeout(scrollTimeout);
     };
   }, [isAtBottom]);
 
   // ONLY auto-scroll when shouldAutoScroll is true (user is at bottom)
   useEffect(() => {
     if (shouldAutoScroll && !userScrolledAwayRef.current) {
-      // Use requestAnimationFrame for smoother scrolling
       requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+        scrollToBottom('auto');
       });
     }
-  }, [messages, currentReflexion, currentResponse, shouldAutoScroll]);
+  }, [messages, currentReflexion, currentResponse, shouldAutoScroll, scrollToBottom]);
 
   // Auto-resize textarea
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     e.target.style.height = 'auto';
-    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
   };
 
   const toggleReflexion = (messageId: string) => {
@@ -1521,7 +1519,7 @@ export default function AssistantPage() {
             {showScrollButton && (
               <button
                 className={styles.scrollToBottomBtn}
-                onClick={scrollToBottom}
+                onClick={() => scrollToBottom()}
                 type="button"
                 title="Scroll to bottom"
               >
@@ -1606,7 +1604,6 @@ export default function AssistantPage() {
                 )}
               </>
             )}
-            <div ref={messagesEndRef} />
           </div>
         </div>
 
