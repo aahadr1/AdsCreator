@@ -305,6 +305,64 @@ function parseReflexion(content: string): string | null {
   return raw.replace(/https?:\/\/\S+/g, '[redacted]');
 }
 
+type ReflexionMeta = {
+  selectedAction?: 'DIRECT_RESPONSE' | 'FOLLOW_UP' | 'TOOL_CALL';
+  toolToUse?: import('../../../../types/assistant').ToolName | 'none';
+};
+
+function parseReflexionMeta(content: string): ReflexionMeta | null {
+  const m = content.match(/<reflexion>([\s\S]*?)<\/reflexion>/);
+  if (!m?.[1]) return null;
+  const raw = m[1];
+
+  // Handles both Markdown-bold and plain formats:
+  // "**Selected Action:** TOOL_CALL" or "Selected Action: TOOL_CALL"
+  const actionMatch = raw.match(/Selected Action:\s*\**\s*\[?\s*([A-Z_]+)\s*\]?\s*/i);
+  const toolMatch = raw.match(/Tool To Use:\s*\**\s*\[?\s*([a-z_]+|none)\s*\]?\s*/i);
+
+  const selectedActionRaw = actionMatch?.[1]?.toUpperCase();
+  const toolToUseRaw = toolMatch?.[1]?.toLowerCase();
+
+  const meta: ReflexionMeta = {};
+  if (selectedActionRaw === 'DIRECT_RESPONSE' || selectedActionRaw === 'FOLLOW_UP' || selectedActionRaw === 'TOOL_CALL') {
+    meta.selectedAction = selectedActionRaw as ReflexionMeta['selectedAction'];
+  }
+  if (toolToUseRaw) meta.toolToUse = toolToUseRaw as ReflexionMeta['toolToUse'];
+  return meta;
+}
+
+function userExplicitlyRequestedAvatar(text: string): boolean {
+  const t = normalizeText(text);
+  if (!t.includes('avatar')) return false;
+  return /(?:generate|create|make|do|build|get)\s+(?:an?\s+)?avatar/i.test(text) || t === 'avatar';
+}
+
+function buildAvatarToolCallInput(params: {
+  userMessage: string;
+  fallbackProductHint?: string;
+}): ImageGenerationInput {
+  const productHint = (params.fallbackProductHint || '').trim();
+  const userReq = params.userMessage.trim();
+  const avatarDescription =
+    'Photorealistic young adult UGC creator (beauty/lifestyle), friendly and trustworthy, natural makeup, well-lit face, crisp details, consistent identity.';
+
+  const prompt = [
+    'Photorealistic vertical portrait (9:16) of a young adult UGC creator.',
+    'Clean bathroom / vanity setting, soft ring light reflection, smartphone selfie framing (chest-up), natural skin texture, realistic hair.',
+    'Wardrobe: neutral top, minimal jewelry, modern casual.',
+    productHint ? `Context: the ad is about: ${productHint}.` : null,
+    `User request context: ${userReq}`,
+    'No text overlays, no logos, no watermark.',
+  ].filter(Boolean).join(' ');
+
+  return {
+    prompt,
+    aspect_ratio: DEFAULT_IMAGE_ASPECT_RATIO,
+    purpose: 'avatar',
+    avatar_description: avatarDescription,
+  };
+}
+
 function isHttpUrl(u: string | undefined | null): boolean {
   if (!u) return false;
   return /^https?:\/\//i.test(String(u).trim());
@@ -2784,11 +2842,13 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_end' })}\n\n`));
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
             } else if (!inReflexion && fullResponse.includes('</reflexion>')) {
+              // Buffer assistant response text; we will decide what to show after
+              // parsing tool calls and executing any tools. This prevents the UI
+              // from showing "I did X" hallucinations before tools actually run.
               responseBuffer += chunk;
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: chunk })}\n\n`));
             } else if (!fullResponse.includes('<reflexion>')) {
               // No reflexion block yet, buffer it
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: chunk })}\n\n`));
+              responseBuffer += chunk;
             }
           }
 
@@ -2807,7 +2867,8 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           
           // Parse the full response
           const reflexion = parseReflexion(fullResponse);
-          const toolCalls = parseToolCalls(fullResponse);
+          let toolCalls = parseToolCalls(fullResponse);
+          const reflexionMeta = parseReflexionMeta(fullResponse);
           
           // Filter tool calls to enforce avatar-first flow
           let filteredToolCalls = toolCalls;
@@ -2841,24 +2902,41 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           let cleanedResponse = cleanResponse(fullResponse);
           const responseHadToolCallTag = fullResponse.includes('<tool_call>') && fullResponse.includes('</tool_call>');
           if (!toolCalls.length && responseHadToolCallTag && !cleanedResponse.trim()) {
-            cleanedResponse =
-              'I generated a storyboard tool call, but it was not parseable. Please reply "retry storyboard" and I will reformat it as strict JSON.';
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: cleanedResponse })}\n\n`));
+            cleanedResponse = 'I generated a tool call, but it was not parseable. Please reply "retry" and I will reformat it as strict JSON.';
+          }
+
+          // If Claude "intends" to use a tool but forgot to output a <tool_call>,
+          // we infer a minimal tool call so the assistant actually does work.
+          // Priority: avatar generation (step-by-step), then script_creation.
+          if (!toolCalls.length) {
+            const userAskedAvatar = userExplicitlyRequestedAvatar(body.message);
+            const lastAvatarExists = Boolean(avatarCandidate?.url || avatarCandidate?.predictionId || selectedAvatarUrl);
+
+            const wantsToolByReflexion =
+              reflexionMeta?.selectedAction === 'TOOL_CALL' &&
+              reflexionMeta?.toolToUse &&
+              reflexionMeta.toolToUse !== 'none';
+
+            const shouldAutoGenerateAvatar =
+              (userAskedAvatar || (wantsToolByReflexion && reflexionMeta?.toolToUse === 'storyboard_creation')) &&
+              !lastAvatarExists;
+
+            if (shouldAutoGenerateAvatar) {
+              const avatarInput = buildAvatarToolCallInput({
+                userMessage: body.message,
+                fallbackProductHint: body.message,
+              });
+              toolCalls = [{ tool: 'image_generation', input: avatarInput as any }];
+              filteredToolCalls = toolCalls;
+              storyboardBlockedByAvatar = true;
+            } else if (wantsToolByReflexion && reflexionMeta?.toolToUse === 'script_creation') {
+              toolCalls = [{ tool: 'script_creation', input: { prompt: body.message } as any }];
+              filteredToolCalls = toolCalls;
+            }
           }
           
-          if (!cleanedResponse.trim() && storyboardBlockedByAvatar) {
-            if (userConfirmedAvatar && !confirmedAvatarUrl) {
-              cleanedResponse =
-                confirmedAvatarStatus && !['succeeded', 'failed', 'canceled'].includes(String(confirmedAvatarStatus).toLowerCase())
-                  ? `Your avatar is still generating (status: ${confirmedAvatarStatus}). Please wait a moment, then reply again: "Use this avatar".`
-                  : 'I could not access the avatar image URL yet. Please wait for the avatar image to finish generating, then reply: "Use this avatar".';
-            } else if (hasAvatarImageCall) {
-              cleanedResponse = 'Perfect! Here\'s your avatar for the video. Please review it and confirm with "Use this avatar" so I can create your storyboard with consistent character appearance across all scenes.';
-            } else {
-              cleanedResponse = 'This video needs a person/actor. Before I can create the storyboard, I need to generate and get approval for your avatar. This ensures perfect consistency across all scenes. Let me create your avatar first!';
-            }
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: cleanedResponse })}\n\n`));
-          }
+          // Default assistant response (may be overridden after tools run)
+          let finalAssistantResponse = cleanedResponse.trim();
           
           // Execute tool calls if any
           const toolResults: Array<{ tool: string; result: unknown }> = [];
@@ -2989,6 +3067,33 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               })}\n\n`));
             }
           }
+
+          // Enforce step-by-step UX: when avatar generation is started, do NOT let the model
+          // claim completion. Always ask for explicit confirmation in a separate message.
+          const executedAvatarGen = filteredToolCalls.some(
+            (tc) => tc.tool === 'image_generation' && (tc.input as any)?.purpose === 'avatar'
+          );
+          if (executedAvatarGen) {
+            finalAssistantResponse =
+              'I just started generating your avatar. You’ll see it appear above as soon as it finishes.\n\n' +
+              'If you want to use it, reply **"Use this avatar"**.\n' +
+              'If you want a different look (age, vibe, setting, ethnicity, style), tell me what to change and I’ll regenerate.';
+          } else if (!finalAssistantResponse && storyboardBlockedByAvatar) {
+            if (userConfirmedAvatar && !confirmedAvatarUrl) {
+              finalAssistantResponse =
+                confirmedAvatarStatus && !['succeeded', 'failed', 'canceled'].includes(String(confirmedAvatarStatus).toLowerCase())
+                  ? `Your avatar is still generating (status: ${confirmedAvatarStatus}). Please wait a moment, then reply again: "Use this avatar".`
+                  : 'I could not access the avatar image URL yet. Please wait for the avatar image to finish generating, then reply: "Use this avatar".';
+            } else if (avatarCandidate?.url || avatarCandidate?.predictionId) {
+              finalAssistantResponse =
+                'Before I can create the storyboard, please confirm the avatar.\n\n' +
+                'Reply **"Use this avatar"** to proceed, or tell me what to change.';
+            } else {
+              finalAssistantResponse =
+                'This video needs a person/actor. Before I can create the storyboard, I need an avatar reference and your approval.\n\n' +
+                'Reply **"Generate an avatar"** to create one, or upload an image and tell me to use it as the avatar.';
+            }
+          }
           
           // Save messages to conversation (keep tool results before the final assistant "wrap-up")
           const messagesToSave: Message[] = [...existingMessages];
@@ -3070,7 +3175,6 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             storyboardObj.scenes.length > 0 &&
             storyboardToolResult?.success === true;
 
-          let finalAssistantResponse = cleanedResponse.trim();
           if (shouldPromptProceed) {
             // Check if frames are still generating
             const anyFramesGenerating = storyboardObj?.scenes.some(
@@ -3100,13 +3204,10 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               .eq('id', conversationId);
             existingPlan = nextPlan;
           }
-
-          // If we appended a post-storyboard prompt, stream it so the client sees it immediately (not only after reload).
-          if (finalAssistantResponse.trim() && finalAssistantResponse.trim() !== cleanedResponse.trim()) {
-            const delta = finalAssistantResponse.startsWith(cleanedResponse) ? finalAssistantResponse.slice(cleanedResponse.length) : `\n\n${finalAssistantResponse}`;
-            if (delta.trim()) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: delta })}\n\n`));
-            }
+          
+          // Stream final assistant response once (reliable, post-tool execution).
+          if (finalAssistantResponse.trim()) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: finalAssistantResponse })}\n\n`));
           }
 
           // Add assistant response (only if non-empty)
