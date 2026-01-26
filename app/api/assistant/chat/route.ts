@@ -331,38 +331,6 @@ function parseReflexionMeta(content: string): ReflexionMeta | null {
   return meta;
 }
 
-function userExplicitlyRequestedAvatar(text: string): boolean {
-  const t = normalizeText(text);
-  if (!t.includes('avatar')) return false;
-  return /(?:generate|create|make|do|build|get)\s+(?:an?\s+)?avatar/i.test(text) || t === 'avatar';
-}
-
-function buildAvatarToolCallInput(params: {
-  userMessage: string;
-  fallbackProductHint?: string;
-}): ImageGenerationInput {
-  const productHint = (params.fallbackProductHint || '').trim();
-  const userReq = params.userMessage.trim();
-  const avatarDescription =
-    'Photorealistic young adult UGC creator (beauty/lifestyle), friendly and trustworthy, natural makeup, well-lit face, crisp details, consistent identity.';
-
-  const prompt = [
-    'Photorealistic vertical portrait (9:16) of a young adult UGC creator.',
-    'Clean bathroom / vanity setting, soft ring light reflection, smartphone selfie framing (chest-up), natural skin texture, realistic hair.',
-    'Wardrobe: neutral top, minimal jewelry, modern casual.',
-    productHint ? `Context: the ad is about: ${productHint}.` : null,
-    `User request context: ${userReq}`,
-    'No text overlays, no logos, no watermark.',
-  ].filter(Boolean).join(' ');
-
-  return {
-    prompt,
-    aspect_ratio: DEFAULT_IMAGE_ASPECT_RATIO,
-    purpose: 'avatar',
-    avatar_description: avatarDescription,
-  };
-}
-
 function isHttpUrl(u: string | undefined | null): boolean {
   if (!u) return false;
   return /^https?:\/\//i.test(String(u).trim());
@@ -2904,39 +2872,19 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           if (!toolCalls.length && responseHadToolCallTag && !cleanedResponse.trim()) {
             cleanedResponse = 'I generated a tool call, but it was not parseable. Please reply "retry" and I will reformat it as strict JSON.';
           }
-
-          // If Claude "intends" to use a tool but forgot to output a <tool_call>,
-          // we infer a minimal tool call so the assistant actually does work.
-          // Priority: avatar generation (step-by-step), then script_creation.
-          if (!toolCalls.length) {
-            const userAskedAvatar = userExplicitlyRequestedAvatar(body.message);
-            const lastAvatarExists = Boolean(avatarCandidate?.url || avatarCandidate?.predictionId || selectedAvatarUrl);
-
-            const wantsToolByReflexion =
-              reflexionMeta?.selectedAction === 'TOOL_CALL' &&
-              reflexionMeta?.toolToUse &&
-              reflexionMeta.toolToUse !== 'none';
-
-            const shouldAutoGenerateAvatar =
-              (userAskedAvatar || (wantsToolByReflexion && reflexionMeta?.toolToUse === 'storyboard_creation')) &&
-              !lastAvatarExists;
-
-            if (shouldAutoGenerateAvatar) {
-              const avatarInput = buildAvatarToolCallInput({
-                userMessage: body.message,
-                fallbackProductHint: body.message,
-              });
-              toolCalls = [{ tool: 'image_generation', input: avatarInput as any }];
-              filteredToolCalls = toolCalls;
-              storyboardBlockedByAvatar = true;
-            } else if (wantsToolByReflexion && reflexionMeta?.toolToUse === 'script_creation') {
-              toolCalls = [{ tool: 'script_creation', input: { prompt: body.message } as any }];
-              filteredToolCalls = toolCalls;
-            }
+          const wantedToolCall = reflexionMeta?.selectedAction === 'TOOL_CALL';
+          if (wantedToolCall && toolCalls.length === 0) {
+            // Do NOT allow the assistant to claim it executed a tool if no tool_call was provided.
+            cleanedResponse = '';
           }
           
           // Default assistant response (may be overridden after tools run)
           let finalAssistantResponse = cleanedResponse.trim();
+          if (wantedToolCall && toolCalls.length === 0) {
+            finalAssistantResponse =
+              'I expected to run a tool, but no valid <tool_call> was provided in the response.\n\n' +
+              'Please reply **"retry"** so I can return a proper tool_call.';
+          }
           
           // Execute tool calls if any
           const toolResults: Array<{ tool: string; result: unknown }> = [];
