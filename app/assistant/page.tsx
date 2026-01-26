@@ -1,7 +1,7 @@
 'use client';
 
 import '../globals.css';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { supabaseClient as supabase } from '../../lib/supabaseClient';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -54,6 +54,7 @@ export default function AssistantPage() {
   const [userEmail, setUserEmail] = useState<string>('');
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ url: string; name: string; type: string }>>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [visibleConversations, setVisibleConversations] = useState(12);
   
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,6 +99,30 @@ export default function AssistantPage() {
     
     loadConversations();
   }, [authToken]);
+
+  const sortedConversations = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      const aTime = new Date(a.updated_at).getTime();
+      const bTime = new Date(b.updated_at).getTime();
+      return bTime - aTime;
+    });
+  }, [conversations]);
+
+  useEffect(() => {
+    if (!sortedConversations.length) return;
+    setVisibleConversations((prev) => Math.min(Math.max(prev, 12), sortedConversations.length));
+  }, [sortedConversations.length]);
+
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const idx = sortedConversations.findIndex((c) => c.id === activeConversationId);
+    if (idx >= 0 && idx + 1 > visibleConversations) {
+      setVisibleConversations(idx + 1);
+    }
+  }, [activeConversationId, sortedConversations, visibleConversations]);
+
+  const displayedConversations = sortedConversations.slice(0, visibleConversations);
+  const remainingConversations = Math.max(0, sortedConversations.length - visibleConversations);
 
   // Non-intrusive scroll behavior - NEVER force scroll, only follow if user wants
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1465,12 +1490,12 @@ export default function AssistantPage() {
           </button>
         </div>
         <div className={styles.sidebarBody}>
-          {conversations.length === 0 ? (
+          {sortedConversations.length === 0 ? (
             <div style={{ padding: 10, color: 'rgba(231,233,238,0.6)', fontSize: 13 }}>
               No conversations yet.
             </div>
           ) : (
-            conversations.map((conv) => {
+            displayedConversations.map((conv) => {
               const isActive = activeConversationId === conv.id;
               const lastMsg = (conv.messages || []).slice(-1)[0];
               const preview = lastMsg?.content ? String(lastMsg.content).slice(0, 46) : '…';
@@ -1498,6 +1523,15 @@ export default function AssistantPage() {
                 </div>
               );
             })
+          )}
+          {remainingConversations > 0 && (
+            <button
+              type="button"
+              className={styles.seeMoreBtn}
+              onClick={() => setVisibleConversations((prev) => Math.min(prev + 10, sortedConversations.length))}
+            >
+              See more ({remainingConversations})
+            </button>
           )}
         </div>
       </aside>
