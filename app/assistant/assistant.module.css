@@ -1,6 +1,7 @@
 .shell {
-  height: 100dvh;
-  max-height: 100dvh;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
   display: grid;
   grid-template-columns: 280px 1fr;
   background: #0b0c0f;

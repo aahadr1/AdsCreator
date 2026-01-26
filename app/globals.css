@@ -2047,6 +2047,17 @@ input[type="range"]::-moz-range-thumb:hover {
   padding: 0 var(--space-8) var(--space-10);
 }
 
+body[data-page="assistant"] .workspace-content {
+  overflow: hidden;
+}
+
+body[data-page="assistant"] .page-shell {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 @media (max-width: 768px) {
   .page-shell {
     padding: 0 var(--space-4) var(--space-6);
