@@ -6,11 +6,11 @@ export const maxDuration = 800;
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
-import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, CREATIVE_IDEATION_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
+import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, CREATIVE_IDEATION_PROMPT, IMAGE_REFERENCE_SELECTION_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2';
-import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline } from '../../../../types/assistant';
+import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline, ImageReferenceReflexion } from '../../../../types/assistant';
 import type { ImageRegistry, RegisteredImage, ReferenceImagesResult } from '../../../../types/imageRegistry';
-import { createEmptyRegistry, registerImage, updateRegisteredImage, getReferenceImagesForGeneration, setActiveAvatar, setActiveProduct } from '../../../../types/imageRegistry';
+import { createEmptyRegistry, registerImage, updateRegisteredImage, getReferenceImagesForGeneration, setActiveAvatar, setActiveProduct, queryImages } from '../../../../types/imageRegistry';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -1261,11 +1261,225 @@ interface ReferenceImages {
   prevSceneLastFrameUrl?: string;  // Previous scene's last frame (for smooth transitions)
 }
 
+/**
+ * Get AI reflexion on which reference images to use
+ * Returns an array of selected image URLs for maximum consistency
+ */
+async function getImageReferenceReflexion(params: {
+  frameType: 'first' | 'last';
+  sceneNumber: number;
+  sceneName: string;
+  sceneDescription: string;
+  framePrompt: string;
+  imageRegistry: ImageRegistry;
+  storyboardId: string;
+  avatarUrl?: string;
+  productUrl?: string;
+  usesAvatar: boolean;
+  needsProduct: boolean;
+  usePrevSceneTransition: boolean;
+  replicate: Replicate;
+}): Promise<string[]> {
+  try {
+    const {
+      frameType,
+      sceneNumber,
+      sceneName,
+      sceneDescription,
+      framePrompt,
+      imageRegistry,
+      storyboardId,
+      avatarUrl,
+      productUrl,
+      usesAvatar,
+      needsProduct,
+      usePrevSceneTransition,
+      replicate,
+    } = params;
+
+    // Build the available images pool description
+    const availableImages: Array<{ url: string; description: string }> = [];
+    
+    // Add avatar if available
+    if (avatarUrl) {
+      availableImages.push({
+        url: avatarUrl,
+        description: 'Avatar/Character reference image (confirmed identity)',
+      });
+    }
+    
+    // Add product if available
+    if (productUrl) {
+      availableImages.push({
+        url: productUrl,
+        description: 'Product reference image (confirmed product appearance)',
+      });
+    }
+    
+    // Add all successfully generated frames from this storyboard
+    const storyboardImages = queryImages(imageRegistry, {
+      storyboardId,
+      hasUrl: true,
+      status: 'succeeded',
+    });
+    
+    for (const img of storyboardImages) {
+      if (img.url) {
+        const desc = `Scene ${img.sceneNumber} ${img.framePosition} frame - ${img.sceneName || 'untitled'}`;
+        availableImages.push({
+          url: img.url,
+          description: desc,
+        });
+      }
+    }
+    
+    // Build the reflexion prompt
+    const reflexionPrompt = `
+FRAME TO GENERATE: Scene ${sceneNumber} "${sceneName}" - ${frameType.toUpperCase()} FRAME
+
+SCENE CONTEXT:
+- Scene Description: ${sceneDescription}
+- Frame Prompt: ${framePrompt}
+- Uses Avatar: ${usesAvatar}
+- Needs Product: ${needsProduct}
+- Smooth Transition from Previous Scene: ${usePrevSceneTransition}
+
+AVAILABLE IMAGES IN POOL (${availableImages.length} total):
+${availableImages.map((img, idx) => `${idx + 1}. ${img.description}\n   URL: ${img.url}`).join('\n')}
+
+TASK: Select ALL relevant reference images that will help maintain consistency for this ${frameType} frame generation.
+Remember: Seedream-4 supports UP TO 14 input images. Use as many as relevant!
+
+${frameType === 'last' ? `CRITICAL: Since this is a LAST frame, you MUST include the scene's first frame for consistency within the scene.` : ''}
+${usePrevSceneTransition ? `CRITICAL: Since this uses smooth transition, you MUST include the previous scene's last frame.` : ''}
+${usesAvatar ? `CRITICAL: Since this scene uses the avatar, you MUST include the avatar reference image.` : ''}
+${needsProduct ? `CRITICAL: Since this scene needs the product, you MUST include the product reference image.` : ''}
+
+Return STRICT JSON with selected_image_urls array.`;
+
+    // Call Claude for reflexion
+    let reflexionText = '';
+    const stream = await replicate.stream('anthropic/claude-4-sonnet', {
+      input: {
+        prompt: reflexionPrompt,
+        system_prompt: IMAGE_REFERENCE_SELECTION_PROMPT,
+        max_tokens: 1024,
+      },
+    });
+    
+    for await (const event of stream) {
+      reflexionText += String(event);
+    }
+    
+    // Parse the reflexion result
+    const parsed = tryParseAnyJson(reflexionText);
+    if (!parsed || !Array.isArray(parsed.selected_image_urls)) {
+      console.warn('[Image Reflexion] Failed to parse reflexion, falling back to manual selection');
+      // Fallback to basic selection
+      return buildFallbackImageReferences(params);
+    }
+    
+    const reflexion = parsed as ImageReferenceReflexion;
+    console.log('[Image Reflexion]', {
+      frameType,
+      sceneNumber,
+      availableCount: availableImages.length,
+      selectedCount: reflexion.selected_image_urls.length,
+      reasoning: reflexion.reasoning.substring(0, 100),
+    });
+    
+    // Validate and filter selected URLs
+    const validUrls = reflexion.selected_image_urls
+      .filter(url => typeof url === 'string' && url.startsWith('http'))
+      .slice(0, 14); // Seedream-4 limit
+    
+    return validUrls;
+    
+  } catch (e: any) {
+    console.error('[Image Reflexion] Error:', e.message);
+    // Fallback to basic selection
+    return buildFallbackImageReferences(params);
+  }
+}
+
+/**
+ * Fallback image reference selection when AI reflexion fails
+ */
+function buildFallbackImageReferences(params: {
+  frameType: 'first' | 'last';
+  sceneNumber: number;
+  imageRegistry: ImageRegistry;
+  storyboardId: string;
+  avatarUrl?: string;
+  productUrl?: string;
+  usesAvatar: boolean;
+  needsProduct: boolean;
+  usePrevSceneTransition: boolean;
+}): string[] {
+  const refs: string[] = [];
+  const {
+    frameType,
+    sceneNumber,
+    imageRegistry,
+    storyboardId,
+    avatarUrl,
+    productUrl,
+    usesAvatar,
+    needsProduct,
+    usePrevSceneTransition,
+  } = params;
+  
+  // For last frame, ALWAYS include scene's first frame
+  if (frameType === 'last') {
+    const sceneKey = `${storyboardId}:${sceneNumber}`;
+    const firstFrameId = imageRegistry.byScene[sceneKey]?.firstFrame;
+    if (firstFrameId && imageRegistry.images[firstFrameId]?.url) {
+      refs.push(imageRegistry.images[firstFrameId].url);
+    }
+  }
+  
+  // For smooth transitions, include previous scene's last frame
+  if (usePrevSceneTransition && sceneNumber > 1) {
+    const prevSceneKey = `${storyboardId}:${sceneNumber - 1}`;
+    const prevLastFrameId = imageRegistry.byScene[prevSceneKey]?.lastFrame;
+    if (prevLastFrameId && imageRegistry.images[prevLastFrameId]?.url) {
+      const url = imageRegistry.images[prevLastFrameId].url;
+      if (!refs.includes(url)) refs.push(url);
+    }
+  }
+  
+  // Include avatar if needed
+  if (usesAvatar && avatarUrl && !refs.includes(avatarUrl)) {
+    refs.push(avatarUrl);
+  }
+  
+  // Include product if needed
+  if (needsProduct && productUrl && !refs.includes(productUrl)) {
+    refs.push(productUrl);
+  }
+  
+  // Include recent previous frames for style consistency (limit to last 2 scenes)
+  const recentFrames = queryImages(imageRegistry, {
+    storyboardId,
+    hasUrl: true,
+    status: 'succeeded',
+  }).filter(img => img.sceneNumber! < sceneNumber && img.sceneNumber! >= Math.max(1, sceneNumber - 2));
+  
+  for (const img of recentFrames) {
+    if (img.url && !refs.includes(img.url) && refs.length < 14) {
+      refs.push(img.url);
+    }
+  }
+  
+  return refs;
+}
+
 // Helper to generate a single image with multiple reference image support
 async function generateSingleImage(
   prompt: string, 
   aspectRatio?: string,
-  references?: ReferenceImages
+  references?: ReferenceImages,
+  additionalImageInputs?: string[]
 ): Promise<{ id: string; status: string; error?: string } | null> {
   try {
     const token = process.env.REPLICATE_API_TOKEN;
@@ -1385,46 +1599,50 @@ async function generateSingleImage(
     
     // Seedream input is built later; keep base vars for prompt construction only.
     
-    // Collect all reference image URLs
-    // Priority: prevSceneLastFrameUrl > firstFrameUrl > avatarUrl (for the primary reference)
-    // Additional references (product) are included in the prompt context
+    // Collect all reference image URLs - now supporting multiple images via additionalImageInputs
     const referenceUrls: string[] = [];
     const promptContextParts: string[] = [];
     
-    // Check which references we have
-    const hasPrevSceneRef = references?.prevSceneLastFrameUrl && /^https?:\/\//i.test(references.prevSceneLastFrameUrl);
-    const hasFirstFrameRef = references?.firstFrameUrl && /^https?:\/\//i.test(references.firstFrameUrl);
-    const hasAvatarRef = references?.avatarUrl && /^https?:\/\//i.test(references.avatarUrl);
-    const hasProductRef = references?.productUrl && /^https?:\/\//i.test(references.productUrl);
-    
-    // Build reference context for the prompt
-    if (hasPrevSceneRef) {
-      // For smooth transitions: use previous scene's last frame as PRIMARY reference
-      referenceUrls.push(references!.prevSceneLastFrameUrl!);
-      promptContextParts.push('CRITICAL: This frame must be a SEAMLESS continuation from the reference image. The person must be in the EXACT same position, same setting, same lighting. Only subtle changes in expression or very minor movement are allowed.');
-      console.log('[Storyboard] Using prev scene last frame for smooth transition');
-    } else if (hasFirstFrameRef) {
-      // For last frame generation: use first frame as PRIMARY reference
-      referenceUrls.push(references!.firstFrameUrl!);
-      promptContextParts.push('CRITICAL: Maintain EXACT same setting, same lighting, same camera angle, same background as the reference image. The person and environment must look consistent - only the specified changes should occur.');
-      console.log('[Storyboard] Using first frame reference for last frame generation');
-    } else if (hasAvatarRef) {
-      // For first frame generation with avatar
-      referenceUrls.push(references!.avatarUrl!);
-      if (references?.avatarDescription) {
-        promptContextParts.push(`The person in the reference image is: ${references.avatarDescription}.`);
+    // If additionalImageInputs provided (from AI reflexion), use those directly
+    if (Array.isArray(additionalImageInputs) && additionalImageInputs.length > 0) {
+      referenceUrls.push(...additionalImageInputs.filter(url => url && url.startsWith('http')));
+      promptContextParts.push('CRITICAL: Multiple reference images provided for maximum consistency. Maintain visual coherence across ALL reference images - character identity, product appearance, setting elements, lighting style, and overall aesthetic must be consistent.');
+      console.log(`[Storyboard] Using ${referenceUrls.length} reference images from AI reflexion`);
+    } else {
+      // Fallback to legacy ReferenceImages structure
+      const hasPrevSceneRef = references?.prevSceneLastFrameUrl && /^https?:\/\//i.test(references.prevSceneLastFrameUrl);
+      const hasFirstFrameRef = references?.firstFrameUrl && /^https?:\/\//i.test(references.firstFrameUrl);
+      const hasAvatarRef = references?.avatarUrl && /^https?:\/\//i.test(references.avatarUrl);
+      const hasProductRef = references?.productUrl && /^https?:\/\//i.test(references.productUrl);
+      
+      // Build reference context for the prompt
+      if (hasPrevSceneRef) {
+        referenceUrls.push(references!.prevSceneLastFrameUrl!);
+        promptContextParts.push('CRITICAL: This frame must be a SEAMLESS continuation from the reference image. The person must be in the EXACT same position, same setting, same lighting. Only subtle changes in expression or very minor movement are allowed.');
+        console.log('[Storyboard] Using prev scene last frame for smooth transition');
       }
-      promptContextParts.push('CRITICAL: Maintain the EXACT same person, same face, same facial features, same hair, same skin tone, same body type as the reference image.');
-      console.log('[Storyboard] Using avatar reference with description:', references?.avatarDescription ? 'YES' : 'NO');
-    }
-    
-    // Product reference adds additional context
-    if (hasProductRef && references?.productDescription) {
-      promptContextParts.push(`The product in this scene is: ${references.productDescription}. Ensure the product looks EXACTLY like the reference - same colors, same packaging, same details.`);
-      // If product is the only reference, use it as image input
-      if (referenceUrls.length === 0) {
+      
+      if (hasFirstFrameRef && !referenceUrls.includes(references!.firstFrameUrl!)) {
+        referenceUrls.push(references!.firstFrameUrl!);
+        promptContextParts.push('CRITICAL: Maintain EXACT same setting, same lighting, same camera angle, same background as the reference image. The person and environment must look consistent - only the specified changes should occur.');
+        console.log('[Storyboard] Using first frame reference for last frame generation');
+      }
+      
+      if (hasAvatarRef && !referenceUrls.includes(references!.avatarUrl!)) {
+        referenceUrls.push(references!.avatarUrl!);
+        if (references?.avatarDescription) {
+          promptContextParts.push(`The person in the reference image is: ${references.avatarDescription}.`);
+        }
+        promptContextParts.push('CRITICAL: Maintain the EXACT same person, same face, same facial features, same hair, same skin tone, same body type as the reference image.');
+        console.log('[Storyboard] Using avatar reference with description:', references?.avatarDescription ? 'YES' : 'NO');
+      }
+      
+      if (hasProductRef && !referenceUrls.includes(references!.productUrl!)) {
         referenceUrls.push(references!.productUrl!);
-        console.log('[Storyboard] Using product reference as primary image input');
+        if (references?.productDescription) {
+          promptContextParts.push(`The product in this scene is: ${references.productDescription}. Ensure the product looks EXACTLY like the reference - same colors, same packaging, same details.`);
+        }
+        console.log('[Storyboard] Using product reference');
       }
     }
     
@@ -1455,12 +1673,7 @@ async function generateSingleImage(
     }
     
     console.log('[Storyboard] Creating prediction:', model, hasAnyRef ? '(img2img)' : '(t2i)', 
-      'Refs:', {
-        prevScene: hasPrevSceneRef,
-        firstFrame: hasFirstFrameRef,
-        avatar: hasAvatarRef,
-        product: hasProductRef,
-      });
+      'Total refs:', referenceUrls.length);
     
     const res = await createPrediction(model, input);
     if (res.ok) return { id: String(res.json.id), status: String(res.json.status) };
@@ -1927,45 +2140,41 @@ async function executeStoryboardCreation(
       
       sendStreamUpdate(`\n🎬 **Scene ${outline.scene_number}: ${outline.scene_name}**\n`);
       
-      // Build reference images for FIRST FRAME
-      const firstFrameRefs: ReferenceImages = {};
-      const firstFrameInputImages: string[] = [];
+      // =================================================================
+      // AI REFLEXION: Select optimal reference images for first frame
+      // =================================================================
+      sendStreamUpdate(`  🧠 AI analyzing available images for optimal references...\n`);
       
-      // For smooth transitions, use previous scene's last frame as PRIMARY reference
-      if (usePrevSceneTransition && prevSceneLastFrameUrl) {
-        firstFrameRefs.prevSceneLastFrameUrl = prevSceneLastFrameUrl;
-        firstFrameInputImages.push(prevSceneLastFrameUrl);
-        console.log(`[Storyboard] Scene ${outline.scene_number}: Using prev scene last frame for smooth transition`);
-      }
+      const firstFrameReferences = await getImageReferenceReflexion({
+        frameType: 'first',
+        sceneNumber: outline.scene_number,
+        sceneName: outline.scene_name,
+        sceneDescription: String(refined.description || outline.purpose || ''),
+        framePrompt: safeFirst,
+        imageRegistry,
+        storyboardId,
+        avatarUrl,
+        productUrl,
+        usesAvatar,
+        needsProduct: needsProductImage,
+        usePrevSceneTransition,
+        replicate,
+      });
       
-      // Avatar reference - ALWAYS include for avatar scenes (Seedream can handle multiple inputs)
-      if (useAvatarReference && avatarUrl) {
-        firstFrameRefs.avatarUrl = avatarUrl;
-        firstFrameRefs.avatarDescription = avatarDescription;
-        if (!firstFrameInputImages.includes(avatarUrl)) {
-          firstFrameInputImages.push(avatarUrl);
-        }
-      }
-      
-      // Product reference
-      if (needsProductImage && productUrl) {
-        firstFrameRefs.productUrl = productUrl;
-        firstFrameRefs.productDescription = productDescription;
-        if (!firstFrameInputImages.includes(productUrl)) {
-          firstFrameInputImages.push(productUrl);
-        }
-      }
+      console.log(`[Storyboard] Scene ${outline.scene_number}: AI selected ${firstFrameReferences.length} reference images for first frame`);
+      sendStreamUpdate(`  ✓ Selected ${firstFrameReferences.length} reference images\n`);
       
       // =================================================================
       // STEP 1: Generate FIRST FRAME and WAIT for completion
       // =================================================================
-      sendStreamUpdate(`  📸 Generating first frame...`);
-      console.log(`[Storyboard] Scene ${outline.scene_number}: Generating FIRST FRAME (sequential)...`);
+      sendStreamUpdate(`  📸 Generating first frame with ${firstFrameReferences.length} reference images...`);
+      console.log(`[Storyboard] Scene ${outline.scene_number}: Generating FIRST FRAME (sequential) with ${firstFrameReferences.length} references...`);
       
       const firstFramePrediction = await generateSingleImage(
         safeFirst,
         input.aspect_ratio,
-        firstFrameRefs
+        undefined, // Legacy references not used
+        firstFrameReferences // AI-selected references
       );
       
       let firstFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'failed';
@@ -1987,7 +2196,7 @@ async function executeStoryboardCreation(
           sceneNumber: outline.scene_number,
           sceneName: outline.scene_name,
           framePosition: 'first',
-          inputReferenceIds: firstFrameInputImages.length > 0 ? [] : undefined, // Would track reference IDs if needed
+          inputReferenceIds: firstFrameReferences.length > 0 ? [] : undefined, // Would track reference IDs if needed
         });
         imageRegistry = reg1;
         
@@ -2046,24 +2255,37 @@ async function executeStoryboardCreation(
       
       // Only generate last frame if first frame succeeded
       if (firstFrameUrl && firstFrameStatus === 'succeeded') {
-        sendStreamUpdate(`  📸 Generating last frame...`);
-        console.log(`[Storyboard] Scene ${outline.scene_number}: Generating LAST FRAME (using first frame as reference)...`);
+        // =================================================================
+        // AI REFLEXION: Select optimal reference images for last frame
+        // =================================================================
+        sendStreamUpdate(`  🧠 AI analyzing images for last frame...\n`);
         
-        // Build reference images for LAST FRAME - always use first frame
-        const lastFrameRefs: ReferenceImages = {
-          firstFrameUrl: firstFrameUrl,
-        };
+        const lastFrameReferences = await getImageReferenceReflexion({
+          frameType: 'last',
+          sceneNumber: outline.scene_number,
+          sceneName: outline.scene_name,
+          sceneDescription: String(refined.description || outline.purpose || ''),
+          framePrompt: safeLast,
+          imageRegistry,
+          storyboardId,
+          avatarUrl,
+          productUrl,
+          usesAvatar,
+          needsProduct: needsProductImage,
+          usePrevSceneTransition: false, // Last frames don't use prev scene transition
+          replicate,
+        });
         
-        // Also include avatar for identity consistency
-        if (useAvatarReference && avatarUrl) {
-          lastFrameRefs.avatarUrl = avatarUrl;
-          lastFrameRefs.avatarDescription = avatarDescription;
-        }
+        console.log(`[Storyboard] Scene ${outline.scene_number}: AI selected ${lastFrameReferences.length} reference images for last frame`);
+        sendStreamUpdate(`  ✓ Selected ${lastFrameReferences.length} reference images\n`);
+        sendStreamUpdate(`  📸 Generating last frame with ${lastFrameReferences.length} reference images...`);
+        console.log(`[Storyboard] Scene ${outline.scene_number}: Generating LAST FRAME with ${lastFrameReferences.length} references...`);
         
         const lastFramePrediction = await generateSingleImage(
           safeLast,
           input.aspect_ratio,
-          lastFrameRefs
+          undefined, // Legacy references not used
+          lastFrameReferences // AI-selected references
         );
         
         if (lastFramePrediction?.id) {

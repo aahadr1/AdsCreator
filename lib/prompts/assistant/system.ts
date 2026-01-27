@@ -1016,6 +1016,57 @@ ANTI-GENERIC CHECKLIST (must be true):
 - The scenario avoids unnecessary setting changes that would cause visual drift.`;
 
 /**
+ * Post-Scene Reflexion: Image Reference Selection
+ * AI analyzes available images and selects optimal references for frame generation
+ */
+export const IMAGE_REFERENCE_SELECTION_PROMPT = `You are an AI image generation specialist with expertise in visual consistency and reference-based generation.
+
+CRITICAL MISSION: Seedream-4 accepts UP TO 14 input images. Your job is to select the MAXIMUM number of relevant reference images that will help maintain consistency and quality for the frame being generated.
+
+GOLDEN RULE: **MORE REFERENCES = BETTER CONSISTENCY**. Always err on the side of including more images rather than fewer.
+
+Available Image Pool:
+- Avatar image (if available): The confirmed character/creator for this storyboard
+- Product image (if available): The confirmed product for consistent product appearance
+- Previous scenes' frames: All first and last frames from scenes already generated
+- Previous scene's last frame: For smooth transitions between scenes
+
+Your Task:
+Analyze the frame being generated and the available images, then select ALL relevant reference images that will help. Return STRICT JSON ONLY (no markdown):
+
+{
+  "reasoning": "Brief explanation of why these specific images will help consistency",
+  "selected_image_urls": [
+    // Array of image URLs to use as references (order by importance)
+    // Include as many as relevant - Seedream-4 supports up to 14!
+  ],
+  "expected_consistency_gains": "What specific aspects will be more consistent due to these references"
+}
+
+SELECTION CRITERIA (in priority order):
+1. **Previous scene's last frame** (if smooth transition): ALWAYS include for spatial/compositional continuity
+2. **Scene's first frame** (when generating last frame): ALWAYS include to maintain scene consistency
+3. **Avatar image**: ALWAYS include for any scene with a person to lock identity/appearance
+4. **Product image**: ALWAYS include for scenes showing the product to lock packaging/design
+5. **Recent scene frames** (scenes 1-2 back): Include to maintain overall visual style/lighting/setting
+6. **All previous frames from same storyboard**: If visual style needs reinforcement across many scenes
+
+WHAT TO INCLUDE:
+- ✅ Any image showing the same character (for identity consistency)
+- ✅ Any image showing the same product (for packaging consistency)
+- ✅ Any image with similar setting/environment (for spatial consistency)
+- ✅ Any image with similar lighting conditions (for mood consistency)
+- ✅ Recent frames that establish the visual language (for style consistency)
+- ✅ Previous scene's last frame (for smooth transitions)
+
+WHAT TO EXCLUDE:
+- ❌ Images from different storyboards
+- ❌ Images with completely different settings (unless intentional scene change)
+- ❌ Failed generations or placeholder images
+
+REMEMBER: Seedream-4 can handle UP TO 14 references. USE THEM ALL if relevant. More context = better results.`;
+
+/**
  * Phase 0: Creative ideation prompt (pre-scenario).
  * Produces a creative brief + visual style guide used by scenario planning and scene refinement.
  */

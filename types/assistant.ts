@@ -184,13 +184,22 @@ export interface ImageGenerationInput {
   image_input?: string[];
   purpose?: 'avatar' | 'scene_frame' | 'scene_first_frame' | 'scene_last_frame' | 'product' | 'b_roll' | 'other';
   avatar_description?: string;
-  // Reference images for consistency
+  // Reference images for consistency (DEPRECATED - use image_input directly)
   reference_images?: {
     avatar_url?: string;           // Avatar image for character consistency
     first_frame_url?: string;      // Scene's first frame (when generating last frame)
     product_url?: string;          // Product image for product consistency
     prev_scene_last_frame_url?: string; // Previous scene's last frame (for smooth transitions)
   };
+}
+
+/**
+ * AI reflexion result for image reference selection
+ */
+export interface ImageReferenceReflexion {
+  reasoning: string;
+  selected_image_urls: string[];
+  expected_consistency_gains: string;
 }
 
 export interface ImageGenerationOutput {
