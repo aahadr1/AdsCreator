@@ -70,13 +70,11 @@ export async function POST(req: NextRequest) {
       'black-forest-labs/flux-kontext-max',
       'black-forest-labs/flux-krea-dev',
       'openai/gpt-image-1.5',
-      'bytedance/seedream-4',
-      'bytedance/seedream-4.5',
-      'bytedance/seededit-3.0',
+      'google/nano-banana',
     ]);
     const model = allowedModels.has(String(body.model || ''))
       ? String(body.model)
-      : 'bytedance/seedream-4';
+      : 'google/nano-banana';
 
     let input: Record<string, any> = { prompt: body.prompt };
     if (model === 'black-forest-labs/flux-kontext-max') {
@@ -89,15 +87,11 @@ export async function POST(req: NextRequest) {
       if (typeof body.seed === 'number') input.seed = body.seed;
       if (typeof body.prompt_upsampling === 'boolean') input.prompt_upsampling = body.prompt_upsampling;
       if (typeof body.safety_tolerance === 'number') input.safety_tolerance = body.safety_tolerance;
-    } else if (model === 'bytedance/seedream-4' || model === 'bytedance/seedream-4.5' || model === 'bytedance/seededit-3.0') {
+    } else if (model === 'google/nano-banana') {
       input = {
         prompt: body.prompt,
-        // Seedream supports 1K/2K/4K; default to fast 1K unless overridden.
-        size: typeof (body as any).size === 'string' ? (body as any).size : '1K',
         aspect_ratio: typeof (body as any).aspect_ratio === 'string' ? (body as any).aspect_ratio : '9:16',
-        sequential_image_generation: 'disabled',
-        max_images: 1,
-        enhance_prompt: Boolean((body as any).enhance_prompt) || false,
+        output_format: typeof body.output_format === 'string' ? body.output_format : 'jpg',
       };
       if (Array.isArray(body.image_input) && body.image_input.length > 0) {
         input.image_input = body.image_input;

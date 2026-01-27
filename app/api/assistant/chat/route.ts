@@ -1,5 +1,5 @@
 export const runtime = 'nodejs';
-// Seedream-based storyboard generation can be slower; allow more headroom where the platform supports it.
+// Storyboard generation can be slower; allow more headroom where the platform supports it.
 // Vercel Pro plan max: 800 seconds
 export const maxDuration = 800;
 
@@ -16,8 +16,8 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
-// Seedream-4 is the ONLY assistant image model (Nano Banana removed)
-const ASSISTANT_IMAGE_MODEL = 'bytedance/seedream-4';
+// Nano Banana is the ONLY assistant image model
+const ASSISTANT_IMAGE_MODEL = 'google/nano-banana';
 const DEFAULT_IMAGE_ASPECT_RATIO = '9:16';
 
 function getSupabase() {
@@ -823,24 +823,21 @@ async function executeImageGeneration(input: ImageGenerationInput): Promise<{ su
       return { success: false, error: 'Server misconfigured: missing REPLICATE_API_TOKEN' };
     }
     
-    // Seedream-4 only (Nano Banana removed)
+    // Nano Banana only (assistant image model)
     const model = ASSISTANT_IMAGE_MODEL;
 
-    const seedreamInput: Record<string, unknown> = {
+    const nanoBananaInput: Record<string, unknown> = {
       prompt: input.prompt,
       // Default aspect ratio to 9:16 (vertical) unless user/LLM specified it.
       aspect_ratio: input.aspect_ratio || DEFAULT_IMAGE_ASPECT_RATIO,
-      sequential_image_generation: 'disabled',
-      max_images: 1,
-      enhance_prompt: false,
-      size: '1K',
+      output_format: input.output_format || 'jpg',
     };
 
     if (Array.isArray(input.image_input) && input.image_input.length > 0) {
-      seedreamInput.image_input = input.image_input;
+      nanoBananaInput.image_input = input.image_input;
     }
 
-    const out = await createReplicatePrediction({ token: String(token), model, input: seedreamInput });
+    const out = await createReplicatePrediction({ token: String(token), model, input: nanoBananaInput });
     return { success: true, output: { id: out.id, status: out.status } };
   } catch (e: any) {
     console.error('Image generation error:', e);
@@ -1348,7 +1345,7 @@ AVAILABLE IMAGES IN POOL (${availableImages.length} total):
 ${availableImages.map((img, idx) => `${idx + 1}. ${img.description}\n   URL: ${img.url}`).join('\n')}
 
 TASK: Select ALL relevant reference images that will help maintain consistency for this ${frameType} frame generation.
-Remember: Seedream-4 supports UP TO 14 input images. Use as many as relevant!
+Remember: Nano Banana supports UP TO 14 input images. Use as many as relevant!
 
 ${frameType === 'last' ? `CRITICAL: Since this is a LAST frame, you MUST include the scene's first frame for consistency within the scene.` : ''}
 ${usePrevSceneTransition ? `CRITICAL: Since this uses smooth transition, you MUST include the previous scene's last frame.` : ''}
@@ -1391,7 +1388,7 @@ Return STRICT JSON with selected_image_urls array.`;
     // Validate and filter selected URLs
     const validUrls = reflexion.selected_image_urls
       .filter(url => typeof url === 'string' && url.startsWith('http'))
-      .slice(0, 14); // Seedream-4 limit
+      .slice(0, 14); // Nano Banana limit
     
     return validUrls;
     
@@ -1597,7 +1594,7 @@ async function generateSingleImage(
       enhancedPrompt = `${enhancedPrompt}, ${ar} aspect ratio`;
     }
     
-    // Seedream input is built later; keep base vars for prompt construction only.
+    // Input is built later; keep base vars for prompt construction only.
     
     // Collect all reference image URLs - now supporting multiple images via additionalImageInputs
     const referenceUrls: string[] = [];
@@ -1638,15 +1635,12 @@ async function generateSingleImage(
     // from the scene refinement AI, so we use it directly without adding context
     let finalPrompt: string = enhancedPrompt;
 
-    // Seedream-4 only (Nano Banana removed)
+    // Nano Banana only (assistant image model)
     const model = ASSISTANT_IMAGE_MODEL;
     const input: Record<string, unknown> = {
       prompt: finalPrompt,
       aspect_ratio: ar,
-      sequential_image_generation: 'disabled',
-      max_images: 1,
-      enhance_prompt: false,
-      size: '1K',
+      output_format: 'jpg',
     };
     
     if (hasAnyRef) {
@@ -1789,7 +1783,7 @@ async function executeVideoGeneration(input: VideoGenerationInput): Promise<{ su
 // Key improvements:
 // 1. Frames generated ONE BY ONE in strict order: Scene 1 Frame 1 → Scene 1 Frame 2 → Scene 2 Frame 1 → ...
 // 2. Each frame WAITS for completion before starting the next
-// 3. First frame of scene N uses: previous scene's last frame + avatar as inputs (up to 14 images with Seedream)
+// 3. First frame of scene N uses: previous scene's last frame + avatar as inputs (up to 14 images)
 // 4. Last frame of scene N uses: scene N's first frame as input
 // 5. Image Registry tracks all generated images for easy reference
 // 6. Product image support for consistent product appearance
@@ -2109,7 +2103,7 @@ async function executeStoryboardCreation(
       // FRAME GENERATION (TRULY SEQUENTIAL - BLOCKING WAITS)
       // =================================================================
       //
-      // Seedream-4 accepts up to 14 input images, making it ideal for reference chaining.
+      // Nano Banana accepts up to 14 input images, making it ideal for reference chaining.
       // We generate frames ONE BY ONE with blocking waits:
       // 1. First Frame: Uses previous scene's last frame + avatar + product as inputs
       // 2. Wait for first frame to complete
@@ -2375,7 +2369,7 @@ async function executeStoryboardCreation(
       scenesWithPredictions.push(sceneOut);
       previousRefined = sceneOut;
       
-      // Small delay between scenes to reduce burstiness (Seedream can queue heavily)
+      // Small delay between scenes to reduce burstiness
       await delay(200);
     }
     
@@ -2881,7 +2875,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               }
 
               if (!allReady) {
-                const waitMsg = `⏳ Some storyboard frames are still generating. This can take 30-60 seconds with Seedream-4.\n\nYou can:\n- Wait a moment and say "proceed" again\n- Or check the frames above - they'll appear as they complete`;
+                const waitMsg = `⏳ Some storyboard frames are still generating. This can take 30-60 seconds.\n\nYou can:\n- Wait a moment and say "proceed" again\n- Or check the frames above - they'll appear as they complete`;
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: waitMsg })}\n\n`));
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
                 controller.close();

@@ -1017,7 +1017,7 @@ PROMPT EXAMPLES - THE RIGHT WAY
   "use_prev_scene_transition": true
 }
 
-**EXAMPLE 4: Multi-Reference Last Frame (Scene 4, demonstrating Seedream-4's 14-image capacity)**
+**EXAMPLE 4: Multi-Reference Last Frame (Scene 4, demonstrating Nano Banana's 14-image capacity)**
 {
   "last_frame_prompt": "Ref 1 avatar base. Ref 2 scene 4 first: Woman at bathroom mirror, applying serum. Ref 3 scene 3 last: Woman holding bottle close. Ref 4 scene 3 first: Woman at tub. Ref 5 scene 2 last: Seated examining product. Ref 6 scene 2 first: Initial bathroom entry. Ref 7 scene 1 last: Mirror self-check. Ref 8 scene 1 first: Morning routine start. Ref 9 product image: Rose gold serum bottle. | Tight close-up, 9:16 vertical. Woman's face dominates 70% of frame, perfectly centered. Both hands rise into frame from bottom, palms facing camera, fingers spread in presentation gesture framing her glowing cheeks. Eyes locked on lens, wide with authentic delight. Mouth open in mid-laugh, teeth visible. Fresh dewy skin with pronounced light reflection on cheekbones and bridge of nose. Same white subway tile bathroom, now completely defocused at f/1.8, creating creamy bokeh. Chrome faucet edge creates small specular highlight in upper left blur. Morning window light wraps from left, filling shadows, creating double catchlights in both eyes and highlight stripe down nose. | Micro-movement within bathroom mirror area: from applying serum to face → hands drop, face tilts up slightly, hands rise back to frame face in show-off gesture, expression erupts from concentrated application to explosive joy. Body remains in same 3-foot zone in front of mirror. | Preserve bathroom environment and identity across all references. iPhone 14 Pro selfie mode, authentic handheld micro-shake, hyperrealistic emotion capture with visible skin texture, natural teeth, and genuine crow's feet beginning at eye corners.",
   "last_frame_visual_elements": ["extreme close-up", "hands presenting face", "explosive joy expression", "dewy highlighted skin", "bokeh bathroom", "double catchlights", "open mouth laugh"],
@@ -1137,7 +1137,7 @@ Your role: Analyze available images and select the optimal set of references for
 CORE PRINCIPLE: Maximum Context = Maximum Consistency
 ═══════════════════════════════════════════════════════════════════════════
 
-Seedream-4 accepts up to 14 input images. Your goal is to select AS MANY RELEVANT references as possible - more visual context produces better, more consistent results.
+Nano Banana accepts up to 14 input images. Your goal is to select AS MANY RELEVANT references as possible - more visual context produces better, more consistent results.
 
 Think of references as "visual memory" - the more the model can see of what came before, the better it can maintain continuity.
 
@@ -1221,7 +1221,7 @@ Skip images that:
 REMEMBER
 ═══════════════════════════════════════════════════════════════════════════
 
-More references = better results. When in doubt, include the image. Seedream-4 is designed for multi-image input and performs better with comprehensive visual context.`;
+More references = better results. When in doubt, include the image. Nano Banana is designed for multi-image input and performs better with comprehensive visual context.`;
 
 /**
  * Phase 0: Creative ideation prompt (pre-scenario).
