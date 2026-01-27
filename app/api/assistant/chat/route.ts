@@ -1601,12 +1601,10 @@ async function generateSingleImage(
     
     // Collect all reference image URLs - now supporting multiple images via additionalImageInputs
     const referenceUrls: string[] = [];
-    const promptContextParts: string[] = [];
     
     // If additionalImageInputs provided (from AI reflexion), use those directly
     if (Array.isArray(additionalImageInputs) && additionalImageInputs.length > 0) {
       referenceUrls.push(...additionalImageInputs.filter(url => url && url.startsWith('http')));
-      promptContextParts.push('CRITICAL: Multiple reference images provided for maximum consistency. Maintain visual coherence across ALL reference images - character identity, product appearance, setting elements, lighting style, and overall aesthetic must be consistent.');
       console.log(`[Storyboard] Using ${referenceUrls.length} reference images from AI reflexion`);
     } else {
       // Fallback to legacy ReferenceImages structure
@@ -1615,47 +1613,30 @@ async function generateSingleImage(
       const hasAvatarRef = references?.avatarUrl && /^https?:\/\//i.test(references.avatarUrl);
       const hasProductRef = references?.productUrl && /^https?:\/\//i.test(references.productUrl);
       
-      // Build reference context for the prompt
-      if (hasPrevSceneRef) {
+      if (hasPrevSceneRef && !referenceUrls.includes(references!.prevSceneLastFrameUrl!)) {
         referenceUrls.push(references!.prevSceneLastFrameUrl!);
-        promptContextParts.push('CRITICAL: This frame must be a SEAMLESS continuation from the reference image. The person must be in the EXACT same position, same setting, same lighting. Only subtle changes in expression or very minor movement are allowed.');
-        console.log('[Storyboard] Using prev scene last frame for smooth transition');
       }
       
       if (hasFirstFrameRef && !referenceUrls.includes(references!.firstFrameUrl!)) {
         referenceUrls.push(references!.firstFrameUrl!);
-        promptContextParts.push('CRITICAL: Maintain EXACT same setting, same lighting, same camera angle, same background as the reference image. The person and environment must look consistent - only the specified changes should occur.');
-        console.log('[Storyboard] Using first frame reference for last frame generation');
       }
       
       if (hasAvatarRef && !referenceUrls.includes(references!.avatarUrl!)) {
         referenceUrls.push(references!.avatarUrl!);
-        if (references?.avatarDescription) {
-          promptContextParts.push(`The person in the reference image is: ${references.avatarDescription}.`);
-        }
-        promptContextParts.push('CRITICAL: Maintain the EXACT same person, same face, same facial features, same hair, same skin tone, same body type as the reference image.');
-        console.log('[Storyboard] Using avatar reference with description:', references?.avatarDescription ? 'YES' : 'NO');
       }
       
       if (hasProductRef && !referenceUrls.includes(references!.productUrl!)) {
         referenceUrls.push(references!.productUrl!);
-        if (references?.productDescription) {
-          promptContextParts.push(`The product in this scene is: ${references.productDescription}. Ensure the product looks EXACTLY like the reference - same colors, same packaging, same details.`);
-        }
-        console.log('[Storyboard] Using product reference');
       }
+      
+      console.log('[Storyboard] Using legacy reference structure:', referenceUrls.length, 'images');
     }
     
     const hasAnyRef = referenceUrls.length > 0;
     
-    let finalPrompt: string;
-    if (hasAnyRef) {
-      // Build comprehensive prompt with all context
-      const contextBlock = promptContextParts.join(' ');
-      finalPrompt = `${contextBlock} The ONLY changes should be: ${enhancedPrompt}`;
-    } else {
-      finalPrompt = enhancedPrompt;
-    }
+    // The prompt now follows the 4-block structure and is already properly formatted
+    // from the scene refinement AI, so we use it directly without adding context
+    let finalPrompt: string = enhancedPrompt;
 
     // Seedream-4 only (Nano Banana removed)
     const model = ASSISTANT_IMAGE_MODEL;

@@ -873,19 +873,74 @@ export function extractAvatarContextFromMessages(
  */
 export const SCENE_REFINEMENT_PROMPT = `You are a precision visual director specializing in creating hyper-detailed scene specifications for AI video generation.
 
-Your task is to take a scene outline and create EXTREMELY DETAILED frame prompts that leave NOTHING to chance — while staying CONSISTENT with provided reference images.
+Your task is to take a scene outline and create CINEMATIC, NATURAL frame prompts that guide the AI model while respecting reference images.
 
-UPGRADE REQUIREMENT (NON-NEGOTIABLE):
-- The frame prompts must read like a senior brand creative director + cinematographer + production designer wrote them.
-- Each frame must feel like a crafted shot (composition, lighting, texture, styling, imperfections), not "generic AI".
-- Avoid vague adjectives ("beautiful", "nice", "high quality") unless immediately backed by concrete visual details.
+═══════════════════════════════════════════════════════════════════════════
+PROMPT ARCHITECTURE - THE 4-BLOCK SYSTEM
+═══════════════════════════════════════════════════════════════════════════
 
-REFERENCE-AWARE PROMPTING (MOST IMPORTANT):
-- If the system provides a reference (avatar image, previous scene last frame, product image, scene first frame):
-  - DO NOT fully re-describe what is already in the reference.
-  - Use a LOCKED + DELTA structure:
-    - LOCKED: what must not change (identity, wardrobe, background, camera/framing, lighting, style)
-    - DELTA: what must change (pose/expression/product position/text overlay/action end-state)
+Every frame prompt follows this structure (skip blocks that don't apply):
+
+**BLOCK 1: INPUT REFERENCES** (when reference images are used)
+Briefly describe what each reference image shows - ONE LINE PER REFERENCE.
+
+Examples:
+- "Reference avatar: 28-year-old woman, olive skin, dark wavy hair in low bun, white ribbed tank"
+- "Reference product: Glossy white tube with rose gold cap, minimalist sans-serif label"
+- "Previous scene last frame: Woman seated at vanity, turning head 45° toward camera"
+
+**BLOCK 2: SHOT DESCRIPTION** (always include)
+Describe the target composition as if directing a cinematographer. Include:
+- Camera: angle, distance, movement, lens character
+- Subject: position, pose, expression, what they're doing
+- Environment: setting, key props, spatial layout
+- Lighting: source, quality, color temperature, shadows
+- Composition: framing, negative space, focal point
+
+Examples:
+- "Medium close-up, eye level, 50mm equivalent. Woman seated on bathroom counter edge, legs crossed, holding serum bottle at chest height with both hands. Background: white subway tiles, chrome fixtures, single green plant on right edge. Soft window light from camera left creates gentle rim on hair and shoulder."
+- "Extreme close-up macro shot, 100mm equivalent. Woman's right eye fills frame, looking directly at camera. Bare eyelashes, visible fine lines at corner, natural skin texture. Blurred bathroom tiles in background. Diffused overhead lighting eliminates harsh shadows."
+
+**BLOCK 3: ACTION/DELTA** (when using references - describe what CHANGES)
+State what's different from the reference image(s). Be specific about movement, expression shifts, or new elements.
+
+Examples:
+- "From standing → now sitting, weight shifted to left hip, right hand lifts bottle from counter"
+- "Expression shifts: concerned furrow between brows → relaxed, slight smile beginning"
+- "Zoom effect: tighter crop on face, eyes now fill 60% of frame width"
+- "Product moves from off-screen right → enters frame at center, held by fingertips"
+
+**BLOCK 4: CONSISTENCY & STYLE** (always include)
+One concise sentence covering technical requirements and consistency needs.
+
+For reference-based generations:
+"Preserve identity, wardrobe, and environment from references. Authentic UGC aesthetic, iPhone 14 Pro capture, natural grain, hyperrealistic skin detail."
+
+For new generations:
+"Authentic UGC aesthetic, iPhone 14 Pro quality, natural grain, subtle motion blur, hyperrealistic skin with visible pores and fine lines."
+
+═══════════════════════════════════════════════════════════════════════════
+CRITICAL RULES
+═══════════════════════════════════════════════════════════════════════════
+
+1. **Never use imperative commands**: No "CRITICAL:", "MUST", "EXACT SAME", or "DO NOT CHANGE"
+2. **Trust the model**: Reference images speak for themselves - describe the target, not restrictions
+3. **Be specific, not exhaustive**: Mention key details that matter, skip obvious elements
+4. **Write like a pro director**: Natural language, not a checklist
+5. **Brevity where possible**: Each block should be 1-3 sentences max
+6. **Within-scene setting consistency**: First and last frames of the SAME scene must share the same environment. Micro-movements within a space are fine (walking from bed to bathroom mirror in same home, turning from counter to tub in same bathroom), but NO drastic location jumps (bathroom → park) within a single scene. Different scenes CAN change settings.
+
+Examples of GOOD within-scene setting evolution:
+- First: Standing in kitchen → Last: Seated at kitchen table (same room)
+- First: Bedroom looking in mirror → Last: Bedroom sitting on bed edge (same room)
+- First: Bathroom at sink → Last: Bathroom at bathtub (same room, different spot)
+
+Examples of BAD within-scene setting changes:
+- First: Indoor bathroom → Last: Outdoor park (drastic location jump)
+- First: Bedroom → Last: Living room (different rooms without context)
+- First: Daytime → Last: Nighttime (dramatic lighting/time shift)
+
+═══════════════════════════════════════════════════════════════════════════
 
 **INPUT:** You will receive:
 - The overall video scenario context
@@ -897,9 +952,9 @@ REFERENCE-AWARE PROMPTING (MOST IMPORTANT):
 - Whether to use previous scene's last frame for smooth transition
 
 **OUTPUT:** You must provide JSON with:
-1. first_frame_prompt
+1. first_frame_prompt (using 4-block structure)
 2. first_frame_visual_elements
-3. last_frame_prompt
+3. last_frame_prompt (using 4-block structure)
 4. last_frame_visual_elements
 5. video_generation_prompt
 6. voiceover_text
@@ -910,53 +965,108 @@ REFERENCE-AWARE PROMPTING (MOST IMPORTANT):
 11. needs_product_image
 12. use_prev_scene_transition
 
-**RULES:**
-1. For avatar scenes:
-   - If there is no prior frame reference, start the first_frame prompt with: "Same avatar character from reference: [full description]"
-   - If there IS a prior frame reference (use_prev_scene_transition=true), first_frame_prompt must begin with: "MATCH previous scene last frame exactly" and then list only DELTAs (if any).
-2. For non-avatar scenes: ALWAYS state "NO PERSON" or "Product-only shot".
-3. Include camera language (lens vibe, distance, angle, framing, depth of field, focus target) but do not fight the reference.
-4. Include lighting plan (key/fill/rim, direction, softness, color temperature, motivated source) but keep it consistent with reference.
-5. Include art direction (props, wardrobe, materials, textures, brand accents) with concrete specifics.
-6. Include human realism (micro-expressions, imperfect hair strands, natural skin texture, believable hand placement).
-7. Include composition (rule-of-thirds placement, negative space for text overlay if needed, foreground/background separation).
-8. Include aspect ratio in every prompt (e.g., "vertical 9:16").
-9. Add anti-AI-generic constraints:
-   - avoid "over-smooth plastic skin", "hyper-saturated neon", "perfect symmetry", "uncanny faces"
-   - allow subtle real-world imperfections (slight grain, realistic exposure roll-off)
-10. **Last frame prompt must be DELTA-FIRST when first frame is a reference**:
-    - last_frame_prompt should list LOCKED items briefly + the end-state changes.
-    - do not re-invent background/wardrobe/camera.
-11. For product scenes with product reference: explicitly say "Same product from reference image" and lock packaging details.
-12. video_generation_prompt = MOTION only:
-    - action + pacing + any camera movement
-    - no restating of static scene details
+═══════════════════════════════════════════════════════════════════════════
+PROMPT EXAMPLES - THE RIGHT WAY
+═══════════════════════════════════════════════════════════════════════════
 
-QUALITY BAR (MUST PASS):
-- If the prompt could fit ANY brand, it is not acceptable.
-- Inject brand-specific design language: palette, materials, recurring motif.
-- Every scene must contain:
-  - camera/framing detail
-  - lighting detail
-  - set/prop/material detail
-  - a human realism detail
-  - a brand-specific detail
-
-EXAMPLE OUTPUT:
+**EXAMPLE 1: First Frame (Scene 2, with avatar + previous scene references)**
 {
-  "first_frame_prompt": "Same avatar character from reference: young woman, 28, light brown messy bun, minimal makeup, light freckles, white cotton tank top. Eye-level medium close-up, vertical 9:16. Bathroom setting with white subway tiles, soft window light from left. Composition: centered, slight negative space top for text overlay. Human realism: visible skin texture and a few flyaway hairs. Brand accent: one pastel-blue towel or prop consistent with brand palette.",
-  "first_frame_visual_elements": ["avatar", "white tank top", "white subway tiles", "soft window light", "pastel-blue accent prop", "vertical 9:16"],
-  "last_frame_prompt": "LOCKED (do not change): same avatar identity, same wardrobe, same bathroom background, same camera angle/framing, same lighting. DELTA (end state): she turns to face camera, eyebrows lift slightly, right hand moves into a small explaining gesture at chest level, expression shifts from concerned to curious-hopeful. Keep composition and palette unchanged. Vertical 9:16.",
-  "last_frame_visual_elements": ["avatar facing camera", "raised eyebrows", "explaining hand gesture", "same background", "vertical 9:16"],
-  "video_generation_prompt": "She smoothly turns from mirror to camera, hand drops then rises to an explaining gesture, expression transitions from concerned to hopeful. Natural pacing, no camera movement.",
-  "voiceover_text": "Okay so I used to [HATE] my morning skin...",
-  "audio_mood": "natural room tone, no music",
-  "sound_effects": [],
+  "first_frame_prompt": "Ref 1 avatar: Late-20s woman, warm beige skin, dark espresso hair in textured low bun, minimal makeup showing natural freckles. Ref 2 previous scene: Woman at white marble counter in same bathroom. | Wide shot, 9:16 vertical. Woman now moves to sit on edge of white ceramic bathtub, positioned right third of frame. Left hand rests on cool tub rim, right hand holds 30ml dropper bottle (rose gold cap, frosted glass) at waist height. Continuous bathroom setting: white penny tile floor, brushed chrome fixtures, single eucalyptus stem in clear glass cylinder on floating shelf. Morning sun through frosted window creates soft gradient wash across left wall, gentle rim light on hair. | Spatial shift within same bathroom: from standing at counter → now seated at tub 6 feet away, body turned 30° toward camera, direct eye contact beginning. | Preserve identity and wardrobe from references. Authentic UGC aesthetic, iPhone 14 Pro quality with natural grain, hyperrealistic skin showing subtle texture and fine lines.",
+  "first_frame_visual_elements": ["seated on tub edge", "dropper bottle in hand", "white penny tiles", "morning window light", "eucalyptus accent", "chrome fixtures", "9:16 vertical"],
+  "last_frame_prompt": "Ref 1 avatar. Ref 2 first frame: Woman seated on tub in bathroom. | Tighter medium shot, 9:16. Camera moves slightly closer (now waist-up), isolating woman against same white tile background, soft focus. Woman leans forward from waist, both hands now raise dropper bottle to eye level, fingertips supporting base and cap. Head tilts 15° right, examining bottle with curiosity. Expression evolves: neutral baseline → subtle eyebrow lift → corners of mouth curl into beginning of smile. Same morning window light, now creating small catchlight in eyes. | From relaxed seated pose → active lean-in, bottle rises from waist to eye level (12-inch movement), facial expression animates from calm to intrigued discovery. | Match bathroom environment and wardrobe from first frame. iPhone UGC, f/2.2 depth with gentle bokeh, hyperrealistic microexpressions.",
+  "last_frame_visual_elements": ["leans forward", "bottle at eye level", "intrigued expression", "eye contact", "medium shot", "catchlight in eyes"],
+  "video_generation_prompt": "Smooth lean-in motion, hands lift bottle from waist to eye level over 2 seconds. Expression evolves from neutral to intrigued. Camera static. Natural, unhurried pacing.",
+  "voiceover_text": "Then I found this [gestures to bottle] and everything changed.",
+  "audio_mood": "Natural room ambience, no music",
+  "sound_effects": ["glass bottle clink"],
   "camera_movement": "static",
-  "lighting_description": "soft natural window light from left, warm-neutral",
-  "needs_product_image": false,
+  "lighting_description": "Soft directional morning light, warm-neutral color temp",
+  "needs_product_image": true,
+  "use_prev_scene_transition": true
+}
+
+**EXAMPLE 2: Product Showcase Scene (no person, setting consistency)**
+{
+  "first_frame_prompt": "Overhead flat lay, 1:1 square format. White Belgian linen backdrop with organic wrinkles and texture. Rose gold frosted glass serum bottle (30ml cylindrical, metallic cap, minimalist sans-serif label) positioned 40% from left edge, angled 5° clockwise. Three dried blush rose petals scattered on right quadrant, one slightly curled. Single 4-inch shadow cast toward bottom-right (10am sun angle). Soft north-facing window light, no specular highlights. Product-only composition. | Premium beauty editorial, medium format Hasselblad aesthetic, f/2.8 shallow depth creating gentle focus falloff on petals, hyperdetailed frosted glass texture with subtle surface variation.",
+  "first_frame_visual_elements": ["overhead flat lay", "rose gold bottle", "white linen", "dried rose petals", "directional shadow", "1:1 square", "soft lighting"],
+  "last_frame_prompt": "Ref 1 product bottle. Ref 2 first frame: Flat lay with linen and petals. | Same overhead angle, 1:1. Bottle now tipped 30° toward camera, cap removed and placed 2 inches to left. Single amber serum drop suspended in mid-air 1 inch above bottle opening, perfectly spherical. Rose petals remain in exact positions from first frame. Light refracts through drop creating subtle rainbow edge. Same linen, same shadows, same composition. | From upright capped bottle → now tilted with cap off, drop captured mid-fall. | Preserve flat lay setup and lighting from first frame. Hyperrealistic liquid physics, macro-level clarity on drop surface tension, commercial beauty product photography.",
+  "last_frame_visual_elements": ["bottle tilted 30°", "cap removed", "serum drop suspended", "light refraction", "petals unchanged", "same linen"],
+  "video_generation_prompt": "Bottle tips slowly, cap lifts off, single serum drop emerges and falls in slow motion. 3-second duration, elegant pacing.",
+  "voiceover_text": "",
+  "audio_mood": "Soft ambient luxury",
+  "sound_effects": ["cap twist", "liquid drop"],
+  "camera_movement": "static overhead",
+  "lighting_description": "Diffused soft box from top-left, fill from right",
+  "needs_product_image": true,
   "use_prev_scene_transition": false
-}`;
+}
+
+**EXAMPLE 3: Talking Head First Frame (Scene 3, with smooth transition from Scene 2)**
+{
+  "first_frame_prompt": "Ref 1 avatar. Ref 2 scene 2 last: Woman seated, examining product in hand. Ref 3-4 scene 1 frames: Bathroom establishing continuity. | Medium shot, 9:16 vertical. Woman now stands in same bathroom, positioned left third of frame (rule of thirds). Body faces camera 20° angle, weight on right hip. Right hand holds serum bottle near collarbone, left hand gestures mid-sentence (palm up, fingers slightly curled). Head angled toward camera, making direct eye contact. Expression: animated mid-speech, slight smile, eyebrows raised in emphasis. Background: same white subway tiles, chrome towel bar visible over right shoulder, morning light maintains same quality from previous scenes. | Spatial evolution within bathroom: from seated at tub → now standing 4 feet forward, more active posture and engaged presentation. | Preserve identity, bathroom environment, and lighting consistency from references. Authentic UGC, iPhone front-facing quality, natural handheld position, hyperrealistic with visible skin texture and natural expression asymmetry.",
+  "first_frame_visual_elements": ["standing medium shot", "serum bottle at collarbone", "gesturing hand", "direct eye contact", "animated expression", "rule of thirds", "bathroom tiles"],
+  "last_frame_prompt": "Ref 1 avatar. Ref 2 scene 3 first: Woman standing, mid-gesture. Ref 3-4 scene 2 frames: Previous bathroom context. | Same medium shot, 9:16. Woman still in left third of frame. Right hand now extends bottle toward camera (arm straightens, product moves 8 inches closer to lens), left hand points at bottle with index finger. Head leans forward slightly, expression intensifies: eyes widen with emphasis, mouth open mid-word showing top teeth. Same bathroom, same tiles, same towel bar, chrome now catches slightly more light. Window light consistent. | From casual hold at collarbone → product thrust toward camera with pointed emphasis, body leans in, expression amplifies from conversational to emphatic proof moment. | Match bathroom and wardrobe from first frame. iPhone UGC, slight perspective shift from product moving closer, hyperrealistic with emotion authenticity.",
+  "last_frame_visual_elements": ["bottle extended toward camera", "pointing finger", "emphatic expression", "forward lean", "mouth open mid-speech", "same bathroom"],
+  "video_generation_prompt": "Right arm extends, pushing bottle 8 inches toward camera. Left hand rises, index finger points to bottle. Body leans forward 15°. Expression escalates from conversational to emphatic. 2.5 second movement, natural speaking rhythm.",
+  "voiceover_text": "THIS is what changed everything for me. Like, I'm not even exaggerating.",
+  "audio_mood": "Natural speech cadence, room acoustics",
+  "sound_effects": [],
+  "camera_movement": "static with subtle handheld drift",
+  "lighting_description": "Continued soft window light, warm morning quality",
+  "needs_product_image": true,
+  "use_prev_scene_transition": true
+}
+
+**EXAMPLE 4: Multi-Reference Last Frame (Scene 4, demonstrating Seedream-4's 14-image capacity)**
+{
+  "last_frame_prompt": "Ref 1 avatar base. Ref 2 scene 4 first: Woman at bathroom mirror, applying serum. Ref 3 scene 3 last: Woman holding bottle close. Ref 4 scene 3 first: Woman at tub. Ref 5 scene 2 last: Seated examining product. Ref 6 scene 2 first: Initial bathroom entry. Ref 7 scene 1 last: Mirror self-check. Ref 8 scene 1 first: Morning routine start. Ref 9 product image: Rose gold serum bottle. | Tight close-up, 9:16 vertical. Woman's face dominates 70% of frame, perfectly centered. Both hands rise into frame from bottom, palms facing camera, fingers spread in presentation gesture framing her glowing cheeks. Eyes locked on lens, wide with authentic delight. Mouth open in mid-laugh, teeth visible. Fresh dewy skin with pronounced light reflection on cheekbones and bridge of nose. Same white subway tile bathroom, now completely defocused at f/1.8, creating creamy bokeh. Chrome faucet edge creates small specular highlight in upper left blur. Morning window light wraps from left, filling shadows, creating double catchlights in both eyes and highlight stripe down nose. | Micro-movement within bathroom mirror area: from applying serum to face → hands drop, face tilts up slightly, hands rise back to frame face in show-off gesture, expression erupts from concentrated application to explosive joy. Body remains in same 3-foot zone in front of mirror. | Preserve bathroom environment and identity across all references. iPhone 14 Pro selfie mode, authentic handheld micro-shake, hyperrealistic emotion capture with visible skin texture, natural teeth, and genuine crow's feet beginning at eye corners.",
+  "last_frame_visual_elements": ["extreme close-up", "hands presenting face", "explosive joy expression", "dewy highlighted skin", "bokeh bathroom", "double catchlights", "open mouth laugh"],
+{
+  "last_frame_prompt": "Ref 1 avatar base. Ref 2 scene 4 first: Woman at bathroom mirror, applying serum. Ref 3 scene 3 last: Woman holding bottle close. Ref 4 scene 3 first: Woman at tub. Ref 5 scene 2 last: Seated examining product. Ref 6 scene 2 first: Initial bathroom entry. Ref 7 scene 1 last: Mirror self-check. Ref 8 scene 1 first: Morning routine start. Ref 9 product image: Rose gold serum bottle. | Tight close-up, 9:16 vertical. Woman's face dominates 70% of frame, perfectly centered. Both hands rise into frame from bottom, palms facing camera, fingers spread in presentation gesture framing her glowing cheeks. Eyes locked on lens, wide with authentic delight. Mouth open in mid-laugh, teeth visible. Fresh dewy skin with pronounced light reflection on cheekbones and bridge of nose. Same white subway tile bathroom, now completely defocused at f/1.8, creating creamy bokeh. Chrome faucet edge creates small specular highlight in upper left blur. Morning window light wraps from left, filling shadows, creating double catchlights in both eyes and highlight stripe down nose. | Micro-movement within bathroom mirror area: from applying serum to face → hands drop, face tilts up slightly, hands rise back to frame face in show-off gesture, expression erupts from concentrated application to explosive joy. Body remains in same 3-foot zone in front of mirror. | Preserve bathroom environment and identity across all references. iPhone 14 Pro selfie mode, authentic handheld micro-shake, hyperrealistic emotion capture with visible skin texture, natural teeth, and genuine crow's feet beginning at eye corners.",
+  "last_frame_visual_elements": ["extreme close-up", "hands presenting face", "explosive joy expression", "dewy highlighted skin", "bokeh bathroom", "double catchlights", "open mouth laugh"],
+  "video_generation_prompt": "Hands complete serum application, drop naturally, then rise back up to frame face in triumphant presentation. Expression transitions through application concentration to realization to full delight (1.8 second arc). Slight head tilt upward. Camera handheld subtle shake. Natural spontaneous energy.",
+  "voiceover_text": "Like are you SEEING this? [laughs] This is insane!",
+  "audio_mood": "Authentic excited reaction, natural room echo",
+  "sound_effects": ["breath intake", "genuine laugh"],
+  "camera_movement": "handheld float (subtle front-to-back sway)",
+  "lighting_description": "Soft window light camera left, gentle fill from mirror reflection",
+  "needs_product_image": true,
+  "use_prev_scene_transition": true
+}
+
+═══════════════════════════════════════════════════════════════════════════
+QUALITY STANDARDS
+═══════════════════════════════════════════════════════════════════════════
+
+✅ DO:
+- Write prompts that read like cinematographer's notes
+- Use specific measurements and positions ("40% from left", "tipped 30°", "6 feet away")
+- Describe real camera/lighting techniques ("50mm equivalent", "soft box from top-left")
+- Include human imperfections ("flyaway hairs", "visible pores", "slight asymmetry")
+- Inject brand-specific design language (palette, materials, props)
+- Keep consistency notes brief and natural
+- Maintain setting continuity within each scene (same room, micro-movements okay)
+- Use multiple references (all previous frames) for maximum consistency
+
+❌ DON'T:
+- Use ALL CAPS commands ("CRITICAL:", "MUST", "DO NOT")
+- List what shouldn't change (trust the references)
+- Use generic adjectives without specifics ("beautiful", "amazing", "stunning")
+- Repeat obvious details already in references
+- Write prompts that could work for any brand
+- Create drastic setting jumps within a single scene (bathroom → park)
+- Ignore available reference images (use as many as relevant)
+
+**INPUT:** You will receive:
+- The overall video scenario context
+- A CREATIVE BRIEF / VISUAL STYLE GUIDE (brand look & feel, palette, motifs, camera language)
+- A specific scene outline to refine
+- Avatar description (if the scene uses an avatar)
+- Previous scene details (for continuity)
+- Product description (if the scene displays the product)
+- Whether to use previous scene's last frame for smooth transition
+
+**OUTPUT:** Return strict JSON with all required fields following the 4-block prompt structure.`;
 
 /**
  * Scenario planning prompt (Phase 1 of storyboard creation).
@@ -1019,52 +1129,99 @@ ANTI-GENERIC CHECKLIST (must be true):
  * Post-Scene Reflexion: Image Reference Selection
  * AI analyzes available images and selects optimal references for frame generation
  */
-export const IMAGE_REFERENCE_SELECTION_PROMPT = `You are an AI image generation specialist with expertise in visual consistency and reference-based generation.
+export const IMAGE_REFERENCE_SELECTION_PROMPT = `You are an image generation strategist specializing in reference-based visual consistency.
 
-CRITICAL MISSION: Seedream-4 accepts UP TO 14 input images. Your job is to select the MAXIMUM number of relevant reference images that will help maintain consistency and quality for the frame being generated.
+Your role: Analyze available images and select the optimal set of references for the upcoming frame generation.
 
-GOLDEN RULE: **MORE REFERENCES = BETTER CONSISTENCY**. Always err on the side of including more images rather than fewer.
+═══════════════════════════════════════════════════════════════════════════
+CORE PRINCIPLE: Maximum Context = Maximum Consistency
+═══════════════════════════════════════════════════════════════════════════
 
-Available Image Pool:
-- Avatar image (if available): The confirmed character/creator for this storyboard
-- Product image (if available): The confirmed product for consistent product appearance
-- Previous scenes' frames: All first and last frames from scenes already generated
-- Previous scene's last frame: For smooth transitions between scenes
+Seedream-4 accepts up to 14 input images. Your goal is to select AS MANY RELEVANT references as possible - more visual context produces better, more consistent results.
 
-Your Task:
-Analyze the frame being generated and the available images, then select ALL relevant reference images that will help. Return STRICT JSON ONLY (no markdown):
+Think of references as "visual memory" - the more the model can see of what came before, the better it can maintain continuity.
+
+═══════════════════════════════════════════════════════════════════════════
+SELECTION FRAMEWORK
+═══════════════════════════════════════════════════════════════════════════
+
+Analyze the frame to generate and build your reference selection by category:
+
+**TIER 1: Essential References** (always include when available)
+- Scene's first frame (when generating last frame) → ensures within-scene consistency
+- Previous scene's last frame (for smooth transitions) → maintains cross-scene flow
+- Confirmed avatar image (for person-based scenes) → locks character identity
+- Confirmed product image (for product scenes) → locks packaging and branding
+
+**TIER 2: Supporting References** (include for style reinforcement)
+- All frames from immediately previous scene → maintains visual continuity
+- All frames from 2 scenes back → reinforces overall aesthetic
+- Any frame with matching setting/lighting → strengthens environmental consistency
+
+**TIER 3: Deep Context** (include if room allows, up to 14 total)
+- All frames from this storyboard → comprehensive style memory
+- Early scenes that establish the look → reinforces brand visual language
+
+═══════════════════════════════════════════════════════════════════════════
+SELECTION STRATEGY BY FRAME TYPE
+═══════════════════════════════════════════════════════════════════════════
+
+**For FIRST FRAME generation:**
+Priority: Smooth transition (prev scene last) > Avatar > Product > Recent scenes > All previous
+
+Example selection for Scene 3, First Frame:
+1. Scene 2 last frame (smooth transition)
+2. Avatar image (identity)
+3. Product image (if scene shows product)
+4. Scene 2 first frame (recent context)
+5. Scene 1 last frame (style consistency)
+6. Scene 1 first frame (style consistency)
+= 6 references total
+
+**For LAST FRAME generation:**
+Priority: Own first frame > Avatar > All previous scene frames > Product
+
+Example selection for Scene 3, Last Frame:
+1. Scene 3 first frame (within-scene consistency - MANDATORY)
+2. Avatar image (identity)
+3. Scene 2 last frame (recent context)
+4. Scene 2 first frame (recent context)
+5. Scene 1 last frame (style consistency)
+6. Scene 1 first frame (style consistency)
+7. Product image (if relevant)
+= 7 references total
+
+═══════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════
+
+Return STRICT JSON (no markdown, no commentary):
 
 {
-  "reasoning": "Brief explanation of why these specific images will help consistency",
+  "reasoning": "One-sentence summary of selection strategy",
   "selected_image_urls": [
-    // Array of image URLs to use as references (order by importance)
-    // Include as many as relevant - Seedream-4 supports up to 14!
+    "url1",
+    "url2",
+    // ... up to 14 URLs, ordered by importance
   ],
-  "expected_consistency_gains": "What specific aspects will be more consistent due to these references"
+  "expected_consistency_gains": "What specific visual elements will be more consistent"
 }
 
-SELECTION CRITERIA (in priority order):
-1. **Previous scene's last frame** (if smooth transition): ALWAYS include for spatial/compositional continuity
-2. **Scene's first frame** (when generating last frame): ALWAYS include to maintain scene consistency
-3. **Avatar image**: ALWAYS include for any scene with a person to lock identity/appearance
-4. **Product image**: ALWAYS include for scenes showing the product to lock packaging/design
-5. **Recent scene frames** (scenes 1-2 back): Include to maintain overall visual style/lighting/setting
-6. **All previous frames from same storyboard**: If visual style needs reinforcement across many scenes
+═══════════════════════════════════════════════════════════════════════════
+EXCLUSIONS
+═══════════════════════════════════════════════════════════════════════════
 
-WHAT TO INCLUDE:
-- ✅ Any image showing the same character (for identity consistency)
-- ✅ Any image showing the same product (for packaging consistency)
-- ✅ Any image with similar setting/environment (for spatial consistency)
-- ✅ Any image with similar lighting conditions (for mood consistency)
-- ✅ Recent frames that establish the visual language (for style consistency)
-- ✅ Previous scene's last frame (for smooth transitions)
+Skip images that:
+- Failed to generate or show placeholder content
+- Are from different storyboards
+- Show completely different settings (unless scene intentionally changes location)
+- Would create visual confusion (conflicting styles)
 
-WHAT TO EXCLUDE:
-- ❌ Images from different storyboards
-- ❌ Images with completely different settings (unless intentional scene change)
-- ❌ Failed generations or placeholder images
+═══════════════════════════════════════════════════════════════════════════
+REMEMBER
+═══════════════════════════════════════════════════════════════════════════
 
-REMEMBER: Seedream-4 can handle UP TO 14 references. USE THEM ALL if relevant. More context = better results.`;
+More references = better results. When in doubt, include the image. Seedream-4 is designed for multi-image input and performs better with comprehensive visual context.`;
 
 /**
  * Phase 0: Creative ideation prompt (pre-scenario).
