@@ -668,6 +668,7 @@ function sanitizeStoryboardCreationInput(raw: any): any {
   const input = (raw && typeof raw === 'object') ? raw : {};
   const allowedTopKeys = new Set([
     'title',
+    'concept',
     'brand_name',
     'product',
     'product_description',
@@ -685,6 +686,7 @@ function sanitizeStoryboardCreationInput(raw: any): any {
     'product_image_url',
     'product_image_description',
     'scenes',
+    'scene_breakdown',
   ]);
 
   const out: any = {};
@@ -692,18 +694,27 @@ function sanitizeStoryboardCreationInput(raw: any): any {
     if (allowedTopKeys.has(k)) out[k] = input[k];
   }
 
-  const scenes = Array.isArray(input.scenes) ? input.scenes : [];
-  out.scenes = scenes.map((s: any) => {
+  // Accept scenario-planning style scene_breakdown and map to scenes.
+  const rawScenes = Array.isArray(input.scenes)
+    ? input.scenes
+    : (Array.isArray(input.scene_breakdown) ? input.scene_breakdown : []);
+  out.scenes = rawScenes.map((s: any) => {
     const scene = (s && typeof s === 'object') ? s : {};
     // IMPORTANT: keep tool_call payload SMALL. Do NOT accept large per-scene prompt blocks from the model.
     // The server will generate first/last frame prompts and voiceover via multi-call refinement.
+    const description =
+      typeof scene.description === 'string'
+        ? scene.description
+        : (typeof scene.purpose === 'string' ? scene.purpose : undefined);
     return {
       scene_number: typeof scene.scene_number === 'number' ? scene.scene_number : undefined,
       scene_name: typeof scene.scene_name === 'string' ? scene.scene_name : undefined,
-      description: typeof scene.description === 'string' ? scene.description : undefined,
+      description,
       duration_seconds: typeof scene.duration_seconds === 'number' ? scene.duration_seconds : undefined,
       scene_type: typeof scene.scene_type === 'string' ? scene.scene_type : undefined,
-      uses_avatar: typeof scene.uses_avatar === 'boolean' ? scene.uses_avatar : undefined,
+      uses_avatar: typeof scene.uses_avatar === 'boolean'
+        ? scene.uses_avatar
+        : (typeof scene.needs_avatar === 'boolean' ? scene.needs_avatar : undefined),
       transition_type: typeof scene.transition_type === 'string' ? scene.transition_type : undefined,
       setting_change: typeof scene.setting_change === 'boolean' ? scene.setting_change : undefined,
       product_focus: typeof scene.product_focus === 'boolean' ? scene.product_focus : undefined,
@@ -712,6 +723,13 @@ function sanitizeStoryboardCreationInput(raw: any): any {
       use_prev_scene_transition: typeof scene.use_prev_scene_transition === 'boolean' ? scene.use_prev_scene_transition : undefined,
     };
   }).filter((s: any) => s && (typeof s.scene_number === 'number' || typeof s.scene_name === 'string' || typeof s.description === 'string'));
+
+  if (typeof out.title !== 'string' || out.title.trim().length === 0) {
+    const brand = typeof out.brand_name === 'string' ? out.brand_name.trim() : '';
+    const product = typeof out.product === 'string' ? out.product.trim() : '';
+    const concept = typeof out.concept === 'string' ? out.concept.trim() : '';
+    out.title = concept || (brand ? `${brand} Storyboard` : (product ? `${product} Storyboard` : 'Storyboard'));
+  }
 
   return out;
 }
