@@ -9,6 +9,8 @@ import Replicate from 'replicate';
 import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, CREATIVE_IDEATION_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline } from '../../../../types/assistant';
+import type { ImageRegistry, RegisteredImage, ReferenceImagesResult } from '../../../../types/imageRegistry';
+import { createEmptyRegistry, registerImage, updateRegisteredImage, getReferenceImagesForGeneration, setActiveAvatar, setActiveProduct } from '../../../../types/imageRegistry';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -1589,22 +1591,28 @@ async function executeVideoGeneration(input: VideoGenerationInput): Promise<{ su
   }
 }
 
-// Execute storyboard creation tool - Enhanced version with SEQUENTIAL frame generation
+// Execute storyboard creation tool - Enhanced version with TRULY SEQUENTIAL frame generation
 // Key improvements:
-// 1. First frame generated BEFORE last frame
-// 2. First frame URL passed to last frame generation for scene consistency
-// 3. Previous scene's last frame passed to next scene's first frame for smooth transitions
-// 4. Product image support for consistent product appearance
+// 1. Frames generated ONE BY ONE in strict order: Scene 1 Frame 1 → Scene 1 Frame 2 → Scene 2 Frame 1 → ...
+// 2. Each frame WAITS for completion before starting the next
+// 3. First frame of scene N uses: previous scene's last frame + avatar as inputs (up to 14 images with Seedream)
+// 4. Last frame of scene N uses: scene N's first frame as input
+// 5. Image Registry tracks all generated images for easy reference
+// 6. Product image support for consistent product appearance
 async function executeStoryboardCreation(
   input: StoryboardCreationInput,
-  ctx: { origin: string; conversationId: string }
-): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
+  ctx: { origin: string; conversationId: string },
+  streamController?: ReadableStreamDefaultController<Uint8Array>,
+  encoder?: TextEncoder
+): Promise<{ success: boolean; output?: { storyboard: Storyboard; imageRegistry?: ImageRegistry }; error?: string }> {
   try {
     const storyboardId = crypto.randomUUID();
     const startedAt = Date.now();
-    // Safety budget: always return a storyboard payload before route timeouts.
-    // We will enqueue frame predictions and let the client poll prediction IDs for URLs.
-    const timeBudgetMs = 4 * 60 * 1000; // 4 minutes for LLM + enqueues
+    // Safety budget: allow more time since we're doing sequential generation with waits
+    const timeBudgetMs = 7 * 60 * 1000; // 7 minutes for sequential generation
+    
+    // Initialize image registry
+    let imageRegistry = createEmptyRegistry();
     
     // Avatar reference URL and description for image-to-image consistency
     const avatarUrl = input.avatar_image_url;
@@ -1745,13 +1753,38 @@ async function executeStoryboardCreation(
       }
     }
     
-    // Build scenes with prediction IDs for image generation
-    // SEQUENTIAL GENERATION: First frame → wait → last frame (with first frame reference)
-    // SMOOTH TRANSITIONS: Previous scene's last frame → next scene's first frame
+    // Build scenes with TRULY SEQUENTIAL frame generation
+    // Order: Scene 1 First Frame → (wait) → Scene 1 Last Frame → (wait) → Scene 2 First Frame → ...
+    // This ensures each frame can use previous frames as input references
     const scenesWithPredictions: StoryboardScene[] = [];
     
     // Track the previous scene's last frame URL for smooth transitions
     let prevSceneLastFrameUrl: string | undefined;
+    
+    // Helper to send streaming updates if controller is available
+    const sendStreamUpdate = (message: string) => {
+      if (streamController && encoder) {
+        try {
+          streamController.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: message })}\n\n`));
+        } catch {
+          // Ignore if stream is closed
+        }
+      }
+    };
+    
+    // Helper to send storyboard update event
+    const sendStoryboardUpdate = (messageId: string, storyboard: Storyboard) => {
+      if (streamController && encoder) {
+        try {
+          streamController.enqueue(encoder.encode(`data: ${JSON.stringify({
+            type: 'video_generation_update',
+            data: { message_id: messageId, storyboard }
+          })}\n\n`));
+        } catch {
+          // Ignore if stream is closed
+        }
+      }
+    };
 
     let previousRefined: StoryboardScene | undefined;
     for (const outline of outlines) {
@@ -1879,57 +1912,229 @@ async function executeStoryboardCreation(
       });
 
       // =================================================================
-      // FRAME GENERATION (NON-BLOCKING)
+      // FRAME GENERATION (TRULY SEQUENTIAL - BLOCKING WAITS)
       // =================================================================
       //
-      // Seedream predictions can take long enough that blocking waits risk hitting route timeouts.
-      // We enqueue predictions and immediately return a storyboard containing prediction IDs.
-      // The client polls `/api/replicate/status` (which now persists outputs to R2) to fill URLs.
+      // Seedream-4 accepts up to 14 input images, making it ideal for reference chaining.
+      // We generate frames ONE BY ONE with blocking waits:
+      // 1. First Frame: Uses previous scene's last frame + avatar + product as inputs
+      // 2. Wait for first frame to complete
+      // 3. Last Frame: Uses this scene's first frame as input
+      // 4. Wait for last frame to complete
+      // 5. Store URLs for next scene's first frame reference
       //
       // =================================================================
       
+      sendStreamUpdate(`\n🎬 **Scene ${outline.scene_number}: ${outline.scene_name}**\n`);
+      
       // Build reference images for FIRST FRAME
       const firstFrameRefs: ReferenceImages = {};
+      const firstFrameInputImages: string[] = [];
       
       // For smooth transitions, use previous scene's last frame as PRIMARY reference
       if (usePrevSceneTransition && prevSceneLastFrameUrl) {
         firstFrameRefs.prevSceneLastFrameUrl = prevSceneLastFrameUrl;
+        firstFrameInputImages.push(prevSceneLastFrameUrl);
         console.log(`[Storyboard] Scene ${outline.scene_number}: Using prev scene last frame for smooth transition`);
       }
       
-      // Avatar reference (if not using prev scene transition as primary)
+      // Avatar reference - ALWAYS include for avatar scenes (Seedream can handle multiple inputs)
       if (useAvatarReference && avatarUrl) {
         firstFrameRefs.avatarUrl = avatarUrl;
         firstFrameRefs.avatarDescription = avatarDescription;
+        if (!firstFrameInputImages.includes(avatarUrl)) {
+          firstFrameInputImages.push(avatarUrl);
+        }
       }
       
       // Product reference
       if (needsProductImage && productUrl) {
         firstFrameRefs.productUrl = productUrl;
         firstFrameRefs.productDescription = productDescription;
+        if (!firstFrameInputImages.includes(productUrl)) {
+          firstFrameInputImages.push(productUrl);
+        }
       }
       
-      // Generate FIRST FRAME (enqueue only)
-      console.log(`[Storyboard] Scene ${outline.scene_number}: Generating FIRST FRAME...`);
+      // =================================================================
+      // STEP 1: Generate FIRST FRAME and WAIT for completion
+      // =================================================================
+      sendStreamUpdate(`  📸 Generating first frame...`);
+      console.log(`[Storyboard] Scene ${outline.scene_number}: Generating FIRST FRAME (sequential)...`);
+      
       const firstFramePrediction = await generateSingleImage(
         safeFirst,
         input.aspect_ratio,
         firstFrameRefs
       );
       
-      const firstFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' =
-        firstFramePrediction?.id ? 'generating' : 'failed';
-      const firstFrameError: string | undefined =
-        firstFramePrediction?.id ? undefined : (firstFramePrediction?.error || 'Failed to start first frame generation');
+      let firstFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'failed';
+      let firstFrameError: string | undefined;
+      let firstFrameUrl: string | undefined;
+      let firstFrameRawUrl: string | undefined;
       
-      // LAST FRAME GENERATION POLICY:
-      // The last frame MUST use the first frame image as an input reference (delta prompting).
-      // Therefore we DO NOT start last-frame prediction until first_frame_url is available.
-      // We'll enqueue last frames later (e.g. when user proceeds), using first_frame_url as the reference input.
-      const lastFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' =
-        firstFramePrediction?.id ? 'pending' : 'failed';
-      const lastFrameError: string | undefined =
-        firstFramePrediction?.id ? undefined : 'Cannot generate last frame: first frame prediction was not created.';
+      if (firstFramePrediction?.id) {
+        firstFrameStatus = 'generating';
+        
+        // Register the first frame in the image registry
+        const { registry: reg1, imageId: firstFrameImageId } = registerImage(imageRegistry, {
+          predictionId: firstFramePrediction.id,
+          status: 'generating',
+          type: 'scene_first_frame',
+          prompt: safeFirst,
+          aspectRatio: input.aspect_ratio,
+          storyboardId,
+          sceneNumber: outline.scene_number,
+          sceneName: outline.scene_name,
+          framePosition: 'first',
+          inputReferenceIds: firstFrameInputImages.length > 0 ? [] : undefined, // Would track reference IDs if needed
+        });
+        imageRegistry = reg1;
+        
+        // WAIT for first frame to complete (up to 90 seconds per frame)
+        console.log(`[Storyboard] Scene ${outline.scene_number}: Waiting for first frame ${firstFramePrediction.id}...`);
+        const firstFrameResult = await waitForPredictionComplete(firstFramePrediction.id, 90000, 2500);
+        
+        if (firstFrameResult.outputUrl) {
+          // Cache to R2 for stable URL
+          const cached = await maybeCacheImageToR2({
+            sourceUrl: firstFrameResult.outputUrl,
+            conversationId: ctx.conversationId,
+            origin: ctx.origin,
+            type: 'frame',
+          });
+          
+          firstFrameUrl = cached.url;
+          firstFrameRawUrl = firstFrameResult.outputUrl;
+          firstFrameStatus = 'succeeded';
+          
+          // Update registry
+          imageRegistry = updateRegisteredImage(imageRegistry, firstFrameImageId, {
+            url: firstFrameUrl,
+            rawUrl: firstFrameRawUrl,
+            status: 'succeeded',
+          });
+          
+          sendStreamUpdate(` ✅\n`);
+          console.log(`[Storyboard] Scene ${outline.scene_number}: First frame COMPLETE: ${firstFrameUrl?.substring(0, 50)}...`);
+        } else {
+          firstFrameStatus = 'failed';
+          firstFrameError = firstFrameResult.error || 'First frame generation failed or timed out';
+          
+          // Update registry
+          imageRegistry = updateRegisteredImage(imageRegistry, firstFrameImageId, {
+            status: 'failed',
+            error: firstFrameError,
+          });
+          
+          sendStreamUpdate(` ❌ (${firstFrameError})\n`);
+          console.error(`[Storyboard] Scene ${outline.scene_number}: First frame FAILED:`, firstFrameError);
+        }
+      } else {
+        firstFrameError = firstFramePrediction?.error || 'Failed to start first frame generation';
+        sendStreamUpdate(` ❌ (${firstFrameError})\n`);
+      }
+      
+      // =================================================================
+      // STEP 2: Generate LAST FRAME using first frame as reference
+      // =================================================================
+      let lastFrameStatus: 'pending' | 'generating' | 'succeeded' | 'failed' = 'pending';
+      let lastFrameError: string | undefined;
+      let lastFrameUrl: string | undefined;
+      let lastFrameRawUrl: string | undefined;
+      let lastFramePredictionId: string | undefined;
+      
+      // Only generate last frame if first frame succeeded
+      if (firstFrameUrl && firstFrameStatus === 'succeeded') {
+        sendStreamUpdate(`  📸 Generating last frame...`);
+        console.log(`[Storyboard] Scene ${outline.scene_number}: Generating LAST FRAME (using first frame as reference)...`);
+        
+        // Build reference images for LAST FRAME - always use first frame
+        const lastFrameRefs: ReferenceImages = {
+          firstFrameUrl: firstFrameUrl,
+        };
+        
+        // Also include avatar for identity consistency
+        if (useAvatarReference && avatarUrl) {
+          lastFrameRefs.avatarUrl = avatarUrl;
+          lastFrameRefs.avatarDescription = avatarDescription;
+        }
+        
+        const lastFramePrediction = await generateSingleImage(
+          safeLast,
+          input.aspect_ratio,
+          lastFrameRefs
+        );
+        
+        if (lastFramePrediction?.id) {
+          lastFramePredictionId = lastFramePrediction.id;
+          lastFrameStatus = 'generating';
+          
+          // Register the last frame in the image registry
+          const { registry: reg2, imageId: lastFrameImageId } = registerImage(imageRegistry, {
+            predictionId: lastFramePrediction.id,
+            status: 'generating',
+            type: 'scene_last_frame',
+            prompt: safeLast,
+            aspectRatio: input.aspect_ratio,
+            storyboardId,
+            sceneNumber: outline.scene_number,
+            sceneName: outline.scene_name,
+            framePosition: 'last',
+          });
+          imageRegistry = reg2;
+          
+          // WAIT for last frame to complete
+          console.log(`[Storyboard] Scene ${outline.scene_number}: Waiting for last frame ${lastFramePrediction.id}...`);
+          const lastFrameResult = await waitForPredictionComplete(lastFramePrediction.id, 90000, 2500);
+          
+          if (lastFrameResult.outputUrl) {
+            // Cache to R2 for stable URL
+            const cached = await maybeCacheImageToR2({
+              sourceUrl: lastFrameResult.outputUrl,
+              conversationId: ctx.conversationId,
+              origin: ctx.origin,
+              type: 'frame',
+            });
+            
+            lastFrameUrl = cached.url;
+            lastFrameRawUrl = lastFrameResult.outputUrl;
+            lastFrameStatus = 'succeeded';
+            
+            // Update registry
+            imageRegistry = updateRegisteredImage(imageRegistry, lastFrameImageId, {
+              url: lastFrameUrl,
+              rawUrl: lastFrameRawUrl,
+              status: 'succeeded',
+            });
+            
+            // Store this last frame URL for the NEXT scene's first frame
+            prevSceneLastFrameUrl = lastFrameUrl;
+            
+            sendStreamUpdate(` ✅\n`);
+            console.log(`[Storyboard] Scene ${outline.scene_number}: Last frame COMPLETE: ${lastFrameUrl?.substring(0, 50)}...`);
+          } else {
+            lastFrameStatus = 'failed';
+            lastFrameError = lastFrameResult.error || 'Last frame generation failed or timed out';
+            
+            // Update registry
+            imageRegistry = updateRegisteredImage(imageRegistry, lastFrameImageId, {
+              status: 'failed',
+              error: lastFrameError,
+            });
+            
+            sendStreamUpdate(` ❌ (${lastFrameError})\n`);
+            console.error(`[Storyboard] Scene ${outline.scene_number}: Last frame FAILED:`, lastFrameError);
+          }
+        } else {
+          lastFrameStatus = 'failed';
+          lastFrameError = lastFramePrediction?.error || 'Failed to start last frame generation';
+          sendStreamUpdate(` ❌ (${lastFrameError})\n`);
+        }
+      } else if (firstFrameStatus === 'failed') {
+        lastFrameStatus = 'failed';
+        lastFrameError = 'Cannot generate last frame: first frame generation failed';
+      }
 
       const sceneOut: StoryboardScene = {
         scene_number: outline.scene_number,
@@ -1949,12 +2154,13 @@ async function executeStoryboardCreation(
         audio_notes: refined.audio_notes ? String(refined.audio_notes) : undefined,
         camera_movement: refined.camera_movement ? String(refined.camera_movement) : undefined,
         lighting_description: refined.lighting_description ? String(refined.lighting_description) : undefined,
+        // Now populated with actual URLs from sequential generation
         first_frame_prediction_id: firstFramePrediction?.id || undefined,
-        last_frame_prediction_id: undefined,
-        first_frame_url: undefined,
-        last_frame_url: undefined,
-        first_frame_raw_url: undefined,
-        last_frame_raw_url: undefined,
+        last_frame_prediction_id: lastFramePredictionId,
+        first_frame_url: firstFrameUrl,
+        last_frame_url: lastFrameUrl,
+        first_frame_raw_url: firstFrameRawUrl,
+        last_frame_raw_url: lastFrameRawUrl,
         first_frame_status: firstFrameStatus,
         last_frame_status: lastFrameStatus,
         first_frame_error: firstFrameError,
@@ -2007,9 +2213,23 @@ async function executeStoryboardCreation(
       scenes_needing_product: scenesNeedingProduct.length > 0 ? scenesNeedingProduct : undefined,
     };
     
+    // Log final status
+    const successfulScenes = scenesWithPredictions.filter(
+      s => s.first_frame_status === 'succeeded' && s.last_frame_status === 'succeeded'
+    ).length;
+    sendStreamUpdate(`\n✨ **Storyboard Complete**: ${successfulScenes}/${scenesWithPredictions.length} scenes with all frames ready\n`);
+    
+    console.log(`[Storyboard] Sequential generation complete:`, {
+      storyboardId,
+      totalScenes: scenesWithPredictions.length,
+      successfulScenes,
+      registryImages: Object.keys(imageRegistry.images).length,
+      elapsedMs: Date.now() - startedAt,
+    });
+    
     return {
       success: true,
-      output: { storyboard }
+      output: { storyboard, imageRegistry }
     };
   } catch (e: any) {
     console.error('Storyboard creation error:', e);
@@ -3000,9 +3220,23 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 : { success: false, error: 'Invalid image_generation input: missing prompt' };
             } else if (toolCall.tool === 'storyboard_creation') {
               const safeInput: unknown = toolCall.input;
+              // Pass stream controller and encoder for real-time progress updates during sequential generation
               result = isStoryboardCreationInput(safeInput)
-                ? await executeStoryboardCreation(safeInput, { origin, conversationId: String(conversationId) })
+                ? await executeStoryboardCreation(safeInput, { origin, conversationId: String(conversationId) }, controller, encoder)
                 : { success: false, error: 'Invalid storyboard_creation input: missing title/scenes or avatar_image_url required for scenes using avatar' };
+              
+              // If storyboard creation returned an image registry, persist it to the plan
+              if (result?.success && (result as any)?.output?.imageRegistry) {
+                const nextPlan = {
+                  ...(existingPlan || {}),
+                  image_registry: (result as any).output.imageRegistry,
+                };
+                await supabase
+                  .from('assistant_conversations')
+                  .update({ plan: nextPlan, updated_at: new Date().toISOString() })
+                  .eq('id', conversationId);
+                existingPlan = nextPlan;
+              }
             } else if (toolCall.tool === 'video_generation') {
               const safeInput: unknown = toolCall.input;
               result = isVideoGenerationInput(safeInput)

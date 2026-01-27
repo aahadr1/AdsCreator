@@ -64,6 +64,12 @@ export interface AssistantPlan {
     analysis_result: VideoAnalysisOutput;
     analyzed_at: string;
   }>;
+
+  /**
+   * Image Registry - Centralized tracking of all generated images in the conversation
+   * Enables the AI to reference any image as input for new generations
+   */
+  image_registry?: import('./imageRegistry').ImageRegistry;
 }
 
 export interface PlanStep {
