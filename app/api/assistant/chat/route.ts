@@ -398,8 +398,9 @@ function parseToolCalls(content: string): Array<{ tool: string; input: Record<st
     const parsed = tryParseJson(rawJson);
     if (parsed && parsed.tool && parsed.input) {
       toolCalls.push(parsed);
+      console.log(`[Tool Call] Successfully parsed: ${parsed.tool}`);
     } else {
-      console.error('Failed to parse tool call payload');
+      console.error('[Tool Call] Failed to parse tool call payload:', rawJson.substring(0, 200));
     }
     idx = end === -1 ? content.length : end + toolCallClose.length;
   }
@@ -1420,6 +1421,9 @@ function buildDeterministicImageReferences(params: {
     const firstFrameId = imageRegistry.byScene[sceneKey]?.firstFrame;
     if (firstFrameId && imageRegistry.images[firstFrameId]?.url) {
       refs.push(imageRegistry.images[firstFrameId].url);
+      console.log(`✓ [Consistency] Scene ${sceneNumber}: Last frame using first frame reference`);
+    } else {
+      console.warn(`⚠️  [Consistency] Scene ${sceneNumber}: Last frame MISSING first frame reference!`);
     }
   }
   
@@ -3206,31 +3210,64 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             }
           }
           let cleanedResponse = cleanResponse(fullResponse);
-          const responseHadToolCallTag = fullResponse.includes('<tool_call>') && fullResponse.includes('</tool_call>');
-          if (!toolCalls.length && responseHadToolCallTag && !cleanedResponse.trim()) {
-            cleanedResponse = 'I generated a tool call, but it was not parseable. Please reply "retry" and I will reformat it as strict JSON.';
-          }
+          const responseHadToolCallTag = fullResponse.includes('<tool_call>');
           const wantedToolCall = reflexionMeta?.selectedAction === 'TOOL_CALL';
+          
+          // If we detected tool call tags but parsing failed, try to auto-recover
+          if (!toolCalls.length && responseHadToolCallTag) {
+            console.warn('[Tool Call] Detected <tool_call> tags but parsing failed. Attempting auto-recovery...');
+            
+            // Try to extract JSON more aggressively
+            const toolCallMatch = fullResponse.match(/<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/);
+            if (toolCallMatch) {
+              const rawContent = toolCallMatch[1].trim();
+              console.log('[Tool Call] Raw content:', rawContent.substring(0, 300));
+              
+              // Try to find tool name and reconstruct
+              const toolMatch = rawContent.match(/"tool"\s*:\s*"([^"]+)"/);
+              const inputMatch = rawContent.match(/"input"\s*:\s*(\{[\s\S]*)/);
+              
+              if (toolMatch && inputMatch) {
+                const toolName = toolMatch[1];
+                console.log(`[Tool Call] Auto-recovery: attempting to fix ${toolName} call`);
+                
+                // For common tools, try to reconstruct with minimal input
+                if (toolName === 'image_generation') {
+                  // Extract prompt if available
+                  const promptMatch = rawContent.match(/"prompt"\s*:\s*"([^"]+)"/);
+                  if (promptMatch) {
+                    console.log('[Tool Call] Auto-recovery: reconstructing image_generation call');
+                    toolCalls.push({
+                      tool: 'image_generation',
+                      input: {
+                        prompt: promptMatch[1],
+                        aspect_ratio: '9:16',
+                        purpose: 'avatar'
+                      }
+                    });
+                  }
+                } else if (toolName === 'storyboard_creation') {
+                  console.log('[Tool Call] Auto-recovery: storyboard_creation requires manual retry');
+                }
+              }
+            }
+          }
+          
+          // Clear response if tool call was intended but failed
           if (wantedToolCall && toolCalls.length === 0) {
-            // Do NOT allow the assistant to claim it executed a tool if no tool_call was provided.
             cleanedResponse = '';
           }
           
           // Default assistant response (may be overridden after tools run)
           let finalAssistantResponse = cleanedResponse.trim();
-          if (wantedToolCall && toolCalls.length === 0) {
-            finalAssistantResponse =
-              'I expected to run a tool, but no valid <tool_call> was provided in the response.\n\n' +
-              'Please reply **"retry"** so I can return a proper tool_call.';
-          }
           
-          // Additional check: if assistant claims it's "generating" or "starting" something but didn't execute tools
-          const claimsGeneration = /\b(generat(ing|e)|start(ing|ed)|creat(ing|e))\b.*\b(avatar|image|storyboard)\b/i.test(finalAssistantResponse);
-          if (claimsGeneration && toolCalls.length === 0 && !wantedToolCall) {
-            // Assistant is claiming to generate something but didn't call any tools - this is wrong
-            finalAssistantResponse =
-              'I mentioned starting a generation, but I didn\'t actually call the tool properly.\n\n' +
-              'Please reply **"retry"** and I\'ll make sure to execute the proper tool call.';
+          // Only ask for retry if reflexion explicitly wanted a tool call and we have none
+          if (wantedToolCall && toolCalls.length === 0) {
+            console.error('[Tool Call] Reflexion wanted TOOL_CALL but none were parsed successfully');
+            console.log('[Tool Call] User message was:', body.message);
+            
+            // Instead of asking user to retry, provide a helpful message
+            finalAssistantResponse = 'I had trouble formatting that request. Could you try rephrasing what you\'d like me to create?';
           }
           
           // Execute tool calls if any
