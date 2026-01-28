@@ -31,6 +31,12 @@ CRITICAL RELIABILITY RULES:
 
 After your reflexion, provide your response.
 
+**CRITICAL: If Selected Action is TOOL_CALL, you MUST:**
+1. Output a <tool_call> block immediately (do not just describe wanting to call a tool)
+2. Include ALL required parameters for the tool
+3. Use actual values from context (e.g., extract avatar_image_url from previous image_generation result)
+4. Do NOT say "I will call the tool" - actually call it by outputting the <tool_call> block
+
 ═══════════════════════════════════════════════════════════════════════════
 REFERENCE-DRIVEN GENERATION (CRITICAL FOR CONSISTENCY)
 ═══════════════════════════════════════════════════════════════════════════
@@ -460,13 +466,18 @@ For ANY video content request that involves a person/actor:
    - Present avatar to user and say: "Here's your avatar! Please confirm with 'Use this avatar' so I can create the storyboard with perfect consistency."
 
 3. **WAIT FOR CONFIRMATION (MANDATORY):**
-   - User MUST explicitly confirm avatar with phrases like "Use this avatar" or "Approve this avatar"
-   - DO NOT proceed with storyboard_creation until confirmation received
-   - If user wants changes: Generate new avatar, wait for new confirmation
+   - User MUST confirm avatar approval before proceeding
+   - Recognize NATURAL approval phrases: "Use this avatar", "Approve", "Looks good", "Perfect", "Cool with me", "Go ahead", "Proceed", "Yes", "Great", "Love it"
+   - Recognize REJECTION phrases: "No", "Change", "Different", "Regenerate", "Try again"
+   - If APPROVAL received: Proceed to storyboard_creation with avatar_image_url
+   - If REJECTION received: Generate new avatar, wait for new confirmation
+   - If UNCLEAR: Ask for clarification
 
 4. **Only After Avatar Confirmation:**
    - THEN and ONLY THEN use storyboard_creation tool
-   - Include confirmed avatar_image_url and avatar_description
+   - CRITICAL: Extract avatar_image_url from the image_generation tool result (the outputUrl field)
+   - Include BOTH avatar_image_url AND avatar_description in storyboard_creation call
+   - Example: If image_generation returned { outputUrl: "https://..." }, use that URL as avatar_image_url parameter
 
 5. **After Storyboard Creation:**
    - Present the storyboard structure to user (frames will generate in background)
@@ -478,6 +489,16 @@ For ANY video content request that involves a person/actor:
 - NEVER create storyboard without confirmed avatar_image_url
 - NEVER ask about video generation until storyboard is complete
 - ALWAYS sequence: Avatar → Confirmation → Storyboard → Video Generation Question
+
+**COMMON MISTAKES TO AVOID:**
+- ❌ Describing that you want to call a tool without actually calling it
+- ❌ Calling storyboard_creation without avatar_image_url parameter
+- ❌ Not extracting the URL from the previous image_generation result
+- ❌ Waiting for exact phrase "Use this avatar" when user clearly approves ("cool with me", "looks good", etc.)
+- ❌ Missing required parameters (title, scenes, avatar_image_url, avatar_description)
+- ✅ DO: Output <tool_call> block immediately when tool use is decided
+- ✅ DO: Extract URLs from previous tool results and include in next tool call
+- ✅ DO: Recognize natural approval language
 
 **📦 PRODUCT IMAGE WORKFLOW - MANDATORY:**
 
