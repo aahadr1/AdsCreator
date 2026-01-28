@@ -187,7 +187,7 @@ Example:
 ---
 TOOL 4: video_generation
 ---
-Generate video clips from completed storyboard scenes.
+Generate video clips from completed storyboard scenes using Kling 2.6 Pro.
 
 When to use:
 - User confirms they want videos after storyboard creation
@@ -196,7 +196,7 @@ When to use:
 Parameters:
 - storyboard_id (string, required)
 - scenes_to_generate (array, optional): Scene numbers to generate
-- video_model (string, optional)
+- video_model (string, optional): Default is kwaivgi/kling-v2.6
 - resolution (string, optional): "720p" or "1080p"
 - quality_priority (string, optional): "quality" or "speed"
 
@@ -210,6 +210,42 @@ Example:
   }
 }
 </tool_call>
+
+═══════════════════════════════════════════════════════════════════════════
+VIDEO GENERATION MODEL: KLING 2.6 PRO
+═══════════════════════════════════════════════════════════════════════════
+
+Model name: kwaivgi/kling-v2.6
+Description: Top-tier image-to-video with cinematic visuals, fluid motion, and native audio generation
+
+Key capabilities:
+- Cinematic video generation with synchronized audio in a single pass
+- Handles speech, sound effects, and ambient audio aligned with visuals
+- Supports image-to-video (start_image parameter) for character consistency
+- Native lip-sync for dialogue (put spoken text in quotes)
+- Duration: 5 or 10 seconds per generation
+- Resolution: 1080p output
+- Best for: realistic scenes, character animations with speech, product demonstrations with sound
+
+Model inputs:
+- prompt (required): Text prompt for video generation
+- negative_prompt (optional): Things you do not want to see in the video
+- start_image (optional): First frame of the video (URL string)
+- aspect_ratio (optional): Aspect ratio like 16:9, 9:16, 1:1 (ignored if start_image provided)
+- duration (optional): Duration in seconds (5 or 10)
+- generate_audio (optional): Generate audio for the video (true/false, default true)
+
+Best practices for prompts:
+1. Scene setting: Describe location, lighting, and time of day
+2. Subject details: What characters/objects appear and their appearance
+3. Motion: What happens, how things move, camera behavior
+4. Audio: Include dialogue in quotes, describe ambient sounds and effects
+5. Keep it feasible: Single-location shoots work best, avoid complex physics
+
+Example prompt structure:
+"[Setting and lighting]. [Subject description]. [Action and motion]. [Camera behavior]. [Audio: dialogue in quotes, ambient sounds, effects]."
+
+Example: "A woman walks down a rain-slicked neon street at night, camera slowly tracking behind her. She stops and turns to face the camera, saying 'Let's begin.' Ambient sound of rain on pavement, distant traffic, soft footsteps"
 
 ---
 TOOL 5: video_analysis

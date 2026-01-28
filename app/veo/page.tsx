@@ -9,6 +9,7 @@ type VideoModelValue =
   | 'google/veo-3.1'
   | 'kwaivgi/kling-v2.5-turbo-pro'
   | 'kwaivgi/kling-v2.1'
+  | 'kwaivgi/kling-v2.6'
   | 'wan-video/wan-2.2-i2v-fast'
   | 'wan-video/wan-2.2-animate-replace'
   | 'wan-video/wan-2.5-i2v'
@@ -25,9 +26,14 @@ type VideoModelMeta = {
 
 const VIDEO_MODELS: readonly VideoModelMeta[] = [
   {
+    value: 'kwaivgi/kling-v2.6',
+    label: 'Kling v2.6 Pro',
+    badge: 'Recommended',
+    description: 'Top-tier image-to-video with cinematic visuals, fluid motion, and native audio generation. Best for production use.',
+  },
+  {
     value: 'google/veo-3.1-fast',
     label: 'Google VEO 3.1 Fast',
-    badge: 'Recommended',
     description: 'Latest 3.1 release with upgraded motion intelligence at production-ready speeds.',
   },
   {
@@ -39,7 +45,6 @@ const VIDEO_MODELS: readonly VideoModelMeta[] = [
   {
     value: 'kwaivgi/kling-v2.5-turbo-pro',
     label: 'Kling 2.5 Turbo Pro',
-    badge: 'New',
     description:
       'Pro-level Kling text-to-video with smooth motion, cinematic depth, and strong prompt fidelity. Supports aspect ratios + optional start image.',
   },
@@ -226,7 +231,7 @@ const VIDEO_MODEL_DOCS: Record<string, ModelDoc> = {
 };
 
 type VideoModel = VideoModelValue;
-const DEFAULT_MODEL: VideoModel = 'google/veo-3.1-fast';
+const DEFAULT_MODEL: VideoModelValue = 'kwaivgi/kling-v2.6';
 const GOOGLE_MODELS = new Set<VideoModel>(
   VIDEO_MODELS.filter((m) => m.value.startsWith('google/veo')).map((m) => m.value as VideoModel)
 );

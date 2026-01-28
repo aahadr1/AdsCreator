@@ -181,6 +181,13 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
     provider: 'Kwaivgi',
     description: 'Image-to-video generation that requires a start image (720p/1080p)',
   },
+  'kwaivgi/kling-v2.6': {
+    name: 'Kling v2.6 Pro',
+    category: 'other',
+    credits: 38,
+    provider: 'Kwaivgi',
+    description: 'Top-tier image-to-video with cinematic visuals, fluid motion, and native audio generation',
+  },
   'kwaivgi/kling-v2.6-motion-control': {
     name: 'Kling v2.6 Motion Control',
     category: 'other',

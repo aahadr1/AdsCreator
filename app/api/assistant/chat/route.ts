@@ -1753,7 +1753,7 @@ async function waitForPredictionComplete(
 // Execute video generation tool - Generate videos from a completed storyboard
 async function executeVideoGeneration(input: VideoGenerationInput): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
   try {
-    const { storyboard_id, scenes_to_generate, video_model = 'google/veo-3.1-fast', resolution = '720p' } = input;
+    const { storyboard_id, scenes_to_generate, video_model = 'kwaivgi/kling-v2.6', resolution = '720p' } = input;
     
     // For now, return an error indicating this functionality needs to be implemented
     // This will be handled by the streaming logic in the route handler
@@ -2828,7 +2828,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_start' })}\n\n`));
             }
             
-            const proceedText = `Perfect! I'll now generate videos from your storyboard using the video_generation tool with VEO 3.1 Fast (which includes audio output). I'll use the first frame image and incorporate the last frame information into the prompt to guide the motion between frames.`;
+            const proceedText = `Perfect! I'll now generate videos from your storyboard using Kling 2.6 Pro (which includes native audio generation). I'll use the first frame image and incorporate the last frame information into the prompt to guide the motion between frames.`;
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: proceedText })}\n\n`));
             
             // Show the tool call
@@ -2845,7 +2845,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: toolCallText })}\n\n`));
 
             const videoMessageId = crypto.randomUUID();
-            const model = 'google/veo-3.1-fast'; // Keep VEO 3.1 Fast for audio output support
+            const model = 'kwaivgi/kling-v2.6'; // Use Kling 2.6 Pro for native audio generation
 
             // Build a storyboard copy with video placeholders
             const nextStoryboard: Storyboard = {
