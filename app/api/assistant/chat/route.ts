@@ -6,7 +6,7 @@ export const maxDuration = 800;
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
-import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, CREATIVE_IDEATION_PROMPT, IMAGE_REFERENCE_SELECTION_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
+import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline, ImageReferenceReflexion } from '../../../../types/assistant';
 import type { ImageRegistry, RegisteredImage, ReferenceImagesResult } from '../../../../types/imageRegistry';
@@ -1364,6 +1364,10 @@ interface ReferenceImages {
  * Get AI reflexion on which reference images to use
  * Returns an array of selected image URLs for maximum consistency
  */
+/**
+ * Deterministic reference image selection (replaces AI-based selection)
+ * Simple, fast, and predictable - no AI call needed
+ */
 async function getImageReferenceReflexion(params: {
   frameType: 'first' | 'last';
   sceneNumber: number;
@@ -1378,123 +1382,15 @@ async function getImageReferenceReflexion(params: {
   needsProduct: boolean;
   usePrevSceneTransition: boolean;
 }): Promise<string[]> {
-  try {
-    const {
-      frameType,
-      sceneNumber,
-      sceneName,
-      sceneDescription,
-      framePrompt,
-      imageRegistry,
-      storyboardId,
-      avatarUrl,
-      productUrl,
-      usesAvatar,
-      needsProduct,
-      usePrevSceneTransition,
-    } = params;
-
-    // Build the available images pool description
-    const availableImages: Array<{ url: string; description: string }> = [];
-    
-    // Add avatar if available
-    if (avatarUrl) {
-      availableImages.push({
-        url: avatarUrl,
-        description: 'Avatar/Character reference image (confirmed identity)',
-      });
-    }
-    
-    // Add product if available
-    if (productUrl) {
-      availableImages.push({
-        url: productUrl,
-        description: 'Product reference image (confirmed product appearance)',
-      });
-    }
-    
-    // Add all successfully generated frames from this storyboard
-    const storyboardImages = queryImages(imageRegistry, {
-      storyboardId,
-      hasUrl: true,
-      status: 'succeeded',
-    });
-    
-    for (const img of storyboardImages) {
-      if (img.url) {
-        const desc = `Scene ${img.sceneNumber} ${img.framePosition} frame - ${img.sceneName || 'untitled'}`;
-        availableImages.push({
-          url: img.url,
-          description: desc,
-        });
-      }
-    }
-    
-    // Build the reflexion prompt
-    const reflexionPrompt = `
-FRAME TO GENERATE: Scene ${sceneNumber} "${sceneName}" - ${frameType.toUpperCase()} FRAME
-
-SCENE CONTEXT:
-- Scene Description: ${sceneDescription}
-- Frame Prompt: ${framePrompt}
-- Uses Avatar: ${usesAvatar}
-- Needs Product: ${needsProduct}
-- Smooth Transition from Previous Scene: ${usePrevSceneTransition}
-
-AVAILABLE IMAGES IN POOL (${availableImages.length} total):
-${availableImages.map((img, idx) => `${idx + 1}. ${img.description}\n   URL: ${img.url}`).join('\n')}
-
-TASK: Select ALL relevant reference images that will help maintain consistency for this ${frameType} frame generation.
-Remember: Nano Banana supports UP TO 14 input images. Use as many as relevant!
-
-${frameType === 'last' ? `CRITICAL: Since this is a LAST frame, you MUST include the scene's first frame for consistency within the scene.` : ''}
-${usePrevSceneTransition ? `CRITICAL: Since this uses smooth transition, you MUST include the previous scene's last frame.` : ''}
-${usesAvatar ? `CRITICAL: Since this scene uses the avatar, you MUST include the avatar reference image.` : ''}
-${needsProduct ? `CRITICAL: Since this scene needs the product, you MUST include the product reference image.` : ''}
-
-Return STRICT JSON with selected_image_urls array.`;
-
-    const reflexionText = await callOpenAIText({
-      prompt: reflexionPrompt,
-      system_prompt: IMAGE_REFERENCE_SELECTION_PROMPT,
-      max_tokens: 1024,
-    });
-    
-    // Parse the reflexion result
-    const parsed = tryParseAnyJson(reflexionText);
-    if (!parsed || !Array.isArray(parsed.selected_image_urls)) {
-      console.warn('[Image Reflexion] Failed to parse reflexion, falling back to manual selection');
-      // Fallback to basic selection
-      return buildFallbackImageReferences(params);
-    }
-    
-    const reflexion = parsed as ImageReferenceReflexion;
-    console.log('[Image Reflexion]', {
-      frameType,
-      sceneNumber,
-      availableCount: availableImages.length,
-      selectedCount: reflexion.selected_image_urls.length,
-      reasoning: reflexion.reasoning.substring(0, 100),
-    });
-    
-    // Validate and filter selected URLs
-    const validUrls = reflexion.selected_image_urls
-      .filter(url => typeof url === 'string' && url.startsWith('http'))
-      .slice(0, 14); // Nano Banana limit
-    
-    return validUrls;
-    
-  } catch (e: any) {
-    console.error('[Image Reflexion] Error:', e.message);
-    // Fallback to basic selection
-    return buildFallbackImageReferences(params);
-  }
+  // Use deterministic logic instead of AI call (Fix #6)
+  return buildDeterministicImageReferences(params);
 }
 
 /**
- * Fallback image reference selection when AI reflexion fails
+ * Deterministic image reference selection using simple rules
+ * Fast, predictable, and effective for maintaining visual consistency
  */
-function buildFallbackImageReferences(params: {
+function buildDeterministicImageReferences(params: {
   frameType: 'first' | 'last';
   sceneNumber: number;
   imageRegistry: ImageRegistry;
@@ -1933,10 +1829,9 @@ async function executeStoryboardCreation(
       };
     }
 
-    // Phase 1: scenario planning (or use provided outlines)
+    // Scenario planning (or use provided outlines)
     let scenario: VideoScenario | undefined;
     let outlines: SceneOutline[] = [];
-    let creativeBrief: any | undefined;
 
     const inputLooksDetailed = input.scenes.every((s: any) => typeof s?.first_frame_prompt === 'string' && typeof s?.last_frame_prompt === 'string');
 
@@ -1952,35 +1847,8 @@ async function executeStoryboardCreation(
         scene_breakdown: outlines,
       };
     } else {
-      // Phase 0: creative ideation (brand designer / CD brief)
-      const ideationParts: string[] = [];
-      ideationParts.push(`TITLE: ${input.title}`);
-      if (input.brand_name) ideationParts.push(`BRAND: ${input.brand_name}`);
-      if (input.product) ideationParts.push(`PRODUCT: ${input.product}`);
-      if (input.product_description) ideationParts.push(`PRODUCT_DESCRIPTION: ${input.product_description}`);
-      if (input.target_audience) ideationParts.push(`TARGET_AUDIENCE: ${input.target_audience}`);
-      if (input.platform) ideationParts.push(`PLATFORM: ${input.platform}`);
-      if (input.total_duration_seconds) ideationParts.push(`TOTAL_DURATION_SECONDS: ${input.total_duration_seconds}`);
-      if (input.style) ideationParts.push(`STYLE_HINT: ${input.style}`);
-      ideationParts.push(`ASPECT_RATIO: ${input.aspect_ratio || DEFAULT_IMAGE_ASPECT_RATIO}`);
-      if (Array.isArray(input.key_benefits) && input.key_benefits.length) ideationParts.push(`KEY_BENEFITS: ${input.key_benefits.join('; ')}`);
-      if (Array.isArray(input.pain_points) && input.pain_points.length) ideationParts.push(`PAIN_POINTS: ${input.pain_points.join('; ')}`);
-      if (input.call_to_action) ideationParts.push(`CTA: ${input.call_to_action}`);
-      if (input.creative_direction) ideationParts.push(`CREATIVE_DIRECTION: ${input.creative_direction}`);
-      if (avatarDescription) ideationParts.push(`AVATAR_DESCRIPTION: ${avatarDescription}`);
-      if (productDescription) ideationParts.push(`PRODUCT_VISUAL_DESCRIPTION: ${productDescription}`);
-      ideationParts.push('Create an ownable concept + visual style guide + per-scene design notes.');
-
-      creativeBrief = await callOpenAIJson<any>({
-        prompt: ideationParts.join('\n'),
-        system_prompt: CREATIVE_IDEATION_PROMPT,
-        max_tokens: 1400,
-      });
-
+      // Single-phase scenario planning (no creative ideation layer)
       const scenarioPromptParts: string[] = [];
-      scenarioPromptParts.push(`CREATIVE_BRIEF:`);
-      scenarioPromptParts.push(JSON.stringify(creativeBrief || {}, null, 2));
-      scenarioPromptParts.push('');
       scenarioPromptParts.push(`Title: ${input.title}`);
       if (input.brand_name) scenarioPromptParts.push(`Brand: ${input.brand_name}`);
       if (input.product) scenarioPromptParts.push(`Product: ${input.product}`);
@@ -1995,7 +1863,7 @@ async function executeStoryboardCreation(
       if (input.call_to_action) scenarioPromptParts.push(`CTA: ${input.call_to_action}`);
       if (input.creative_direction) scenarioPromptParts.push(`Creative direction: ${input.creative_direction}`);
       if (avatarDescription) scenarioPromptParts.push(`Avatar description: ${avatarDescription}`);
-      scenarioPromptParts.push('Create a compact scenario and scene breakdown.');
+      scenarioPromptParts.push('Create a compelling scenario and scene breakdown.');
 
       scenario = await callOpenAIJson<VideoScenario>({
         prompt: scenarioPromptParts.join('\n'),
@@ -2124,11 +1992,8 @@ async function executeStoryboardCreation(
         continue;
       }
 
-      // Phase 2: refine scene in an individual LLM call
+      // Scene refinement: create detailed prompts for this scene
       const refinementPrompt = [
-        `CREATIVE_BRIEF:`,
-        JSON.stringify(creativeBrief || {}, null, 2),
-        ``,
         `SCENARIO:`,
         JSON.stringify(scenario || {}, null, 2),
         ``,
