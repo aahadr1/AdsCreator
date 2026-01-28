@@ -1459,13 +1459,13 @@ export default function AssistantPage() {
 
   if (!authToken) {
     return (
-      <div style={{ minHeight: 'calc(100vh - 60px)', display: 'grid', placeItems: 'center', background: '#0b0c0f', color: '#e7e9ee', padding: 20 }}>
-        <div style={{ maxWidth: 420, width: '100%', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 22, padding: 18, background: 'rgba(255,255,255,0.03)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700 }}>
-            <MessageSquare size={18} />
+      <div className={styles.authGate}>
+        <div className={styles.authCard}>
+          <div className={styles.authHeader}>
+            <span className={styles.iconChip}><MessageSquare size={16} /></span>
             <span>AI Assistant</span>
           </div>
-          <p style={{ marginTop: 10, color: 'rgba(231,233,238,0.65)', lineHeight: 1.6 }}>
+          <p className={styles.authText}>
             Sign in to start chatting with your creative AI assistant.
           </p>
           <a href="/auth" className="btn" style={{ marginTop: 10, display: 'inline-flex' }}>Sign In</a>
@@ -1540,10 +1540,26 @@ export default function AssistantPage() {
         <div className={styles.topbar}>
           <div className={styles.topbarTitle}>
             <span className={styles.iconChip}><MessageSquare size={16} /></span>
-            <span>Chat</span>
+            <div>
+              <div className={styles.topbarTitleText}>Assistant</div>
+              <div className={styles.topbarSubtext}>
+                {activeConversationId ? 'Conversation active' : 'Start a new conversation'}
+              </div>
+            </div>
           </div>
-          <div className={styles.topbarHint}>
-            {isLoading ? 'Generating…' : 'Enter to send · Shift+Enter for newline'}
+          <div className={styles.topbarActions}>
+            <div className={styles.topbarHint}>
+              {isLoading ? 'Generating…' : 'Enter to send · Shift+Enter for newline'}
+            </div>
+            <button
+              className={styles.topbarActionBtn}
+              type="button"
+              onClick={startNewConversation}
+            >
+              <Plus size={14} />
+              New chat
+            </button>
+            {userEmail && <div className={styles.userChip}>{userEmail}</div>}
           </div>
         </div>
 
@@ -1632,7 +1648,7 @@ export default function AssistantPage() {
                       <span className={`${styles.pill} ${styles.pillBad}`}>failed</span>
                     </div>
                     <div className={styles.toolBody}>
-                      <div style={{ color: 'rgba(239,68,68,0.95)', whiteSpace: 'pre-wrap', fontSize: 13 }}>{error}</div>
+                      <div className={styles.errorText}>{error}</div>
                     </div>
                   </div>
                 )}
@@ -1643,39 +1659,18 @@ export default function AssistantPage() {
 
         <div className={styles.composerWrap}>
           {uploadedFiles.length > 0 && (
-            <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', marginBottom: '8px' }}>
-              <div style={{ fontSize: '12px', color: 'rgba(231,233,238,0.6)', marginBottom: '6px' }}>
-                Attached files:
-              </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <div className={styles.uploadTray}>
+              <div className={styles.uploadLabel}>Attached files</div>
+              <div className={styles.uploadChips}>
                 {uploadedFiles.map((file) => (
-                  <div
-                    key={file.url}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '4px 8px',
-                      background: 'rgba(255,255,255,0.05)',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                    }}
-                  >
+                  <div key={file.url} className={styles.uploadChip}>
                     {file.type.startsWith('video/') ? <Film size={14} /> : <Paperclip size={14} />}
-                    <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {file.name}
-                    </span>
+                    <span className={styles.uploadChipName}>{file.name}</span>
                     <button
                       onClick={() => removeUploadedFile(file.url)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'rgba(239,68,68,0.8)',
-                        cursor: 'pointer',
-                        padding: '2px',
-                        display: 'flex',
-                      }}
+                      className={styles.uploadRemove}
                       type="button"
+                      aria-label={`Remove ${file.name}`}
                     >
                       ✕
                     </button>

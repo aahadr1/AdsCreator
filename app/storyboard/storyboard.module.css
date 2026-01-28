@@ -2,8 +2,8 @@
 
 .shell {
   min-height: 100vh;
-  background: #0b0c0f;
-  color: #e7e9ee;
+  background: var(--bg-secondary);
+  color: var(--text);
   display: flex;
   flex-direction: column;
 }
@@ -11,8 +11,8 @@
 /* Header */
 .header {
   height: 60px;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(18, 18, 20, 0.85);
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -20,7 +20,8 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .headerLeft {
@@ -30,50 +31,51 @@
 }
 
 .backBtn {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 8px 12px;
-  color: rgba(231, 233, 238, 0.8);
+  color: var(--text-secondary);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--motion-duration-fast) var(--motion-ease);
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .backBtn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--panel-hover);
+  border-color: var(--border-light);
+  color: var(--text);
 }
 
 .titleInput {
   background: transparent;
   border: none;
-  color: #e7e9ee;
+  color: var(--text);
   font-size: 16px;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   outline: none;
   min-width: 200px;
   padding: 6px 10px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
+  border-radius: var(--radius-md);
+  transition: background var(--motion-duration-fast) var(--motion-ease);
 }
 
 .titleInput:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--panel-hover);
 }
 
 .titleInput:focus {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-hover);
 }
 
 .subtitle {
-  color: rgba(231, 233, 238, 0.5);
-  font-size: 13px;
-  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: var(--font-normal);
 }
 
 .headerRight {
@@ -83,7 +85,7 @@
 }
 
 .saveStatus {
-  color: rgba(231, 233, 238, 0.5);
+  color: var(--text-muted);
   font-size: 13px;
   display: flex;
   align-items: center;
@@ -91,42 +93,42 @@
 }
 
 .saveStatus.saving {
-  color: rgba(59, 130, 246, 0.9);
+  color: var(--status-info);
 }
 
 .saveStatus.saved {
-  color: rgba(34, 197, 94, 0.9);
+  color: var(--status-good);
 }
 
 .iconBtn {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 8px;
-  color: rgba(231, 233, 238, 0.7);
+  color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--motion-duration-fast) var(--motion-ease);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .iconBtn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: rgba(231, 233, 238, 0.9);
+  background: var(--panel-hover);
+  border-color: var(--border-light);
+  color: var(--text);
 }
 
 .primaryBtn {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--accent-gradient);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 8px 16px;
   color: #ffffff;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--motion-duration-fast) var(--motion-ease);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -134,7 +136,7 @@
 
 .primaryBtn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 /* Main Content */
@@ -160,17 +162,17 @@
 
 /* Scene Card */
 .sceneCard {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
   padding: 16px;
-  transition: all 0.2s ease;
+  transition: all var(--motion-duration-fast) var(--motion-ease);
   cursor: move;
 }
 
 .sceneCard:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--panel-hover);
+  border-color: var(--border-light);
   transform: translateY(-2px);
 }
 
@@ -187,13 +189,13 @@
 }
 
 .sceneNumber {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--accent-gradient);
   color: #ffffff;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--font-semibold);
   min-width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -6,6 +6,7 @@ import { Sidebar } from './Sidebar';
 import { CommandPalette, type Command } from './CommandPalette';
 import { useCredits } from '../lib/creditContext';
 import { FaviconTaskIndicator } from './FaviconTaskIndicator';
+import { Search, Command as CommandIcon, Menu, Zap } from 'lucide-react';
 
 type LayoutWrapperProps = {
   children: React.ReactNode;
@@ -18,43 +19,54 @@ type PageMeta = {
 };
 
 const pageDictionary: Record<string, PageMeta> = {
-  '/': { title: 'Dashboard', description: 'Insight into production velocity and recent wins.', category: 'Overview' },
-  '/lipsync-new': { title: 'Lipsync Studio', description: 'Upload a clip and synchronize audio with AI precision.', category: 'Generator' },
-  '/veo': { title: 'Video Generation', description: 'Storyboard and render AI-powered spots.', category: 'Generator' },
-  '/image': { title: 'Image Creation', description: 'Produce brand-ready visuals from text prompts.', category: 'Generator' },
-  '/enhance': { title: 'Video Enhancement', description: 'Upscale and refine footage in minutes.', category: 'Enhance' },
-  '/tts': { title: 'Text to Speech', description: 'Create premium voiceovers from scripts.', category: 'Generator' },
-  '/tasks': { title: 'Task Command Center', description: 'Track status, rerun jobs, and resolve blockers.', category: 'Management' },
-  '/credits': { title: 'Credit Management', description: 'Monitor usage and replenish your balance.', category: 'Account' },
-  '/billing': { title: 'Billing & Plans', description: 'Review your plan, invoices, and upgrade paths.', category: 'Account' },
+  '/': { title: 'Dashboard', description: 'Overview of your creative workspace', category: 'Home' },
+  '/assistant': { title: 'AI Assistant', description: 'Your creative AI partner', category: 'Create' },
+  '/lipsync-new': { title: 'Lipsync Studio', description: 'Synchronize audio with AI', category: 'Tools' },
+  '/lipsync': { title: 'Lipsync', description: 'Sync lips to audio', category: 'Tools' },
+  '/veo': { title: 'Video Generation', description: 'Create AI-powered videos', category: 'Create' },
+  '/image': { title: 'Image Creation', description: 'Generate stunning visuals', category: 'Create' },
+  '/enhance': { title: 'Enhance', description: 'Upscale and refine footage', category: 'Tools' },
+  '/tts': { title: 'Text to Speech', description: 'Generate voiceovers', category: 'Create' },
+  '/tasks': { title: 'Tasks', description: 'Monitor your jobs', category: 'Account' },
+  '/credits': { title: 'Credits', description: 'Manage your usage', category: 'Account' },
+  '/billing': { title: 'Billing', description: 'Plans and invoices', category: 'Account' },
+  '/transcription': { title: 'Transcription', description: 'Convert audio to text', category: 'Tools' },
+  '/background-remove': { title: 'Background Removal', description: 'Remove backgrounds', category: 'Tools' },
+  '/download': { title: 'Download', description: 'Get your assets', category: 'Tools' },
+  '/spy': { title: 'Ad Spy', description: 'Research competitors', category: 'Tools' },
+  '/adscript': { title: 'Ad Script', description: 'Generate scripts', category: 'Create' },
+  '/editor': { title: 'Editor', description: 'Edit your assets', category: 'Tools' },
+  '/auth': { title: 'Sign In', description: 'Access your account', category: 'Account' },
 };
 
 const commandCatalog: Command[] = [
-  { label: 'Dashboard', href: '/', description: 'Overview & insights', shortcut: 'G D' },
-  { label: 'New Lipsync', href: '/lipsync-new', description: 'Generator workflow', shortcut: 'C L' },
-  { label: 'New Video', href: '/veo', description: 'Generate ads from scripts', shortcut: 'C V' },
-  { label: 'Image Lab', href: '/image', description: 'Create ad-ready imagery', shortcut: 'C I' },
-  { label: 'Enhance Footage', href: '/enhance', description: 'Upscale & polish', shortcut: 'C E' },
-  { label: 'Tasks', href: '/tasks', description: 'Monitor job queue', shortcut: 'G T' },
-  { label: 'Credit Center', href: '/credits', description: 'Track remaining credits', shortcut: 'G C' },
-  { label: 'Billing', href: '/billing', description: 'Plans and invoices', shortcut: 'G B' },
-  { label: 'Library', href: '/library', description: 'Assets and references', shortcut: 'G L' },
-  { label: 'Auth', href: '/auth', description: 'Sign in / Sign up', shortcut: 'G A' },
+  { label: 'Dashboard', href: '/', description: 'Home', shortcut: 'G D' },
+  { label: 'AI Assistant', href: '/assistant', description: 'Start creating', shortcut: 'G A' },
+  { label: 'Generate Image', href: '/image', description: 'Create visuals', shortcut: 'C I' },
+  { label: 'Generate Video', href: '/veo', description: 'Create videos', shortcut: 'C V' },
+  { label: 'Text to Speech', href: '/tts', description: 'Create voiceovers', shortcut: 'C T' },
+  { label: 'Lipsync', href: '/lipsync', description: 'Sync audio', shortcut: 'C L' },
+  { label: 'Enhance', href: '/enhance', description: 'Upscale footage', shortcut: 'C E' },
+  { label: 'Tasks', href: '/tasks', description: 'View jobs', shortcut: 'G T' },
+  { label: 'Credits', href: '/credits', description: 'View balance', shortcut: 'G C' },
+  { label: 'Billing', href: '/billing', description: 'Manage plan', shortcut: 'G B' },
 ];
 
 function getPageMeta(pathname: string): PageMeta {
-  return pageDictionary[pathname] ?? {
-    title: pathname === '/' ? 'Dashboard' : pathname.replace(/\//g, ' ').trim() || 'Workspace',
-    description: 'Navigate your creative workspace.',
+  // Handle dynamic routes like /storyboard/[id]
+  const basePath = pathname.split('/').slice(0, 2).join('/');
+  
+  return pageDictionary[pathname] ?? pageDictionary[basePath] ?? {
+    title: pathname === '/' ? 'Dashboard' : pathname.replace(/^\//, '').split('/')[0].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    description: '',
     category: 'Workspace',
   };
 }
 
 export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const pathname = usePathname();
-  const isDashboard = pathname === '/';
+  const isFullWidth = pathname === '/assistant' || pathname.startsWith('/storyboard/');
   const [commandOpen, setCommandOpen] = useState(false);
-  const [searchValue, setSearchValue] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { credits } = useCredits();
   const pageMeta = useMemo(() => getPageMeta(pathname), [pathname]);
@@ -99,53 +111,40 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
       <main className="workspace-main">
         <header className="workspace-header">
           <div className="workspace-title-block">
-            <p className="workspace-eyebrow">{pageMeta.category}</p>
+            <button
+              type="button"
+              className="workspace-menu-btn"
+              onClick={() => setSidebarCollapsed((c) => !c)}
+              aria-label="Toggle menu"
+            >
+              <Menu size={18} />
+            </button>
             <h1 className="workspace-title">{pageMeta.title}</h1>
-            <p className="workspace-description">{pageMeta.description}</p>
           </div>
           <div className="workspace-tools">
             <button
               type="button"
-              className="workspace-toggle-btn"
-              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            >
-              {sidebarCollapsed ? 'Show Menu' : 'Hide Menu'}
-            </button>
-            <div className="workspace-search">
-              <input
-                type="search"
-                placeholder="Search the workspace"
-                value={searchValue}
-                onChange={(event) => setSearchValue(event.target.value)}
-                aria-label="Search the workspace"
-              />
-              <span className="workspace-search-hint">⌘K</span>
-            </div>
-            <button
-              type="button"
-              className="workspace-command-btn"
+              className="workspace-search-btn"
               onClick={() => setCommandOpen(true)}
-              aria-label="Open command palette"
+              aria-label="Search"
             >
-              Command
+              <Search size={16} />
+              <span>Search</span>
+              <kbd>⌘K</kbd>
             </button>
             <div className="workspace-credits">
-              <div className="workspace-credits-label">Credits</div>
+              <Zap size={14} />
               <div className="workspace-credits-value">
-                <span>{credits ? credits.remaining_credits : '—'}</span>
+                <span>{credits ? credits.remaining_credits.toLocaleString() : '—'}</span>
                 {credits?.monthly_limit ? (
-                  <span className="workspace-credits-limit">/ {credits.monthly_limit}</span>
+                  <span className="workspace-credits-limit">/ {credits.monthly_limit.toLocaleString()}</span>
                 ) : null}
               </div>
             </div>
           </div>
         </header>
-        <div className="workspace-content">
-          {isDashboard ? (
-            <div className="page-shell dashboard-shell">{children}</div>
-          ) : (
-            <div className="page-shell">{children}</div>
-          )}
+        <div className={`workspace-content ${isFullWidth ? 'workspace-content-full' : ''}`}>
+          <div className="page-shell">{children}</div>
         </div>
       </main>
       {palette}

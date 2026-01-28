@@ -133,8 +133,8 @@ type QuickActionProps = {
   shortcut?: string;
 };
 
-const MINIMAL_GRADIENT = 'linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.85))';
-const ACCENT_GRADIENT = 'linear-gradient(135deg, rgba(204, 255, 0, 0.18), rgba(10, 10, 10, 0.96))';
+const MINIMAL_GRADIENT = 'linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(18, 18, 20, 0.95))';
+const ACCENT_GRADIENT = 'linear-gradient(135deg, rgba(167, 139, 250, 0.2), rgba(18, 18, 20, 0.95))';
 
 const QuickAction = ({ title, subtitle, href, icon, gradient, shortcut }: QuickActionProps) => (
   <a 
