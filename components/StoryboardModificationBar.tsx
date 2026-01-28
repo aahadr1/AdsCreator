@@ -47,7 +47,8 @@ export function StoryboardModificationBar({
     setError(null);
     
     try {
-      const res = await fetch('/api/storyboard/modify', {
+      // Use AI-powered modification endpoint that actually regenerates content
+      const res = await fetch('/api/storyboard/ai-modify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,8 +68,9 @@ export function StoryboardModificationBar({
       }
       
       // Success!
-      const successMsg = data.details || data.message || 'Modifications applied successfully';
-      setSuccessMessage(successMsg);
+      const successMsg = data.summary || data.details || data.message || 'Modifications applied successfully';
+      const reflexionMsg = data.reflexion ? `\n💡 ${data.reflexion}` : '';
+      setSuccessMessage(successMsg + reflexionMsg);
       setModificationText('');
       
       // Show success message for 3 seconds
