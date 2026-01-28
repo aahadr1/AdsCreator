@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { StoryboardVersionHistory } from '@/components/StoryboardVersionHistory';
 import { StoryboardModificationBar } from '@/components/StoryboardModificationBar';
+import { ElementVersionViewer } from '@/components/ElementVersionViewer';
+import type { ElementType } from '@/components/ElementVersionViewer';
 
 export default function StoryboardPage() {
   const params = useParams();
@@ -41,6 +43,18 @@ export default function StoryboardPage() {
   // Selection state for modification system
   const [selection, setSelection] = useState<StoryboardSelection | null>(null);
   const [selectionMode, setSelectionMode] = useState<SelectionType>('scene');
+  
+  // Version viewer state
+  const [versionViewerOpen, setVersionViewerOpen] = useState(false);
+  const [versionViewerElement, setVersionViewerElement] = useState<{
+    type: 'frame' | 'script' | 'scene';
+    sceneNumber: number;
+    framePosition?: 'first' | 'last';
+    currentValue: any;
+  } | null>(null);
+  
+  // Track recently changed elements for visual feedback
+  const [recentlyChanged, setRecentlyChanged] = useState<Set<string>>(new Set());
 
   // Auto-save debounce
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -333,7 +347,18 @@ export default function StoryboardPage() {
     setSelection(null);
   }, []);
 
-  const handleModificationApplied = useCallback(() => {
+  const handleModificationApplied = useCallback((changedFields?: string[]) => {
+    // Mark changed elements for visual feedback
+    if (changedFields && changedFields.length > 0) {
+      const changedSet = new Set(changedFields);
+      setRecentlyChanged(changedSet);
+      
+      // Clear the highlight after 3 seconds
+      setTimeout(() => {
+        setRecentlyChanged(new Set());
+      }, 3000);
+    }
+    
     // Reload storyboard to get updated data
     if (!authToken || !storyboardId) return;
     
@@ -733,10 +758,18 @@ export default function StoryboardPage() {
                 const isLastFrameSelected = isItemSelected(selection, 'frame', scene.scene_number, 'last');
                 const isScriptSelected = isItemSelected(selection, 'script', scene.scene_number);
                 
+                // Check if this scene/element was recently changed
+                const sceneChanged = recentlyChanged.has(`scene_${scene.scene_number}_scene_name`) ||
+                  recentlyChanged.has(`scene_${scene.scene_number}_description`) ||
+                  recentlyChanged.has(`scene_${scene.scene_number}_duration_seconds`);
+                const firstFrameChanged = recentlyChanged.has(`scene_${scene.scene_number}_first_frame_prompt`);
+                const lastFrameChanged = recentlyChanged.has(`scene_${scene.scene_number}_last_frame_prompt`);
+                const scriptChanged = recentlyChanged.has(`scene_${scene.scene_number}_voiceover_text`);
+                
                 return (
                 <div
                   key={scene.scene_number}
-                  className={`${styles.sceneCard} ${draggedSceneIndex === index ? styles.dragging : ''} ${isSceneSelected ? styles.selected : ''}`}
+                  className={`${styles.sceneCard} ${draggedSceneIndex === index ? styles.dragging : ''} ${isSceneSelected ? styles.selected : ''} ${sceneChanged ? styles.recentlyChanged : ''}`}
                   draggable
                   onDragStart={() => handleDragStart(index)}
                   onDragEnd={handleDragEnd}
@@ -830,12 +863,25 @@ export default function StoryboardPage() {
 
                   <div className={styles.framesRow}>
                     <div 
-                      className={`${styles.frameBox} ${styles.selectableFrame} ${isFirstFrameSelected ? styles.selectedFrame : ''}`}
+                      className={`${styles.frameBox} ${styles.selectableFrame} ${isFirstFrameSelected ? styles.selectedFrame : ''} ${firstFrameChanged ? styles.recentlyChanged : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleFrameSelection(scene.scene_number, 'first', e.metaKey || e.ctrlKey || e.shiftKey);
                       }}
-                      title="Click to select first frame for modification"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setVersionViewerElement({
+                          type: 'frame',
+                          sceneNumber: scene.scene_number,
+                          framePosition: 'first',
+                          currentValue: {
+                            url: scene.first_frame_url,
+                            prompt: scene.first_frame_prompt,
+                          },
+                        });
+                        setVersionViewerOpen(true);
+                      }}
+                      title="Click to select, double-click to view versions"
                     >
                       {scene.first_frame_url ? (
                         <img src={scene.first_frame_url} alt="First frame" className={styles.frameImage} />
@@ -850,12 +896,25 @@ export default function StoryboardPage() {
                       <Play size={14} />
                     </div>
                     <div 
-                      className={`${styles.frameBox} ${styles.selectableFrame} ${isLastFrameSelected ? styles.selectedFrame : ''}`}
+                      className={`${styles.frameBox} ${styles.selectableFrame} ${isLastFrameSelected ? styles.selectedFrame : ''} ${lastFrameChanged ? styles.recentlyChanged : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleFrameSelection(scene.scene_number, 'last', e.metaKey || e.ctrlKey || e.shiftKey);
                       }}
-                      title="Click to select last frame for modification"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setVersionViewerElement({
+                          type: 'frame',
+                          sceneNumber: scene.scene_number,
+                          framePosition: 'last',
+                          currentValue: {
+                            url: scene.last_frame_url,
+                            prompt: scene.last_frame_prompt,
+                          },
+                        });
+                        setVersionViewerOpen(true);
+                      }}
+                      title="Click to select, double-click to view versions"
                     >
                       {scene.last_frame_url ? (
                         <img src={scene.last_frame_url} alt="Last frame" className={styles.frameImage} />
@@ -869,7 +928,23 @@ export default function StoryboardPage() {
                   </div>
 
                   <div 
-                    className={`${styles.scriptBox} ${styles.selectableScript} ${isScriptSelected ? styles.selectedScript : ''}`}
+                    className={`${styles.scriptBox} ${styles.selectableScript} ${isScriptSelected ? styles.selectedScript : ''} ${scriptChanged ? styles.recentlyChanged : ''}`}
+                    onDoubleClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      // Only open version viewer if not double-clicking the textarea (to allow text selection)
+                      if (target.tagName !== 'TEXTAREA') {
+                        e.stopPropagation();
+                        setVersionViewerElement({
+                          type: 'script',
+                          sceneNumber: scene.scene_number,
+                          currentValue: {
+                            text: scene.voiceover_text || '',
+                            mood: scene.audio_mood || '',
+                          },
+                        });
+                        setVersionViewerOpen(true);
+                      }
+                    }}
                   >
                     <div className={styles.scriptLabel}>
                       Script of the scene
@@ -888,7 +963,7 @@ export default function StoryboardPage() {
                       className={styles.scriptTextarea}
                       value={scene.voiceover_text || ''}
                       onChange={(e) => updateScene(index, (s) => ({ ...s, voiceover_text: e.target.value }))}
-                      placeholder="Voiceover or dialogue for this scene..."
+                      placeholder="Voiceover or dialogue for this scene... (double-click box to view versions)"
                       onClick={(e) => e.stopPropagation()}
                     />
                   </div>
@@ -965,6 +1040,59 @@ export default function StoryboardPage() {
           authToken={authToken}
           onClearSelection={clearSelection}
           onModificationApplied={handleModificationApplied}
+        />
+      )}
+      
+      {/* Element Version Viewer */}
+      {authToken && versionViewerElement && (
+        <ElementVersionViewer
+          isOpen={versionViewerOpen}
+          onClose={() => {
+            setVersionViewerOpen(false);
+            setVersionViewerElement(null);
+          }}
+          elementType={versionViewerElement.type}
+          sceneNumber={versionViewerElement.sceneNumber}
+          framePosition={versionViewerElement.framePosition}
+          currentValue={versionViewerElement.currentValue}
+          storyboardId={storyboardId}
+          authToken={authToken}
+          onRestore={(value) => {
+            // Restore the value to the scene
+            const sceneIndex = storyboard?.scenes.findIndex(
+              (s) => s.scene_number === versionViewerElement.sceneNumber
+            );
+            
+            if (sceneIndex !== undefined && sceneIndex >= 0) {
+              if (versionViewerElement.type === 'frame') {
+                updateScene(sceneIndex, (s) => ({
+                  ...s,
+                  ...(versionViewerElement.framePosition === 'first'
+                    ? {
+                        first_frame_url: value.url,
+                        first_frame_prompt: value.prompt,
+                      }
+                    : {
+                        last_frame_url: value.url,
+                        last_frame_prompt: value.prompt,
+                      }),
+                }));
+              } else if (versionViewerElement.type === 'script') {
+                updateScene(sceneIndex, (s) => ({
+                  ...s,
+                  voiceover_text: value.text,
+                  audio_mood: value.mood,
+                }));
+              } else if (versionViewerElement.type === 'scene') {
+                updateScene(sceneIndex, (s) => ({
+                  ...s,
+                  scene_name: value.name,
+                  description: value.description,
+                  duration_seconds: value.duration,
+                }));
+              }
+            }
+          }}
         />
       )}
     </div>

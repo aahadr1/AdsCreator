@@ -3005,12 +3005,18 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   enhancedPromptLength: enhancedPrompt.length
                 });
                 
+                // Determine aspect ratio from storyboard (default 9:16 for vertical)
+                const aspectRatio = storyboard.aspect_ratio || '9:16';
+                const isVertical = aspectRatio === '9:16' || aspectRatio === '4:5';
+                const isSquare = aspectRatio === '1:1';
+                
                 const prediction = await createReplicatePrediction({
                   token: tokenStr,
                   model: model,
                   input: {
                     prompt: enhancedPrompt,
                     resolution: '720p',
+                    aspect_ratio: aspectRatio, // Pass aspect ratio to VEO
                     // VEO start + end frame guidance
                     image: normalizedStartImage,
                     start_image: normalizedStartImage,

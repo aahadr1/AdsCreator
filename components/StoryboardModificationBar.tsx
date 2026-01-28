@@ -11,7 +11,7 @@ interface StoryboardModificationBarProps {
   storyboardId: string;
   authToken: string;
   onClearSelection: () => void;
-  onModificationApplied: () => void;
+  onModificationApplied: (changedFields?: string[]) => void;
 }
 
 export function StoryboardModificationBar({
@@ -24,6 +24,7 @@ export function StoryboardModificationBar({
   const [modificationText, setModificationText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-focus input when selection changes
@@ -66,9 +67,22 @@ export function StoryboardModificationBar({
       }
       
       // Success!
+      const successMsg = data.details || data.message || 'Modifications applied successfully';
+      setSuccessMessage(successMsg);
       setModificationText('');
-      onModificationApplied();
-      onClearSelection();
+      
+      // Show success message for 3 seconds
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+      
+      // Reload storyboard immediately with changed fields for visual feedback
+      onModificationApplied(data.changed_fields);
+      
+      // Clear selection after short delay (so user sees what was modified)
+      setTimeout(() => {
+        onClearSelection();
+      }, 1500);
       
     } catch (err: any) {
       console.error('Modification error:', err);
@@ -140,6 +154,12 @@ export function StoryboardModificationBar({
         <div className={styles.errorBanner}>
           <span>⚠️ {error}</span>
           <button onClick={() => setError(null)} className={styles.errorClose}>×</button>
+        </div>
+      )}
+      
+      {successMessage && (
+        <div className={styles.successBanner}>
+          <span>✅ {successMessage}</span>
         </div>
       )}
       

@@ -318,6 +318,9 @@ export interface StoryboardScene {
   last_frame_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
   first_frame_error?: string;
   last_frame_error?: string;
+  // Track whether frames need regeneration after modification
+  first_frame_needs_regeneration?: boolean;
+  last_frame_needs_regeneration?: boolean;
   // Track whether this scene needs the product image
   needs_product_image?: boolean;
   // Track whether this scene should use previous scene's last frame for smooth transition

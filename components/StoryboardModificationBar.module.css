@@ -202,6 +202,33 @@
   opacity: 1;
 }
 
+.successBanner {
+  max-width: 900px;
+  margin: 12px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #86efac;
+  font-size: 13px;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 .hints {
   max-width: 900px;
   margin: 10px auto 0;

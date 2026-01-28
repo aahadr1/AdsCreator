@@ -240,17 +240,26 @@ export async function POST(req: NextRequest) {
     const updatedScenes = [...storyboard.scenes];
     const modifiedSceneNumbers: number[] = [];
     const modifiedFrames: Array<{ sceneNumber: number; framePosition: 'first' | 'last' }> = [];
+    const changedFields: string[] = []; // Track what actually changed
     
     if (modifications.updated_scenes) {
       for (const update of modifications.updated_scenes) {
         const sceneIndex = updatedScenes.findIndex((s) => s.scene_number === update.scene_number);
         if (sceneIndex >= 0) {
           const changes = update.changes || {};
+          const oldScene = { ...updatedScenes[sceneIndex] };
           updatedScenes[sceneIndex] = {
             ...updatedScenes[sceneIndex],
             ...changes,
           };
           modifiedSceneNumbers.push(update.scene_number);
+          
+          // Track which fields changed
+          Object.keys(changes).forEach((key) => {
+            if (oldScene[key as keyof typeof oldScene] !== changes[key]) {
+              changedFields.push(`scene_${update.scene_number}_${key}`);
+            }
+          });
         }
       }
     }
@@ -262,13 +271,24 @@ export async function POST(req: NextRequest) {
           if (update.first_frame_prompt) {
             updatedScenes[sceneIndex].first_frame_prompt = update.first_frame_prompt;
             modifiedFrames.push({ sceneNumber: update.scene_number, framePosition: 'first' });
+            changedFields.push(`scene_${update.scene_number}_first_frame_prompt`);
+            
+            // Mark frame for regeneration
+            updatedScenes[sceneIndex].first_frame_status = 'pending';
+            updatedScenes[sceneIndex].first_frame_needs_regeneration = true;
           }
           if (update.last_frame_prompt) {
             updatedScenes[sceneIndex].last_frame_prompt = update.last_frame_prompt;
             modifiedFrames.push({ sceneNumber: update.scene_number, framePosition: 'last' });
+            changedFields.push(`scene_${update.scene_number}_last_frame_prompt`);
+            
+            // Mark frame for regeneration
+            updatedScenes[sceneIndex].last_frame_status = 'pending';
+            updatedScenes[sceneIndex].last_frame_needs_regeneration = true;
           }
           if (update.video_generation_prompt) {
             updatedScenes[sceneIndex].video_generation_prompt = update.video_generation_prompt;
+            changedFields.push(`scene_${update.scene_number}_video_generation_prompt`);
           }
           if (!modifiedSceneNumbers.includes(update.scene_number)) {
             modifiedSceneNumbers.push(update.scene_number);
@@ -282,8 +302,10 @@ export async function POST(req: NextRequest) {
         const sceneIndex = updatedScenes.findIndex((s) => s.scene_number === update.scene_number);
         if (sceneIndex >= 0) {
           updatedScenes[sceneIndex].voiceover_text = update.voiceover_text;
+          changedFields.push(`scene_${update.scene_number}_voiceover_text`);
           if (update.audio_mood) {
             updatedScenes[sceneIndex].audio_mood = update.audio_mood;
+            changedFields.push(`scene_${update.scene_number}_audio_mood`);
           }
           if (!modifiedSceneNumbers.includes(update.scene_number)) {
             modifiedSceneNumbers.push(update.scene_number);
@@ -311,7 +333,9 @@ export async function POST(req: NextRequest) {
       success: true,
       updated_scenes: modifiedSceneNumbers,
       updated_frames: modifiedFrames.length > 0 ? modifiedFrames : undefined,
+      changed_fields: changedFields,
       message: `Successfully updated ${selection.type === 'scene' ? 'scenes' : selection.type === 'frame' ? 'frames' : 'scripts'}`,
+      details: `Modified ${modifiedSceneNumbers.length} scene(s). ${changedFields.length} field(s) changed.`,
     });
     
   } catch (error: any) {
