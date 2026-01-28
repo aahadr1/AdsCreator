@@ -3224,6 +3224,15 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               'Please reply **"retry"** so I can return a proper tool_call.';
           }
           
+          // Additional check: if assistant claims it's "generating" or "starting" something but didn't execute tools
+          const claimsGeneration = /\b(generat(ing|e)|start(ing|ed)|creat(ing|e))\b.*\b(avatar|image|storyboard)\b/i.test(finalAssistantResponse);
+          if (claimsGeneration && toolCalls.length === 0 && !wantedToolCall) {
+            // Assistant is claiming to generate something but didn't call any tools - this is wrong
+            finalAssistantResponse =
+              'I mentioned starting a generation, but I didn\'t actually call the tool properly.\n\n' +
+              'Please reply **"retry"** and I\'ll make sure to execute the proper tool call.';
+          }
+          
           // Execute tool calls if any
           const toolResults: Array<{ tool: string; result: unknown }> = [];
           
@@ -3379,7 +3388,10 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
 
           // Enforce step-by-step UX: when avatar generation is started, do NOT let the model
           // claim completion. Always ask for explicit confirmation in a separate message.
-          const executedAvatarGen = filteredToolCalls.some(
+          // IMPORTANT: Only claim we started generation if we ACTUALLY executed the tool call successfully
+          const executedAvatarGen = toolResults.some(
+            (tr) => tr.tool === 'image_generation' && tr.result && (tr.result as any).success
+          ) && filteredToolCalls.some(
             (tc) => tc.tool === 'image_generation' && (tc.input as any)?.purpose === 'avatar'
           );
           if (executedAvatarGen) {
