@@ -263,20 +263,29 @@
   color: rgba(239, 68, 68, 0.9);
 }
 
+.sectionLabel {
+  color: rgba(231, 233, 238, 0.5);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
 .sceneDescription {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .sceneDescriptionTextarea {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 8px;
-  padding: 10px;
-  color: rgba(231, 233, 238, 0.8);
+  padding: 12px;
+  color: rgba(231, 233, 238, 0.9);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   width: 100%;
-  min-height: 60px;
+  min-height: 70px;
   resize: vertical;
   outline: none;
   transition: all 0.15s ease;
@@ -289,6 +298,36 @@
 .sceneDescriptionTextarea:focus {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(99, 102, 241, 0.4);
+}
+
+.videoPromptBox {
+  margin-bottom: 12px;
+}
+
+.videoPromptTextarea {
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: rgba(231, 233, 238, 0.8);
+  font-size: 12px;
+  line-height: 1.5;
+  width: 100%;
+  min-height: 50px;
+  resize: vertical;
+  outline: none;
+  transition: all 0.15s ease;
+  font-style: italic;
+}
+
+.videoPromptTextarea:hover {
+  border-color: rgba(139, 92, 246, 0.25);
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.videoPromptTextarea:focus {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.4);
 }
 
 .framesRow {

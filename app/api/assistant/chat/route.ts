@@ -1777,12 +1777,12 @@ async function executeVideoGeneration(input: VideoGenerationInput): Promise<{ su
 // 6. Product image support for consistent product appearance
 async function executeStoryboardCreation(
   input: StoryboardCreationInput,
-  ctx: { origin: string; conversationId: string },
+  ctx: { origin: string; conversationId: string; preGeneratedId?: string },
   streamController?: ReadableStreamDefaultController<Uint8Array>,
   encoder?: TextEncoder
 ): Promise<{ success: boolean; output?: { storyboard: Storyboard; imageRegistry?: ImageRegistry }; error?: string }> {
   try {
-    const storyboardId = crypto.randomUUID();
+    const storyboardId = ctx.preGeneratedId || crypto.randomUUID();
     const startedAt = Date.now();
     // Safety budget: allow more time since we're doing sequential generation with waits
     const timeBudgetMs = 7 * 60 * 1000; // 7 minutes for sequential generation
@@ -3320,9 +3320,18 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 : { success: false, error: 'Invalid image_generation input: missing prompt' };
             } else if (toolCall.tool === 'storyboard_creation') {
               const safeInput: unknown = toolCall.input;
+              
+              // Create storyboard ID immediately and send link to user
+              const storyboardId = crypto.randomUUID();
+              const storyboardUrl = `${origin}/storyboard/${storyboardId}`;
+              
+              // Send immediate link to user
+              const linkMessage = `🎬 **Creating your storyboard...**\n\n📋 **[Open Storyboard Page →](${storyboardUrl})**\n\nYour storyboard is being generated. You can open it now - scenes will appear as they're created.\n\n`;
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: linkMessage })}\n\n`));
+              
               // Pass stream controller and encoder for real-time progress updates during sequential generation
               result = isStoryboardCreationInput(safeInput)
-                ? await executeStoryboardCreation(safeInput, { origin, conversationId: String(conversationId) }, controller, encoder)
+                ? await executeStoryboardCreation(safeInput, { origin, conversationId: String(conversationId), preGeneratedId: storyboardId }, controller, encoder)
                 : { success: false, error: 'Invalid storyboard_creation input: missing title/scenes or avatar_image_url required for scenes using avatar' };
               
               // If storyboard creation returned an image registry, persist it to the plan
@@ -3522,19 +3531,10 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             const storyboardUrl = `${origin}/storyboard/${storyboardObj.id}`;
             
             const promptLine = anyFramesGenerating
-              ? `✨ **Storyboard created!** Frame images are generating in the background (you'll see them appear as they complete).\n\n` +
-                `📋 **[Click here to review and edit your storyboard](${storyboardUrl})**\n\n` +
-                `You can edit scene descriptions, timings, and scripts in the storyboard editor. Any changes you make will be used for video generation.\n\n` +
-                `Once you're happy with the storyboard:\n` +
-                `- Reply **"proceed"** or click "Continue to Generation" in the storyboard page to generate videos\n` +
-                `- Or reply with any modifications (e.g. "make scene 2 longer")\n\n` +
-                `The frames will populate automatically - feel free to say "proceed" whenever you're ready!`
-              : `✨ **Storyboard is ready!**\n\n` +
-                `📋 **[Click here to review and edit your storyboard](${storyboardUrl})**\n\n` +
-                `You can edit scene descriptions, timings, and scripts in the interactive editor. Drag scenes to reorder them, or click "Continue to Generation" when you're ready.\n\n` +
-                `Next steps:\n` +
-                `- Reply **"proceed"** to start video generation using VEO 3.1 Fast\n` +
-                `- Or describe any modifications you'd like to make`;
+              ? `✨ **Storyboard generation complete!**\n\n` +
+                `Frames are still generating in the background. When ready, reply **"proceed"** to generate videos.`
+              : `✅ **Storyboard is ready!**\n\n` +
+                `Reply **"proceed"** to start video generation, or request any modifications.`;
             finalAssistantResponse = finalAssistantResponse ? `${finalAssistantResponse}\n\n${promptLine}` : promptLine;
 
             const nextPlan = {

@@ -852,6 +852,7 @@ export default function StoryboardPage() {
                   </div>
 
                   <div className={styles.sceneDescription}>
+                    <div className={styles.sectionLabel}>Scene Description</div>
                     <textarea
                       className={styles.sceneDescriptionTextarea}
                       value={scene.description}
@@ -925,6 +926,17 @@ export default function StoryboardPage() {
                         <div className={styles.frameSelectionBadge}>Selected</div>
                       )}
                     </div>
+                  </div>
+
+                  <div className={styles.videoPromptBox}>
+                    <div className={styles.sectionLabel}>Video Generation Prompt (Motion)</div>
+                    <textarea
+                      className={styles.videoPromptTextarea}
+                      value={scene.video_generation_prompt || ''}
+                      onChange={(e) => updateScene(index, (s) => ({ ...s, video_generation_prompt: e.target.value }))}
+                      placeholder="Describe the motion and action for video generation..."
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
 
                   <div 
