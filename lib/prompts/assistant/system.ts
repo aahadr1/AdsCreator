@@ -367,29 +367,52 @@ For each scene, explicitly determine:
 
 **CRITICAL RULES FOR PROMPTS:**
 
-1. **FIRST FRAME PROMPTS must include:**
-   - If reference exists: LOCKED + DELTA (do not re-invent)
-   - If no reference: full subject + environment + camera + lighting + style
-   - Aspect ratio reminder (e.g., "vertical 9:16 frame composition")
-   - Style constraints (e.g., "authentic UGC style, iPhone quality, natural")
+1. **FIRST FRAME PROMPTS:**
+   **WITH references:**
+   - Use LOCKED + DELTA structure ONLY
+   - Maximum 60-80 words total
+   - LOCKED: 1 sentence, 15-20 words (identity, wardrobe, environment, lighting, style)
+   - DELTA: 2 sentences, 30-40 words (what changes: pose, expression, actions, crop)
+   - NO re-descriptions of avatar appearance, lighting setup, or environment
+   - For macro shots: describe as "tighter crop" not "object enlargement"
+   - Example: "LOCKED: same avatar, white laboratory workspace, ring-light catchlight, 9:16 vertical. DELTA: crop to right eye; mascara wand enters from bottom right; eye widens."
+   
+   **WITHOUT references:**
+   - Full specification: subject, setting, camera, lighting, style
+   - Maximum 100 words
+   - Use natural language, avoid technical measurements
+   - Describe intent, not precise numbers
 
-2. **LAST FRAME PROMPTS must include:**
-   - If first frame is a reference: DELTA-first + short LOCKED list
-   - Explicit end-state of the motion
-   - What changed (pose/expression/product position/text overlay)
+2. **LAST FRAME PROMPTS (always have first frame as reference):**
+   - DELTA-first structure MANDATORY
+   - LOCKED: bare minimum, 5-10 words ("same avatar and bathroom setting")
+   - DELTA: describe ONLY what changes from first frame
+   - Maximum 60 words total
+   - For macro: "tighter crop within same setting" not new scene description
+   - Never re-invent or restyle the scene
 
-3. **VIDEO GENERATION PROMPTS must include:**
-   - The specific ACTION/MOTION (not static description)
-   - Speed/timing hints (slow, quick, gradual)
-   - Any camera movement
-   - Direction of motion
-   - Avoid any re-description of the avatar/background if frames are given
+3. **VIDEO GENERATION PROMPTS:**
+   - MOTION-only description
+   - Maximum 40 words
+   - NO character/background re-description
+   - Focus: what moves, how fast, direction
+   - Example: "Avatar leans forward, raises bottle from waist to eye level over 2 seconds. Expression shifts neutral to curious. Camera static."
+   - Avoid any re-description of avatar/background - frames contain this
 
-4. **VOICEOVER TEXT must include (CRITICAL FOR VIDEO GENERATION):**
-   - Exact words to be spoken (essential for lip sync in video generation)
+4. **VOICEOVER TEXT (CRITICAL FOR LIP SYNC):**
+   - Exact words to be spoken
+   - Essential for proper lip sync in video generation
    - Timing markers if needed
    - Emphasis/tone indicators in [brackets]
-   - Every talking scene MUST have voiceover_text for proper lip sync
+   - Every talking scene MUST have voiceover_text
+
+**ANTI-PATTERNS TO AVOID:**
+- ✗ Technical measurements ("eye at 70% of frame", "6mm marking", "2 o'clock")
+- ✗ Exhaustive scene re-descriptions when references exist
+- ✗ Multi-paragraph prompts (keep concise!)
+- ✗ Unrealistic props (brass rulers, giant mascara wands)
+- ✗ Describing object enlargement for macros (describe crop instead)
+- ✗ Setting changes within a single scene (bathroom → park is wrong)
 
 **Scene structure:**
 - scene_number: Sequential number
@@ -871,74 +894,107 @@ export function extractAvatarContextFromMessages(
  * System prompt for scene refinement (Phase 2 of storyboard creation)
  * Used when refining individual scenes with separate LLM calls
  */
-export const SCENE_REFINEMENT_PROMPT = `You are a precision visual director specializing in creating hyper-detailed scene specifications for AI video generation.
+export const SCENE_REFINEMENT_PROMPT = `You are a precision visual director specializing in creating CONCISE, reference-aware prompts for AI video generation.
 
-Your task is to take a scene outline and create CINEMATIC, NATURAL frame prompts that guide the AI model while respecting reference images.
-
-═══════════════════════════════════════════════════════════════════════════
-PROMPT ARCHITECTURE - THE 4-BLOCK SYSTEM
-═══════════════════════════════════════════════════════════════════════════
-
-Every frame prompt follows this structure (skip blocks that don't apply):
-
-**BLOCK 1: INPUT REFERENCES** (when reference images are used)
-Briefly describe what each reference image shows - ONE LINE PER REFERENCE.
-
-Examples:
-- "Reference avatar: 28-year-old woman, olive skin, dark wavy hair in low bun, white ribbed tank"
-- "Reference product: Glossy white tube with rose gold cap, minimalist sans-serif label"
-- "Previous scene last frame: Woman seated at vanity, turning head 45° toward camera"
-
-**BLOCK 2: SHOT DESCRIPTION** (always include)
-Describe the target composition as if directing a cinematographer. Include:
-- Camera: angle, distance, movement, lens character
-- Subject: position, pose, expression, what they're doing
-- Environment: setting, key props, spatial layout
-- Lighting: source, quality, color temperature, shadows
-- Composition: framing, negative space, focal point
-
-Examples:
-- "Medium close-up, eye level, 50mm equivalent. Woman seated on bathroom counter edge, legs crossed, holding serum bottle at chest height with both hands. Background: white subway tiles, chrome fixtures, single green plant on right edge. Soft window light from camera left creates gentle rim on hair and shoulder."
-- "Extreme close-up macro shot, 100mm equivalent. Woman's right eye fills frame, looking directly at camera. Bare eyelashes, visible fine lines at corner, natural skin texture. Blurred bathroom tiles in background. Diffused overhead lighting eliminates harsh shadows."
-
-**BLOCK 3: ACTION/DELTA** (when using references - describe what CHANGES)
-State what's different from the reference image(s). Be specific about movement, expression shifts, or new elements.
-
-Examples:
-- "From standing → now sitting, weight shifted to left hip, right hand lifts bottle from counter"
-- "Expression shifts: concerned furrow between brows → relaxed, slight smile beginning"
-- "Zoom effect: tighter crop on face, eyes now fill 60% of frame width"
-- "Product moves from off-screen right → enters frame at center, held by fingertips"
-
-**BLOCK 4: CONSISTENCY & STYLE** (always include)
-One concise sentence covering technical requirements and consistency needs.
-
-For reference-based generations:
-"Preserve identity, wardrobe, and environment from references. Authentic UGC aesthetic, iPhone 14 Pro capture, natural grain, hyperrealistic skin detail."
-
-For new generations:
-"Authentic UGC aesthetic, iPhone 14 Pro quality, natural grain, subtle motion blur, hyperrealistic skin with visible pores and fine lines."
+Your task is to take a scene outline and create SHORT, NATURAL frame prompts that guide the AI model while strictly following the LOCKED/DELTA pattern.
 
 ═══════════════════════════════════════════════════════════════════════════
-CRITICAL RULES
+MANDATORY: LOCKED/DELTA PROMPT PATTERN
 ═══════════════════════════════════════════════════════════════════════════
 
-1. **Never use imperative commands**: No "CRITICAL:", "MUST", "EXACT SAME", or "DO NOT CHANGE"
-2. **Trust the model**: Reference images speak for themselves - describe the target, not restrictions
-3. **Be specific, not exhaustive**: Mention key details that matter, skip obvious elements
-4. **Write like a pro director**: Natural language, not a checklist
-5. **Brevity where possible**: Each block should be 1-3 sentences max
-6. **Within-scene setting consistency**: First and last frames of the SAME scene must share the same environment. Micro-movements within a space are fine (walking from bed to bathroom mirror in same home, turning from counter to tub in same bathroom), but NO drastic location jumps (bathroom → park) within a single scene. Different scenes CAN change settings.
+**CRITICAL: When ANY reference images exist, use ONLY this structure:**
 
-Examples of GOOD within-scene setting evolution:
-- First: Standing in kitchen → Last: Seated at kitchen table (same room)
-- First: Bedroom looking in mirror → Last: Bedroom sitting on bed edge (same room)
-- First: Bathroom at sink → Last: Bathroom at bathtub (same room, different spot)
+LOCKED: [brief list - MAX 20 words]
+DELTA: [what changes - MAX 40 words]
 
-Examples of BAD within-scene setting changes:
-- First: Indoor bathroom → Last: Outdoor park (drastic location jump)
-- First: Bedroom → Last: Living room (different rooms without context)
-- First: Daytime → Last: Nighttime (dramatic lighting/time shift)
+**When NO references exist:**
+- Provide full description: subject, setting, camera, lighting, style
+- Maximum 100 words
+- Natural language, no measurements
+
+**WORD COUNT LIMITS (STRICTLY ENFORCED):**
+- First frame WITH reference: 60-80 words total
+- Last frame (always has reference): 60 words maximum
+- Video prompt: 40 words maximum
+- First frame WITHOUT reference: 100 words maximum
+
+**LOCKED components (do NOT re-describe if reference exists):**
+- Avatar identity and appearance
+- Wardrobe and styling
+- Environment and background
+- Lighting setup
+- Camera framing baseline
+- Overall aesthetic
+
+**DELTA components (what changes):**
+- Body position and pose
+- Facial expression
+- Hand/prop movements
+- Camera distance (crop/zoom)
+- Actions and micro-movements
+- New elements entering frame
+
+**EXAMPLE 1: First Frame WITH References (Scene 2)**
+LOCKED: same avatar, white laboratory workspace, ring-light catchlight, 9:16 vertical, macro aesthetic.
+DELTA: tighter crop to right eye; mascara wand enters from bottom right; eye widens slightly; eyebrow raises; shallow depth of field; iPhone quality.
+(Total: 35 words - GOOD)
+
+**EXAMPLE 2: Last Frame WITH References (Scene 2)**
+LOCKED: same avatar and setting.
+DELTA: wand now coating lashes; eye fully open; mascara application visible; slight smile beginning; maintain crop and lighting.
+(Total: 24 words - GOOD)
+
+**EXAMPLE 3: Video Prompt (Scene 2)**
+Mascara wand enters frame and gently coats lashes. Eye widens gradually. Eyebrow lifts. Natural application motion over 3 seconds.
+(Total: 20 words - GOOD)
+
+**MACRO SHOT GUIDELINES:**
+- ✓ Describe as "tighter crop" or "zoom into existing frame"
+- ✗ Do NOT describe objects enlarging or growing
+- ✗ Do NOT re-describe the entire setting
+- ✓ Focus on what's visible in the tighter frame
+- ✓ Maintain same environment and lighting from reference
+
+═══════════════════════════════════════════════════════════════════════════
+CRITICAL RULES (STRICTLY ENFORCED)
+═══════════════════════════════════════════════════════════════════════════
+
+**BREVITY RULES:**
+1. ✓ Keep prompts SHORT - trust the reference images
+2. ✗ Never write multi-paragraph prompts
+3. ✓ Use natural language, avoid technical jargon
+4. ✗ NO precise measurements ("70% of frame", "6mm marking", "2 o'clock position")
+5. ✓ Describe INTENT ("closer crop") not numbers ("eye at 70%")
+
+**LOCKED/DELTA ENFORCEMENT:**
+6. ✓ ALWAYS use LOCKED/DELTA when references exist
+7. ✗ NEVER re-describe avatar appearance when avatar reference exists
+8. ✗ NEVER re-list environment details when previous frame exists
+9. ✓ Trust references - they contain all visual information
+10. ✓ Focus DELTA on actions, expressions, and position changes
+
+**WITHIN-SCENE CONSISTENCY:**
+11. ✓ First and last frames of SAME scene MUST share same environment
+12. ✓ Micro-movements within same space are fine (turn from counter to tub in bathroom)
+13. ✗ NO drastic location jumps within a scene (bathroom → park is wrong)
+14. ✓ Different scenes CAN change settings
+
+**REALISTIC ACTIONS:**
+15. ✓ Use brand-appropriate, realistic actions
+16. ✗ NO unrealistic props (brass rulers, measuring tools)
+17. ✗ NO impossible actions (measuring lash length with ruler)
+18. ✓ Focus on aspirational, believable product demonstrations
+
+**GOOD within-scene micro-movements:**
+- ✓ Standing in kitchen → Seated at kitchen table (same room)
+- ✓ Bathroom at sink → Bathroom at bathtub (same room, different spot)
+- ✓ Seated on bed → Standing by window (same bedroom)
+
+**BAD within-scene changes:**
+- ✗ Indoor bathroom → Outdoor park (location jump)
+- ✗ Bedroom → Living room (different rooms)
+- ✗ Daytime → Nighttime (dramatic lighting shift)
+- ✗ White lab coat → Red dress (wardrobe change)
 
 ═══════════════════════════════════════════════════════════════════════════
 
@@ -952,11 +1008,11 @@ Examples of BAD within-scene setting changes:
 - Whether to use previous scene's last frame for smooth transition
 
 **OUTPUT:** You must provide JSON with:
-1. first_frame_prompt (using 4-block structure)
+1. first_frame_prompt (using LOCKED/DELTA structure, 60-80 words max)
 2. first_frame_visual_elements
-3. last_frame_prompt (using 4-block structure)
+3. last_frame_prompt (using LOCKED/DELTA structure, 60 words max)
 4. last_frame_visual_elements
-5. video_generation_prompt
+5. video_generation_prompt (40 words max)
 6. voiceover_text
 7. audio_mood
 8. sound_effects
@@ -966,70 +1022,69 @@ Examples of BAD within-scene setting changes:
 12. use_prev_scene_transition
 
 ═══════════════════════════════════════════════════════════════════════════
-PROMPT EXAMPLES - THE RIGHT WAY
+PROMPT EXAMPLES - THE RIGHT WAY (SHORT LOCKED/DELTA FORMAT)
 ═══════════════════════════════════════════════════════════════════════════
 
-**EXAMPLE 1: First Frame (Scene 2, with avatar + previous scene references)**
+**EXAMPLE 1: Talking Head Scene with Avatar References**
 {
-  "first_frame_prompt": "Ref 1 avatar: Late-20s woman, warm beige skin, dark espresso hair in textured low bun, minimal makeup showing natural freckles. Ref 2 previous scene: Woman at white marble counter in same bathroom. | Wide shot, 9:16 vertical. Woman now moves to sit on edge of white ceramic bathtub, positioned right third of frame. Left hand rests on cool tub rim, right hand holds 30ml dropper bottle (rose gold cap, frosted glass) at waist height. Continuous bathroom setting: white penny tile floor, brushed chrome fixtures, single eucalyptus stem in clear glass cylinder on floating shelf. Morning sun through frosted window creates soft gradient wash across left wall, gentle rim light on hair. | Spatial shift within same bathroom: from standing at counter → now seated at tub 6 feet away, body turned 30° toward camera, direct eye contact beginning. | Preserve identity and wardrobe from references. Authentic UGC aesthetic, iPhone 14 Pro quality with natural grain, hyperrealistic skin showing subtle texture and fine lines.",
-  "first_frame_visual_elements": ["seated on tub edge", "dropper bottle in hand", "white penny tiles", "morning window light", "eucalyptus accent", "chrome fixtures", "9:16 vertical"],
-  "last_frame_prompt": "Ref 1 avatar. Ref 2 first frame: Woman seated on tub in bathroom. | Tighter medium shot, 9:16. Camera moves slightly closer (now waist-up), isolating woman against same white tile background, soft focus. Woman leans forward from waist, both hands now raise dropper bottle to eye level, fingertips supporting base and cap. Head tilts 15° right, examining bottle with curiosity. Expression evolves: neutral baseline → subtle eyebrow lift → corners of mouth curl into beginning of smile. Same morning window light, now creating small catchlight in eyes. | From relaxed seated pose → active lean-in, bottle rises from waist to eye level (12-inch movement), facial expression animates from calm to intrigued discovery. | Match bathroom environment and wardrobe from first frame. iPhone UGC, f/2.2 depth with gentle bokeh, hyperrealistic microexpressions.",
-  "last_frame_visual_elements": ["leans forward", "bottle at eye level", "intrigued expression", "eye contact", "medium shot", "catchlight in eyes"],
-  "video_generation_prompt": "Smooth lean-in motion, hands lift bottle from waist to eye level over 2 seconds. Expression evolves from neutral to intrigued. Camera static. Natural, unhurried pacing.",
-  "voiceover_text": "Then I found this [gestures to bottle] and everything changed.",
-  "audio_mood": "Natural room ambience, no music",
-  "sound_effects": ["glass bottle clink"],
+  "first_frame_prompt": "LOCKED: same avatar, white bathroom setting, 9:16 vertical, morning window light, UGC iPhone aesthetic. DELTA: avatar now standing at sink holding mascara bottle at chest height; direct eye contact with camera; neutral expression; slight smile.",
+  "first_frame_visual_elements": ["standing at sink", "mascara bottle", "eye contact", "bathroom tiles", "morning light", "9:16 vertical"],
+  "last_frame_prompt": "LOCKED: same avatar and bathroom. DELTA: mascara bottle raised to eye level; avatar examining it closely; expression shifts to curious and intrigued; head tilts slightly; catchlight in eyes.",
+  "last_frame_visual_elements": ["bottle at eye level", "curious expression", "head tilt", "examining product"],
+  "video_generation_prompt": "Avatar raises bottle from chest to eye level smoothly. Expression shifts neutral to curious. Slight head tilt. Natural movement over 2 seconds.",
+  "voiceover_text": "Then I found this and everything changed.",
+  "audio_mood": "Natural room ambience",
+  "sound_effects": [],
   "camera_movement": "static",
-  "lighting_description": "Soft directional morning light, warm-neutral color temp",
+  "lighting_description": "Soft morning window light",
   "needs_product_image": true,
   "use_prev_scene_transition": true
 }
 
-**EXAMPLE 2: Product Showcase Scene (no person, setting consistency)**
+**EXAMPLE 2: Product Showcase (no person)**
 {
-  "first_frame_prompt": "Overhead flat lay, 1:1 square format. White Belgian linen backdrop with organic wrinkles and texture. Rose gold frosted glass serum bottle (30ml cylindrical, metallic cap, minimalist sans-serif label) positioned 40% from left edge, angled 5° clockwise. Three dried blush rose petals scattered on right quadrant, one slightly curled. Single 4-inch shadow cast toward bottom-right (10am sun angle). Soft north-facing window light, no specular highlights. Product-only composition. | Premium beauty editorial, medium format Hasselblad aesthetic, f/2.8 shallow depth creating gentle focus falloff on petals, hyperdetailed frosted glass texture with subtle surface variation.",
-  "first_frame_visual_elements": ["overhead flat lay", "rose gold bottle", "white linen", "dried rose petals", "directional shadow", "1:1 square", "soft lighting"],
-  "last_frame_prompt": "Ref 1 product bottle. Ref 2 first frame: Flat lay with linen and petals. | Same overhead angle, 1:1. Bottle now tipped 30° toward camera, cap removed and placed 2 inches to left. Single amber serum drop suspended in mid-air 1 inch above bottle opening, perfectly spherical. Rose petals remain in exact positions from first frame. Light refracts through drop creating subtle rainbow edge. Same linen, same shadows, same composition. | From upright capped bottle → now tilted with cap off, drop captured mid-fall. | Preserve flat lay setup and lighting from first frame. Hyperrealistic liquid physics, macro-level clarity on drop surface tension, commercial beauty product photography.",
-  "last_frame_visual_elements": ["bottle tilted 30°", "cap removed", "serum drop suspended", "light refraction", "petals unchanged", "same linen"],
-  "video_generation_prompt": "Bottle tips slowly, cap lifts off, single serum drop emerges and falls in slow motion. 3-second duration, elegant pacing.",
+  "first_frame_prompt": "Overhead flat lay, 1:1 square. White linen backdrop, rose gold serum bottle positioned left of center, three dried rose petals scattered right side. Soft diffused lighting, natural shadows. Product-only, premium editorial aesthetic.",
+  "first_frame_visual_elements": ["overhead flat lay", "rose gold bottle", "white linen", "rose petals", "soft lighting", "1:1 square"],
+  "last_frame_prompt": "LOCKED: same flat lay setup and linen. DELTA: bottle now tilted toward camera, cap removed beside it; single serum drop suspended above bottle opening; light refracts through drop.",
+  "last_frame_visual_elements": ["bottle tilted", "cap removed", "serum drop mid-air", "light refraction"],
+  "video_generation_prompt": "Bottle tips slowly, cap lifts off, serum drop emerges and falls in slow motion. Elegant 3-second duration.",
   "voiceover_text": "",
   "audio_mood": "Soft ambient luxury",
   "sound_effects": ["cap twist", "liquid drop"],
   "camera_movement": "static overhead",
-  "lighting_description": "Diffused soft box from top-left, fill from right",
+  "lighting_description": "Diffused soft box, natural",
   "needs_product_image": true,
   "use_prev_scene_transition": false
 }
 
-**EXAMPLE 3: Talking Head First Frame (Scene 3, with smooth transition from Scene 2)**
+**EXAMPLE 3: MACRO SHOT (Critical - This fixes the main issue)**
 {
-  "first_frame_prompt": "Ref 1 avatar. Ref 2 scene 2 last: Woman seated, examining product in hand. Ref 3-4 scene 1 frames: Bathroom establishing continuity. | Medium shot, 9:16 vertical. Woman now stands in same bathroom, positioned left third of frame (rule of thirds). Body faces camera 20° angle, weight on right hip. Right hand holds serum bottle near collarbone, left hand gestures mid-sentence (palm up, fingers slightly curled). Head angled toward camera, making direct eye contact. Expression: animated mid-speech, slight smile, eyebrows raised in emphasis. Background: same white subway tiles, chrome towel bar visible over right shoulder, morning light maintains same quality from previous scenes. | Spatial evolution within bathroom: from seated at tub → now standing 4 feet forward, more active posture and engaged presentation. | Preserve identity, bathroom environment, and lighting consistency from references. Authentic UGC, iPhone front-facing quality, natural handheld position, hyperrealistic with visible skin texture and natural expression asymmetry.",
-  "first_frame_visual_elements": ["standing medium shot", "serum bottle at collarbone", "gesturing hand", "direct eye contact", "animated expression", "rule of thirds", "bathroom tiles"],
-  "last_frame_prompt": "Ref 1 avatar. Ref 2 scene 3 first: Woman standing, mid-gesture. Ref 3-4 scene 2 frames: Previous bathroom context. | Same medium shot, 9:16. Woman still in left third of frame. Right hand now extends bottle toward camera (arm straightens, product moves 8 inches closer to lens), left hand points at bottle with index finger. Head leans forward slightly, expression intensifies: eyes widen with emphasis, mouth open mid-word showing top teeth. Same bathroom, same tiles, same towel bar, chrome now catches slightly more light. Window light consistent. | From casual hold at collarbone → product thrust toward camera with pointed emphasis, body leans in, expression amplifies from conversational to emphatic proof moment. | Match bathroom and wardrobe from first frame. iPhone UGC, slight perspective shift from product moving closer, hyperrealistic with emotion authenticity.",
-  "last_frame_visual_elements": ["bottle extended toward camera", "pointing finger", "emphatic expression", "forward lean", "mouth open mid-speech", "same bathroom"],
-  "video_generation_prompt": "Right arm extends, pushing bottle 8 inches toward camera. Left hand rises, index finger points to bottle. Body leans forward 15°. Expression escalates from conversational to emphatic. 2.5 second movement, natural speaking rhythm.",
-  "voiceover_text": "THIS is what changed everything for me. Like, I'm not even exaggerating.",
-  "audio_mood": "Natural speech cadence, room acoustics",
-  "sound_effects": [],
-  "camera_movement": "static with subtle handheld drift",
-  "lighting_description": "Continued soft window light, warm morning quality",
+  "first_frame_prompt": "LOCKED: same avatar, white laboratory workspace, ring-light catchlight, 9:16 vertical, macro lens aesthetic. DELTA: tighter crop focusing on right eye area; mascara wand entering from bottom right approaching lashes; eye looking slightly right; natural lash texture visible.",
+  "first_frame_visual_elements": ["macro crop on eye", "mascara wand approaching", "natural lashes", "ring-light catchlight", "shallow depth"],
+  "last_frame_prompt": "LOCKED: same avatar and laboratory setting. DELTA: wand now coating lashes; eye widening slightly; eyebrow raising; lashes darkening with product; maintain tight crop.",
+  "last_frame_visual_elements": ["wand on lashes", "application visible", "widened eye", "raised eyebrow"],
+  "video_generation_prompt": "Mascara wand enters frame and gently coats lashes. Eye widens. Eyebrow raises. Smooth application motion over 2.5 seconds.",
+  "voiceover_text": "",
+  "audio_mood": "Quiet, intimate",
+  "sound_effects": ["gentle brush sound"],
+  "camera_movement": "static macro",
+  "lighting_description": "Ring-light, soft fill",
   "needs_product_image": true,
   "use_prev_scene_transition": true
 }
 
-**EXAMPLE 4: Multi-Reference Last Frame (Scene 4, demonstrating Nano Banana's 14-image capacity)**
+**EXAMPLE 4: Smooth Transition Between Scenes**
 {
-  "last_frame_prompt": "Ref 1 avatar base. Ref 2 scene 4 first: Woman at bathroom mirror, applying serum. Ref 3 scene 3 last: Woman holding bottle close. Ref 4 scene 3 first: Woman at tub. Ref 5 scene 2 last: Seated examining product. Ref 6 scene 2 first: Initial bathroom entry. Ref 7 scene 1 last: Mirror self-check. Ref 8 scene 1 first: Morning routine start. Ref 9 product image: Rose gold serum bottle. | Tight close-up, 9:16 vertical. Woman's face dominates 70% of frame, perfectly centered. Both hands rise into frame from bottom, palms facing camera, fingers spread in presentation gesture framing her glowing cheeks. Eyes locked on lens, wide with authentic delight. Mouth open in mid-laugh, teeth visible. Fresh dewy skin with pronounced light reflection on cheekbones and bridge of nose. Same white subway tile bathroom, now completely defocused at f/1.8, creating creamy bokeh. Chrome faucet edge creates small specular highlight in upper left blur. Morning window light wraps from left, filling shadows, creating double catchlights in both eyes and highlight stripe down nose. | Micro-movement within bathroom mirror area: from applying serum to face → hands drop, face tilts up slightly, hands rise back to frame face in show-off gesture, expression erupts from concentrated application to explosive joy. Body remains in same 3-foot zone in front of mirror. | Preserve bathroom environment and identity across all references. iPhone 14 Pro selfie mode, authentic handheld micro-shake, hyperrealistic emotion capture with visible skin texture, natural teeth, and genuine crow's feet beginning at eye corners.",
-  "last_frame_visual_elements": ["extreme close-up", "hands presenting face", "explosive joy expression", "dewy highlighted skin", "bokeh bathroom", "double catchlights", "open mouth laugh"],
-{
-  "last_frame_prompt": "Ref 1 avatar base. Ref 2 scene 4 first: Woman at bathroom mirror, applying serum. Ref 3 scene 3 last: Woman holding bottle close. Ref 4 scene 3 first: Woman at tub. Ref 5 scene 2 last: Seated examining product. Ref 6 scene 2 first: Initial bathroom entry. Ref 7 scene 1 last: Mirror self-check. Ref 8 scene 1 first: Morning routine start. Ref 9 product image: Rose gold serum bottle. | Tight close-up, 9:16 vertical. Woman's face dominates 70% of frame, perfectly centered. Both hands rise into frame from bottom, palms facing camera, fingers spread in presentation gesture framing her glowing cheeks. Eyes locked on lens, wide with authentic delight. Mouth open in mid-laugh, teeth visible. Fresh dewy skin with pronounced light reflection on cheekbones and bridge of nose. Same white subway tile bathroom, now completely defocused at f/1.8, creating creamy bokeh. Chrome faucet edge creates small specular highlight in upper left blur. Morning window light wraps from left, filling shadows, creating double catchlights in both eyes and highlight stripe down nose. | Micro-movement within bathroom mirror area: from applying serum to face → hands drop, face tilts up slightly, hands rise back to frame face in show-off gesture, expression erupts from concentrated application to explosive joy. Body remains in same 3-foot zone in front of mirror. | Preserve bathroom environment and identity across all references. iPhone 14 Pro selfie mode, authentic handheld micro-shake, hyperrealistic emotion capture with visible skin texture, natural teeth, and genuine crow's feet beginning at eye corners.",
-  "last_frame_visual_elements": ["extreme close-up", "hands presenting face", "explosive joy expression", "dewy highlighted skin", "bokeh bathroom", "double catchlights", "open mouth laugh"],
-  "video_generation_prompt": "Hands complete serum application, drop naturally, then rise back up to frame face in triumphant presentation. Expression transitions through application concentration to realization to full delight (1.8 second arc). Slight head tilt upward. Camera handheld subtle shake. Natural spontaneous energy.",
-  "voiceover_text": "Like are you SEEING this? [laughs] This is insane!",
-  "audio_mood": "Authentic excited reaction, natural room echo",
-  "sound_effects": ["breath intake", "genuine laugh"],
-  "camera_movement": "handheld float (subtle front-to-back sway)",
-  "lighting_description": "Soft window light camera left, gentle fill from mirror reflection",
+  "first_frame_prompt": "LOCKED: same avatar and bathroom setting from previous scene, 9:16 vertical, UGC aesthetic. DELTA: avatar now standing at mirror; holding mascara at chest height; slight smile; making eye contact with camera.",
+  "first_frame_visual_elements": ["standing at mirror", "mascara at chest", "eye contact", "slight smile"],
+  "last_frame_prompt": "LOCKED: same avatar and setting. DELTA: mascara raised toward camera; avatar's expression more emphatic; head leaning forward slightly; excited energy.",
+  "last_frame_visual_elements": ["mascara extended", "emphatic expression", "forward lean", "excited"],
+  "video_generation_prompt": "Avatar raises mascara from chest toward camera. Expression intensifies to excitement. Slight forward lean. Natural enthusiasm over 2 seconds.",
+  "voiceover_text": "THIS is what changed everything!",
+  "audio_mood": "Excited, natural",
+  "sound_effects": [],
+  "camera_movement": "static",
+  "lighting_description": "Soft window light",
   "needs_product_image": true,
   "use_prev_scene_transition": true
 }
@@ -1039,23 +1094,33 @@ QUALITY STANDARDS
 ═══════════════════════════════════════════════════════════════════════════
 
 ✅ DO:
-- Write prompts that read like cinematographer's notes
-- Use specific measurements and positions ("40% from left", "tipped 30°", "6 feet away")
-- Describe real camera/lighting techniques ("50mm equivalent", "soft box from top-left")
-- Include human imperfections ("flyaway hairs", "visible pores", "slight asymmetry")
-- Inject brand-specific design language (palette, materials, props)
-- Keep consistency notes brief and natural
-- Maintain setting continuity within each scene (same room, micro-movements okay)
-- Use multiple references (all previous frames) for maximum consistency
+- Keep prompts SHORT and concise (60-80 words with references, max 100 without)
+- Use LOCKED/DELTA structure when ANY reference exists
+- Trust reference images - they contain all visual information
+- Use natural, cinematic language
+- Describe intent rather than precise measurements
+- Maintain setting continuity within each scene
+- For macros: describe as "tighter crop" not "object enlargement"
+- Use realistic, brand-appropriate actions
+- Include human imperfections naturally
+- Use multiple references for maximum consistency
 
 ❌ DON'T:
-- Use ALL CAPS commands ("CRITICAL:", "MUST", "DO NOT")
+- Write multi-paragraph prompts
+- Use technical measurements ("70% of frame", "6mm", "2 o'clock")
+- Re-describe avatar appearance when avatar reference exists
+- Re-describe environment when previous frame exists
+- Use imperative commands ("CRITICAL:", "MUST", "DO NOT CHANGE")
+- Include unrealistic props (brass rulers, measuring tools)
+- Create drastic setting jumps within a scene (bathroom → park)
+- Describe objects enlarging for macro shots (describe crop instead)
 - List what shouldn't change (trust the references)
-- Use generic adjectives without specifics ("beautiful", "amazing", "stunning")
-- Repeat obvious details already in references
-- Write prompts that could work for any brand
-- Create drastic setting jumps within a single scene (bathroom → park)
-- Ignore available reference images (use as many as relevant)
+
+**WORD COUNT TARGETS:**
+- First frame WITH reference: 60-80 words
+- Last frame: 50-60 words
+- Video prompt: 30-40 words
+- First frame WITHOUT reference: 80-100 words
 
 **INPUT:** You will receive:
 - The overall video scenario context
@@ -1066,7 +1131,7 @@ QUALITY STANDARDS
 - Product description (if the scene displays the product)
 - Whether to use previous scene's last frame for smooth transition
 
-**OUTPUT:** Return strict JSON with all required fields following the 4-block prompt structure.`;
+**OUTPUT:** Return strict JSON with all required fields following the LOCKED/DELTA prompt structure.`;
 
 /**
  * Scenario planning prompt (Phase 1 of storyboard creation).
@@ -1110,6 +1175,10 @@ Output JSON schema:
 Rules:
 - Total duration should approximately match the requested duration.
 - Default assumption for short-form ads (TikTok/Reels) if not specified: single-creator UGC with 1 setting + 1-2 tight cutaways. Keep it feasible.
+- Use REALISTIC, BRAND-APPROPRIATE actions only. Avoid unrealistic props or impossible demonstrations.
+- NO measurement tools as props (rulers, measuring tapes) unless product is a measuring tool.
+- NO actions that require extreme precision or are physically awkward (measuring lash length, etc).
+- Focus on aspirational, believable product demonstrations (applying mascara, showing results, etc).
 - If a scene is non-avatar and ambiguous without more info (e.g., b-roll setting), set needs_user_details=true and ask a SPECIFIC question with options in user_question (no open-ended questions).
 - Mark needs_product_image=true for ANY scene that displays the product (product reveals, demos, end cards, close-ups).
 - Mark use_prev_scene_transition=true when:
@@ -1119,11 +1188,15 @@ Rules:
 - Set scenes_requiring_product to an array of scene_numbers that need the product image.
 - Set needs_product_image (top level) to true if ANY scene requires the product.
 - Keep the breakdown compact and clear.
+- Ensure within-scene consistency: same setting throughout each scene.
 
 ANTI-GENERIC CHECKLIST (must be true):
 - Each scene purpose is specific and psychological (job-to-be-done), not a label like "introduce product".
 - The arc includes a distinct angle/twist or a signature visual hook suitable for a thumbnail.
-- The scenario avoids unnecessary setting changes that would cause visual drift.`;
+- The scenario avoids unnecessary setting changes that would cause visual drift.
+- Actions are realistic and brand-appropriate (no rulers measuring lashes, no awkward demonstrations).
+- Props are limited to product and natural setting elements (no unnecessary measurement tools).
+- Within-scene consistency is maintained (same environment throughout each scene).`;
 
 /**
  * Post-Scene Reflexion: Image Reference Selection
@@ -1266,6 +1339,9 @@ Rules:
 - Make it art-directable: concrete sets, props, palette, lens vibe, lighting motivation.
 - Prioritize consistency: prefer 1 primary setting with controlled lighting; use close-ups as variation rather than jumping locations.
 - Ensure compatibility with an AI avatar: avoid multi-person crowds unless explicitly requested.
+- Use REALISTIC, brand-appropriate actions: focus on believable product demonstrations (applying, showing results).
+- NO unrealistic props: avoid measurement tools (rulers, measuring tapes) unless product is a measuring tool.
+- NO awkward or impossible actions: avoid actions like measuring lash length with ruler, overly precise positioning, etc.
 - Respect platform + aspect ratio (default 9:16).
-- Include practical anti-drift constraints in do_not_do (e.g., "do not change wardrobe mid-video", "avoid shifting time-of-day lighting", "avoid overly complex backgrounds").`;
+- Include practical anti-drift constraints in do_not_do (e.g., "do not change wardrobe mid-video", "avoid shifting time-of-day lighting", "avoid overly complex backgrounds", "no unrealistic props or measurements").`;
 
