@@ -3572,28 +3572,71 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             storyboardObj.scenes.length > 0 &&
             storyboardToolResult?.success === true;
 
-          if (shouldPromptProceed) {
+          if (shouldPromptProceed && storyboardObj) {
+            // Save storyboard to database for persistence
+            try {
+              const { error: saveError } = await supabase
+                .from('storyboards')
+                .upsert({
+                  id: storyboardObj.id,
+                  user_id: user.id,
+                  conversation_id: conversationId,
+                  title: storyboardObj.title,
+                  brand_name: storyboardObj.brand_name || null,
+                  product: storyboardObj.product || null,
+                  product_description: null,
+                  target_audience: storyboardObj.target_audience || null,
+                  platform: storyboardObj.platform || null,
+                  total_duration_seconds: storyboardObj.total_duration_seconds || null,
+                  style: storyboardObj.style || null,
+                  aspect_ratio: storyboardObj.aspect_ratio || '9:16',
+                  avatar_image_url: storyboardObj.avatar_image_url || null,
+                  avatar_description: storyboardObj.avatar_description || null,
+                  product_image_url: storyboardObj.product_image_url || null,
+                  product_image_description: storyboardObj.product_image_description || null,
+                  scenario: storyboardObj.scenario || null,
+                  scenes: storyboardObj.scenes,
+                  status: storyboardObj.status,
+                  scenes_needing_product: storyboardObj.scenes_needing_product || null,
+                  created_at: storyboardObj.created_at,
+                  updated_at: new Date().toISOString(),
+                });
+              
+              if (saveError) {
+                console.error('Error saving storyboard to database:', saveError);
+              }
+            } catch (error) {
+              console.error('Exception saving storyboard:', error);
+            }
+
             // Check if frames are still generating
-            const anyFramesGenerating = storyboardObj?.scenes.some(
+            const anyFramesGenerating = storyboardObj.scenes.some(
               s => s.first_frame_status === 'generating' || s.last_frame_status === 'generating' ||
                    (s.first_frame_prediction_id && !s.first_frame_url) ||
                    (s.last_frame_prediction_id && !s.last_frame_url)
             );
             
+            const storyboardUrl = `${origin}/storyboard/${storyboardObj.id}`;
+            
             const promptLine = anyFramesGenerating
-              ? `✨ Storyboard created! Frame images are generating in the background (you'll see them appear as they complete).\n\n` +
-                `Once the frames are ready, you can:\n` +
-                `- Reply **"modify"** + what to change (e.g. "modify scene 2: change setting to a kitchen") \n` +
-                `- Reply **"proceed"** to generate videos using VEO 3.1 Fast with audio output\n\n` +
+              ? `✨ **Storyboard created!** Frame images are generating in the background (you'll see them appear as they complete).\n\n` +
+                `📋 **[Click here to review and edit your storyboard](${storyboardUrl})**\n\n` +
+                `You can edit scene descriptions, timings, and scripts in the storyboard editor. Any changes you make will be used for video generation.\n\n` +
+                `Once you're happy with the storyboard:\n` +
+                `- Reply **"proceed"** or click "Continue to Generation" in the storyboard page to generate videos\n` +
+                `- Or reply with any modifications (e.g. "make scene 2 longer")\n\n` +
                 `The frames will populate automatically - feel free to say "proceed" whenever you're ready!`
-              : `Storyboard is ready! Do you want any modifications, or should I proceed with video generation?\n\n` +
-                `- Reply **"modify"** + what to change (e.g. "modify scene 2: change setting to a kitchen") \n` +
-                `- Reply **"proceed"** to generate videos using VEO 3.1 Fast with audio output, incorporating both first and last frame information for motion control.`;
+              : `✨ **Storyboard is ready!**\n\n` +
+                `📋 **[Click here to review and edit your storyboard](${storyboardUrl})**\n\n` +
+                `You can edit scene descriptions, timings, and scripts in the interactive editor. Drag scenes to reorder them, or click "Continue to Generation" when you're ready.\n\n` +
+                `Next steps:\n` +
+                `- Reply **"proceed"** to start video generation using VEO 3.1 Fast\n` +
+                `- Or describe any modifications you'd like to make`;
             finalAssistantResponse = finalAssistantResponse ? `${finalAssistantResponse}\n\n${promptLine}` : promptLine;
 
             const nextPlan = {
               ...(existingPlan || {}),
-              pending_storyboard_action: { storyboard_id: String(storyboardObj!.id), created_at: new Date().toISOString() },
+              pending_storyboard_action: { storyboard_id: String(storyboardObj.id), created_at: new Date().toISOString() },
             };
             await supabase
               .from('assistant_conversations')
