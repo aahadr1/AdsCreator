@@ -151,6 +151,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+  padding-bottom: 200px; /* Extra space for modification bar */
 }
 
 .scenesGrid {
@@ -463,6 +464,12 @@
   border-color: rgba(99, 102, 241, 0.4);
 }
 
+.timelineScene.selected {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.6);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
 .timelineScene.dragging {
   opacity: 0.5;
   transform: scale(0.9);
@@ -548,6 +555,198 @@
   animation: spin 1s linear infinite;
 }
 
+/* Selection Styles */
+.sceneCard.selected {
+  border-color: rgba(99, 102, 241, 0.6);
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.sceneActionBtn.selectedIndicator {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #a78bfa;
+}
+
+.selectableFrame {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.selectableFrame:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+  transform: scale(1.02);
+}
+
+.selectableFrame.selectedFrame {
+  border: 2px solid rgba(99, 102, 241, 0.6);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.frameSelectionBadge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.selectableScript {
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.selectableScript:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.selectableScript.selectedScript {
+  border-color: rgba(99, 102, 241, 0.6);
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.scriptLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.selectScriptBtn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: rgba(231, 233, 238, 0.5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  opacity: 0;
+}
+
+.selectableScript:hover .selectScriptBtn {
+  opacity: 1;
+}
+
+.selectScriptBtn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #a78bfa;
+}
+
+.selectScriptBtn.active {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #a78bfa;
+}
+
+/* Selection Mode Toggle */
+.selectionModeToggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.modeBtn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: rgba(231, 233, 238, 0.6);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modeBtn:hover {
+  color: rgba(231, 233, 238, 0.9);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.modeBtn.active {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a78bfa;
+}
+
+/* Selection Info Panel */
+.selectionInfoPanel {
+  position: fixed;
+  top: 70px;
+  right: 24px;
+  z-index: 90;
+  background: rgba(17, 18, 23, 0.95);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 12px;
+  padding: 12px 16px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.2);
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.selectionInfoContent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.selectionCount {
+  font-size: 13px;
+  color: #a78bfa;
+  font-weight: 600;
+}
+
+.selectionActions {
+  display: flex;
+  gap: 6px;
+}
+
+.selectionActionBtn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: rgba(231, 233, 238, 0.7);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.selectionActionBtn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #a78bfa;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .scenesGrid {
@@ -564,5 +763,9 @@
 
   .timeline {
     height: 140px;
+  }
+  
+  .selectionModeToggle {
+    display: none;
   }
 }

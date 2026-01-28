@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabaseClient as supabase } from '@/lib/supabaseClient';
 import type { Storyboard, StoryboardScene } from '@/types/assistant';
+import type { StoryboardSelection, SelectionType, SceneSelection, FrameSelection, ScriptSelection } from '@/types/storyboardSelection';
+import { isItemSelected } from '@/types/storyboardSelection';
 import styles from '../storyboard.module.css';
 import {
   ArrowLeft,
@@ -18,8 +20,10 @@ import {
   Download,
   Check,
   HelpCircle,
+  MousePointerClick,
 } from 'lucide-react';
 import { StoryboardVersionHistory } from '@/components/StoryboardVersionHistory';
+import { StoryboardModificationBar } from '@/components/StoryboardModificationBar';
 
 export default function StoryboardPage() {
   const params = useParams();
@@ -33,6 +37,10 @@ export default function StoryboardPage() {
   const [draggedSceneIndex, setDraggedSceneIndex] = useState<number | null>(null);
   const [activeSceneIndex, setActiveSceneIndex] = useState<number>(0);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  
+  // Selection state for modification system
+  const [selection, setSelection] = useState<StoryboardSelection | null>(null);
+  const [selectionMode, setSelectionMode] = useState<SelectionType>('scene');
 
   // Auto-save debounce
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -225,9 +233,144 @@ export default function StoryboardPage() {
     router.push(`/assistant?storyboard_id=${storyboard.id}`);
   }, [storyboard, authToken, router, updateStoryboard]);
 
+  // Selection management
+  const toggleSceneSelection = useCallback((sceneNumber: number, multiSelect: boolean = false) => {
+    setSelection((prev) => {
+      // If switching to scene mode or no previous selection, create new
+      if (!prev || prev.type !== 'scene') {
+        return {
+          type: 'scene',
+          items: [{ sceneNumber }],
+        };
+      }
+      
+      // Check if already selected
+      const isSelected = prev.items.some((item) => (item as SceneSelection).sceneNumber === sceneNumber);
+      
+      if (!multiSelect) {
+        // Single select: toggle or replace
+        return isSelected && prev.items.length === 1
+          ? null // Deselect if it's the only one
+          : { type: 'scene', items: [{ sceneNumber }] };
+      }
+      
+      // Multi-select
+      if (isSelected) {
+        // Remove from selection
+        const newItems = prev.items.filter((item) => (item as SceneSelection).sceneNumber !== sceneNumber);
+        return newItems.length > 0 ? { type: 'scene', items: newItems } : null;
+      } else {
+        // Add to selection
+        return { type: 'scene', items: [...prev.items, { sceneNumber }] };
+      }
+    });
+    setSelectionMode('scene');
+  }, []);
+
+  const toggleFrameSelection = useCallback((sceneNumber: number, framePosition: 'first' | 'last', multiSelect: boolean = false) => {
+    setSelection((prev) => {
+      if (!prev || prev.type !== 'frame') {
+        return {
+          type: 'frame',
+          items: [{ sceneNumber, framePosition }],
+        };
+      }
+      
+      const isSelected = prev.items.some(
+        (item) =>
+          (item as FrameSelection).sceneNumber === sceneNumber &&
+          (item as FrameSelection).framePosition === framePosition
+      );
+      
+      if (!multiSelect) {
+        return isSelected && prev.items.length === 1
+          ? null
+          : { type: 'frame', items: [{ sceneNumber, framePosition }] };
+      }
+      
+      if (isSelected) {
+        const newItems = prev.items.filter(
+          (item) =>
+            !((item as FrameSelection).sceneNumber === sceneNumber &&
+              (item as FrameSelection).framePosition === framePosition)
+        );
+        return newItems.length > 0 ? { type: 'frame', items: newItems } : null;
+      } else {
+        return { type: 'frame', items: [...prev.items, { sceneNumber, framePosition }] };
+      }
+    });
+    setSelectionMode('frame');
+  }, []);
+
+  const toggleScriptSelection = useCallback((sceneNumber: number, multiSelect: boolean = false) => {
+    setSelection((prev) => {
+      if (!prev || prev.type !== 'script') {
+        return {
+          type: 'script',
+          items: [{ sceneNumber }],
+        };
+      }
+      
+      const isSelected = prev.items.some((item) => (item as ScriptSelection).sceneNumber === sceneNumber);
+      
+      if (!multiSelect) {
+        return isSelected && prev.items.length === 1
+          ? null
+          : { type: 'script', items: [{ sceneNumber }] };
+      }
+      
+      if (isSelected) {
+        const newItems = prev.items.filter((item) => (item as ScriptSelection).sceneNumber !== sceneNumber);
+        return newItems.length > 0 ? { type: 'script', items: newItems } : null;
+      } else {
+        return { type: 'script', items: [...prev.items, { sceneNumber }] };
+      }
+    });
+    setSelectionMode('script');
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelection(null);
+  }, []);
+
+  const handleModificationApplied = useCallback(() => {
+    // Reload storyboard to get updated data
+    if (!authToken || !storyboardId) return;
+    
+    const loadStoryboard = async () => {
+      try {
+        const res = await fetch(`/api/storyboard?id=${storyboardId}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setStoryboard(data.storyboard);
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
+        }
+      } catch (error) {
+        console.error('Error reloading storyboard:', error);
+      }
+    };
+
+    loadStoryboard();
+  }, [authToken, storyboardId]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+      
+      // Escape: Clear selection
+      if (e.key === 'Escape') {
+        if (selection) {
+          e.preventDefault();
+          clearSelection();
+        }
+      }
+      
       // Cmd/Ctrl+S: Force save
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
@@ -236,11 +379,10 @@ export default function StoryboardPage() {
         }
       }
       
-      // Delete: Delete active scene
-      if (e.key === 'Delete' && activeSceneIndex >= 0 && storyboard && storyboard.scenes.length > 1) {
-        const target = e.target as HTMLElement;
+      // Delete: Delete active scene (only if nothing selected)
+      if (e.key === 'Delete' && !selection && activeSceneIndex >= 0 && storyboard && storyboard.scenes.length > 1) {
         // Don't delete if user is typing in an input/textarea
-        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+        if (!isTyping) {
           e.preventDefault();
           if (confirm(`Delete scene ${activeSceneIndex + 1}?`)) {
             deleteScene(activeSceneIndex);
@@ -251,16 +393,14 @@ export default function StoryboardPage() {
 
       // Arrow keys: Navigate scenes
       if (e.key === 'ArrowLeft' && activeSceneIndex > 0) {
-        const target = e.target as HTMLElement;
-        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+        if (!isTyping) {
           e.preventDefault();
           setActiveSceneIndex(activeSceneIndex - 1);
         }
       }
       
       if (e.key === 'ArrowRight' && storyboard && activeSceneIndex < storyboard.scenes.length - 1) {
-        const target = e.target as HTMLElement;
-        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+        if (!isTyping) {
           e.preventDefault();
           setActiveSceneIndex(activeSceneIndex + 1);
         }
@@ -269,7 +409,7 @@ export default function StoryboardPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [storyboard, activeSceneIndex, saveStoryboard, deleteScene]);
+  }, [storyboard, activeSceneIndex, saveStoryboard, deleteScene, selection, clearSelection]);
 
   if (isLoading) {
     return (
@@ -320,6 +460,33 @@ export default function StoryboardPage() {
           </div>
         </div>
         <div className={styles.headerRight}>
+          {/* Selection Mode Toggle */}
+          {selection && selection.items.length > 0 && (
+            <div className={styles.selectionModeToggle}>
+              <button
+                className={`${styles.modeBtn} ${selectionMode === 'scene' ? styles.active : ''}`}
+                onClick={() => setSelectionMode('scene')}
+                title="Select scenes"
+              >
+                Scene
+              </button>
+              <button
+                className={`${styles.modeBtn} ${selectionMode === 'frame' ? styles.active : ''}`}
+                onClick={() => setSelectionMode('frame')}
+                title="Select frames"
+              >
+                Frame
+              </button>
+              <button
+                className={`${styles.modeBtn} ${selectionMode === 'script' ? styles.active : ''}`}
+                onClick={() => setSelectionMode('script')}
+                title="Select scripts"
+              >
+                Script
+              </button>
+            </div>
+          )}
+          
           <div className={`${styles.saveStatus} ${saveStatus === 'saving' ? styles.saving : saveStatus === 'saved' ? styles.saved : ''}`}>
             {saveStatus === 'saving' && (
               <>
@@ -375,6 +542,52 @@ export default function StoryboardPage() {
           </button>
         </div>
       </header>
+
+      {/* Selection Info Panel */}
+      {selection && selection.items.length > 0 && (
+        <div className={styles.selectionInfoPanel}>
+          <div className={styles.selectionInfoContent}>
+            <span className={styles.selectionCount}>
+              {selection.items.length} {selection.type}{selection.items.length > 1 ? 's' : ''} selected
+            </span>
+            <div className={styles.selectionActions}>
+              <button
+                className={styles.selectionActionBtn}
+                onClick={() => {
+                  // Select all items of current type
+                  if (!storyboard) return;
+                  if (selection.type === 'scene') {
+                    setSelection({
+                      type: 'scene',
+                      items: storyboard.scenes.map((s) => ({ sceneNumber: s.scene_number })),
+                    });
+                  } else if (selection.type === 'frame') {
+                    const allFrames: FrameSelection[] = [];
+                    storyboard.scenes.forEach((s) => {
+                      allFrames.push({ sceneNumber: s.scene_number, framePosition: 'first' });
+                      allFrames.push({ sceneNumber: s.scene_number, framePosition: 'last' });
+                    });
+                    setSelection({
+                      type: 'frame',
+                      items: allFrames,
+                    });
+                  } else if (selection.type === 'script') {
+                    setSelection({
+                      type: 'script',
+                      items: storyboard.scenes.map((s) => ({ sceneNumber: s.scene_number })),
+                    });
+                  }
+                }}
+              >
+                Select All
+              </button>
+              <button className={styles.selectionActionBtn} onClick={clearSelection}>
+                Clear Selection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Keyboard Shortcuts Help */}
       {showShortcutsHelp && (
@@ -446,7 +659,29 @@ export default function StoryboardPage() {
                   fontFamily: 'monospace'
                 }}>→</kbd>
               </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'rgba(231, 233, 238, 0.7)' }}>Clear selection</span>
+                <kbd style={{ 
+                  background: 'rgba(255, 255, 255, 0.1)', 
+                  padding: '4px 8px', 
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontFamily: 'monospace'
+                }}>Esc</kbd>
+              </div>
               <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <div style={{ fontSize: '12px', color: 'rgba(231, 233, 238, 0.5)', marginBottom: '8px' }}>
+                  <strong>Selection & Modification:</strong>
+                </div>
+                <div style={{ fontSize: '11px', color: 'rgba(231, 233, 238, 0.5)', lineHeight: '1.6' }}>
+                  • Click scene header to select entire scene<br/>
+                  • Click frame images to select specific frames<br/>
+                  • Click script select button to select scripts<br/>
+                  • Hold Cmd/Ctrl to select multiple items<br/>
+                  • Type your modification in the bottom bar
+                </div>
+              </div>
+              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
                 <div style={{ fontSize: '12px', color: 'rgba(231, 233, 238, 0.5)' }}>
                   Tip: Drag scenes to reorder them in the grid or timeline view
                 </div>
@@ -492,17 +727,42 @@ export default function StoryboardPage() {
             </div>
           ) : (
             <div className={styles.scenesGrid}>
-              {storyboard.scenes.map((scene, index) => (
+              {storyboard.scenes.map((scene, index) => {
+                const isSceneSelected = isItemSelected(selection, 'scene', scene.scene_number);
+                const isFirstFrameSelected = isItemSelected(selection, 'frame', scene.scene_number, 'first');
+                const isLastFrameSelected = isItemSelected(selection, 'frame', scene.scene_number, 'last');
+                const isScriptSelected = isItemSelected(selection, 'script', scene.scene_number);
+                
+                return (
                 <div
                   key={scene.scene_number}
-                  className={`${styles.sceneCard} ${draggedSceneIndex === index ? styles.dragging : ''}`}
+                  className={`${styles.sceneCard} ${draggedSceneIndex === index ? styles.dragging : ''} ${isSceneSelected ? styles.selected : ''}`}
                   draggable
                   onDragStart={() => handleDragStart(index)}
                   onDragEnd={handleDragEnd}
                   onDragOver={(e) => handleDragOver(e, index)}
-                  onClick={() => setActiveSceneIndex(index)}
+                  onClick={(e) => {
+                    // Check if clicking on a selectable element
+                    const target = e.target as HTMLElement;
+                    if (target.closest(`.${styles.selectableFrame}`) || 
+                        target.closest(`.${styles.selectableScript}`) ||
+                        target.closest(`.${styles.sceneHeader}`)) {
+                      // Let specific handlers deal with it
+                      return;
+                    }
+                    setActiveSceneIndex(index);
+                  }}
                 >
-                  <div className={styles.sceneHeader}>
+                  <div 
+                    className={styles.sceneHeader}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      // Only select scene if clicking the header itself, not inputs
+                      if (target === e.currentTarget || target.closest(`.${styles.sceneNumber}`) || target.closest(`.${styles.sceneHeaderContent}`)) {
+                        toggleSceneSelection(scene.scene_number, e.metaKey || e.ctrlKey || e.shiftKey);
+                      }
+                    }}
+                  >
                     <div className={styles.sceneNumber}>{scene.scene_number}</div>
                     <div className={styles.sceneHeaderContent}>
                       <input
@@ -534,6 +794,16 @@ export default function StoryboardPage() {
                     </div>
                     <div className={styles.sceneActions}>
                       <button
+                        className={`${styles.sceneActionBtn} ${isSceneSelected ? styles.selectedIndicator : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSceneSelection(scene.scene_number, e.metaKey || e.ctrlKey || e.shiftKey);
+                        }}
+                        title={isSceneSelected ? "Scene selected - click to deselect" : "Select scene for modification"}
+                      >
+                        <MousePointerClick size={14} />
+                      </button>
+                      <button
                         className={`${styles.sceneActionBtn} ${styles.delete}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -559,27 +829,61 @@ export default function StoryboardPage() {
                   </div>
 
                   <div className={styles.framesRow}>
-                    <div className={styles.frameBox}>
+                    <div 
+                      className={`${styles.frameBox} ${styles.selectableFrame} ${isFirstFrameSelected ? styles.selectedFrame : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFrameSelection(scene.scene_number, 'first', e.metaKey || e.ctrlKey || e.shiftKey);
+                      }}
+                      title="Click to select first frame for modification"
+                    >
                       {scene.first_frame_url ? (
                         <img src={scene.first_frame_url} alt="First frame" className={styles.frameImage} />
                       ) : (
                         <div className={styles.framePlaceholder}>frame 1 will be displayed</div>
                       )}
+                      {isFirstFrameSelected && (
+                        <div className={styles.frameSelectionBadge}>Selected</div>
+                      )}
                     </div>
                     <div className={styles.frameArrow}>
                       <Play size={14} />
                     </div>
-                    <div className={styles.frameBox}>
+                    <div 
+                      className={`${styles.frameBox} ${styles.selectableFrame} ${isLastFrameSelected ? styles.selectedFrame : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFrameSelection(scene.scene_number, 'last', e.metaKey || e.ctrlKey || e.shiftKey);
+                      }}
+                      title="Click to select last frame for modification"
+                    >
                       {scene.last_frame_url ? (
                         <img src={scene.last_frame_url} alt="Last frame" className={styles.frameImage} />
                       ) : (
                         <div className={styles.framePlaceholder}>frame 2 will be displayed</div>
                       )}
+                      {isLastFrameSelected && (
+                        <div className={styles.frameSelectionBadge}>Selected</div>
+                      )}
                     </div>
                   </div>
 
-                  <div className={styles.scriptBox}>
-                    <div className={styles.scriptLabel}>Script of the scene</div>
+                  <div 
+                    className={`${styles.scriptBox} ${styles.selectableScript} ${isScriptSelected ? styles.selectedScript : ''}`}
+                  >
+                    <div className={styles.scriptLabel}>
+                      Script of the scene
+                      <button
+                        className={`${styles.selectScriptBtn} ${isScriptSelected ? styles.active : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleScriptSelection(scene.scene_number, e.metaKey || e.ctrlKey || e.shiftKey);
+                        }}
+                        title={isScriptSelected ? "Script selected - click to deselect" : "Select script for modification"}
+                      >
+                        <MousePointerClick size={12} />
+                      </button>
+                    </div>
                     <textarea
                       className={styles.scriptTextarea}
                       value={scene.voiceover_text || ''}
@@ -589,7 +893,8 @@ export default function StoryboardPage() {
                     />
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
         </div>
@@ -622,16 +927,24 @@ export default function StoryboardPage() {
                 const seconds = startTime % 60;
                 const timeLabel = `${String(minutes).padStart(2, '0')}.${String(seconds).padStart(2, '0')}`;
 
+                const isTimelineSceneSelected = isItemSelected(selection, 'scene', scene.scene_number);
+                
                 return (
                   <div
                     key={scene.scene_number}
-                    className={`${styles.timelineScene} ${activeSceneIndex === index ? styles.active : ''} ${draggedSceneIndex === index ? styles.dragging : ''}`}
+                    className={`${styles.timelineScene} ${activeSceneIndex === index ? styles.active : ''} ${draggedSceneIndex === index ? styles.dragging : ''} ${isTimelineSceneSelected ? styles.selected : ''}`}
                     style={{ width: `${(scene.duration_seconds || 3) * 40}px` }}
                     draggable
                     onDragStart={() => handleDragStart(index)}
                     onDragEnd={handleDragEnd}
                     onDragOver={(e) => handleDragOver(e, index)}
-                    onClick={() => setActiveSceneIndex(index)}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                        toggleSceneSelection(scene.scene_number, true);
+                      } else {
+                        setActiveSceneIndex(index);
+                      }
+                    }}
                   >
                     <div className={styles.timelineSceneNumber}>{scene.scene_number}</div>
                     <div className={styles.timelineSceneName}>{scene.scene_name}</div>
@@ -643,6 +956,17 @@ export default function StoryboardPage() {
           </div>
         </div>
       </main>
+      
+      {/* Selection Modification Bar */}
+      {authToken && (
+        <StoryboardModificationBar
+          selection={selection}
+          storyboardId={storyboardId}
+          authToken={authToken}
+          onClearSelection={clearSelection}
+          onModificationApplied={handleModificationApplied}
+        />
+      )}
     </div>
   );
 }
