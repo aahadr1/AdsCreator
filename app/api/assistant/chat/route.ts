@@ -16,6 +16,8 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ASSISTANT_TEXT_MODEL = 'gpt-4o';
 // Nano Banana is the ONLY assistant image model
 const ASSISTANT_IMAGE_MODEL = 'google/nano-banana';
 const DEFAULT_IMAGE_ASPECT_RATIO = '9:16';
@@ -26,6 +28,114 @@ function getSupabase() {
 
 function normalizeText(s: string): string {
   return String(s || '').trim().toLowerCase();
+}
+
+function requireOpenAIKey(): string {
+  if (!OPENAI_API_KEY) {
+    throw new Error('Server misconfigured: missing OPENAI_API_KEY');
+  }
+  return OPENAI_API_KEY;
+}
+
+async function callOpenAIText(opts: {
+  prompt: string;
+  system_prompt: string;
+  max_tokens: number;
+  temperature?: number;
+  model?: string;
+}): Promise<string> {
+  const key = requireOpenAIKey();
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: opts.model || ASSISTANT_TEXT_MODEL,
+      messages: [
+        { role: 'system', content: opts.system_prompt },
+        { role: 'user', content: opts.prompt },
+      ],
+      max_tokens: opts.max_tokens,
+      temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.4,
+      stream: false,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  const json = await res.json();
+  return String(json?.choices?.[0]?.message?.content || '');
+}
+
+async function callOpenAIJson<T>(opts: {
+  prompt: string;
+  system_prompt: string;
+  max_tokens: number;
+  temperature?: number;
+  model?: string;
+}): Promise<T> {
+  const raw = await callOpenAIText(opts);
+  const parsed = tryParseAnyJson(raw);
+  if (!parsed) {
+    const snippet = String(raw || '').slice(0, 900);
+    throw new Error(`Failed to parse JSON from OpenAI. Raw starts with: ${snippet}`);
+  }
+  return parsed as T;
+}
+
+async function* streamOpenAIChat(opts: {
+  prompt: string;
+  system_prompt: string;
+  max_tokens: number;
+  temperature?: number;
+  model?: string;
+}): AsyncGenerator<string> {
+  const key = requireOpenAIKey();
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: opts.model || ASSISTANT_TEXT_MODEL,
+      messages: [
+        { role: 'system', content: opts.system_prompt },
+        { role: 'user', content: opts.prompt },
+      ],
+      max_tokens: opts.max_tokens,
+      temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.4,
+      stream: true,
+    }),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(await res.text());
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const data = trimmed.replace(/^data:\s*/, '');
+      if (data === '[DONE]') return;
+      try {
+        const json = JSON.parse(data);
+        const delta = json?.choices?.[0]?.delta?.content;
+        if (delta) yield String(delta);
+      } catch {
+        // ignore malformed chunk
+      }
+    }
+  }
 }
 
 function userWantsToProceed(text: string): boolean {
@@ -739,12 +849,11 @@ function sanitizeStoryboardCreationInput(raw: any): any {
 // Execute script creation tool
 async function executeScriptCreation(input: ScriptCreationInput): Promise<{ success: boolean; output?: string; error?: string }> {
   try {
-    const token = process.env.REPLICATE_API_TOKEN;
-    if (!token) {
-      return { success: false, error: 'Server misconfigured: missing REPLICATE_API_TOKEN' };
+    try {
+      requireOpenAIKey();
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Server misconfigured: missing OPENAI_API_KEY' };
     }
-    
-    const replicate = new Replicate({ auth: token });
     
     // Build the prompt from input
     const parts: string[] = [];
@@ -795,18 +904,11 @@ Also include at the end:
 - VISUAL NOTES: 3-5 bullet points describing the signature look, palette, and props.
 `;
     
-    let output = '';
-    const stream = await replicate.stream('anthropic/claude-4-sonnet', {
-      input: {
-        prompt: composedPrompt,
-        system_prompt: scriptSystemPrompt,
-        max_tokens: 2048,
-      }
+    const output = await callOpenAIText({
+      prompt: composedPrompt,
+      system_prompt: scriptSystemPrompt,
+      max_tokens: 2048,
     });
-    
-    for await (const event of stream) {
-      output += String(event);
-    }
     
     return { success: true, output };
   } catch (e: any) {
@@ -1275,7 +1377,6 @@ async function getImageReferenceReflexion(params: {
   usesAvatar: boolean;
   needsProduct: boolean;
   usePrevSceneTransition: boolean;
-  replicate: Replicate;
 }): Promise<string[]> {
   try {
     const {
@@ -1291,7 +1392,6 @@ async function getImageReferenceReflexion(params: {
       usesAvatar,
       needsProduct,
       usePrevSceneTransition,
-      replicate,
     } = params;
 
     // Build the available images pool description
@@ -1354,19 +1454,11 @@ ${needsProduct ? `CRITICAL: Since this scene needs the product, you MUST include
 
 Return STRICT JSON with selected_image_urls array.`;
 
-    // Call Claude for reflexion
-    let reflexionText = '';
-    const stream = await replicate.stream('anthropic/claude-4-sonnet', {
-      input: {
-        prompt: reflexionPrompt,
-        system_prompt: IMAGE_REFERENCE_SELECTION_PROMPT,
-        max_tokens: 1024,
-      },
+    const reflexionText = await callOpenAIText({
+      prompt: reflexionPrompt,
+      system_prompt: IMAGE_REFERENCE_SELECTION_PROMPT,
+      max_tokens: 1024,
     });
-    
-    for await (const event of stream) {
-      reflexionText += String(event);
-    }
     
     // Parse the reflexion result
     const parsed = tryParseAnyJson(reflexionText);
@@ -1823,30 +1915,8 @@ async function executeStoryboardCreation(
     
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return { success: false, error: 'Server misconfigured: missing REPLICATE_API_TOKEN' };
-    const replicate = new Replicate({ auth: token });
-
-    async function callClaudeText(opts: { prompt: string; system_prompt: string; max_tokens: number }): Promise<string> {
-      let out = '';
-      const stream = await replicate.stream('anthropic/claude-4-sonnet', {
-        input: {
-          prompt: opts.prompt,
-          system_prompt: opts.system_prompt,
-          max_tokens: opts.max_tokens,
-        },
-      });
-      for await (const event of stream) out += String(event);
-      return out;
-    }
-
-    async function callClaudeJson<T>(opts: { prompt: string; system_prompt: string; max_tokens: number }): Promise<T> {
-      const raw = await callClaudeText(opts);
-      const parsed = tryParseAnyJson(raw);
-      if (!parsed) {
-        const snippet = String(raw || '').slice(0, 900);
-        throw new Error(`Failed to parse JSON from LLM. Raw starts with: ${snippet}`);
-      }
-      return parsed as T;
-    }
+    // Ensure OpenAI key is present for LLM reasoning
+    requireOpenAIKey();
 
     function outlineFromInputScene(s: any, idx: number): SceneOutline {
       const st: SceneOutline['scene_type'] =
@@ -1901,7 +1971,7 @@ async function executeStoryboardCreation(
       if (productDescription) ideationParts.push(`PRODUCT_VISUAL_DESCRIPTION: ${productDescription}`);
       ideationParts.push('Create an ownable concept + visual style guide + per-scene design notes.');
 
-      creativeBrief = await callClaudeJson<any>({
+      creativeBrief = await callOpenAIJson<any>({
         prompt: ideationParts.join('\n'),
         system_prompt: CREATIVE_IDEATION_PROMPT,
         max_tokens: 1400,
@@ -1927,7 +1997,7 @@ async function executeStoryboardCreation(
       if (avatarDescription) scenarioPromptParts.push(`Avatar description: ${avatarDescription}`);
       scenarioPromptParts.push('Create a compact scenario and scene breakdown.');
 
-      scenario = await callClaudeJson<VideoScenario>({
+      scenario = await callOpenAIJson<VideoScenario>({
         prompt: scenarioPromptParts.join('\n'),
         system_prompt: SCENARIO_PLANNING_PROMPT,
         max_tokens: 1400,
@@ -2076,7 +2146,7 @@ async function executeStoryboardCreation(
         previousRefined ? `PREVIOUS_SCENE (for continuity):\n${JSON.stringify(previousRefined, null, 2)}` : '',
       ].filter(Boolean).join('\n');
 
-      const refined = await callClaudeJson<any>({
+      const refined = await callOpenAIJson<any>({
         prompt: refinementPrompt,
         system_prompt: SCENE_REFINEMENT_PROMPT,
         max_tokens: 1800,
@@ -2133,7 +2203,6 @@ async function executeStoryboardCreation(
         usesAvatar,
         needsProduct: needsProductImage,
         usePrevSceneTransition,
-        replicate,
       });
       
       console.log(`[Storyboard] Scene ${outline.scene_number}: AI selected ${firstFrameReferences.length} reference images for first frame`);
@@ -2248,7 +2317,6 @@ async function executeStoryboardCreation(
           usesAvatar,
           needsProduct: needsProductImage,
           usePrevSceneTransition: false, // Last frames don't use prev scene transition
-          replicate,
         });
         
         console.log(`[Storyboard] Scene ${outline.scene_number}: AI selected ${lastFrameReferences.length} reference images for last frame`);
@@ -2477,6 +2545,12 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' }
       });
     }
+    if (!OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Server misconfigured (missing OPENAI_API_KEY)' }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
     
     // Get or create conversation
     let conversationId = body.conversation_id;
@@ -2693,8 +2767,6 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
     const fullPrompt = avatarContextBlock + (conversationContext 
       ? `Previous conversation:\n${conversationContext}\n\nUser: ${body.message}`
       : body.message);
-    
-    const replicate = new Replicate({ auth: replicateToken });
     
     // Create streaming response
     const readable = new ReadableStream({
@@ -3153,75 +3225,35 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           // Signal reflexion start
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'reflexion_start' })}\n\n`));
           
-          // Retry Claude streaming with rate limit handling
-          let stream: any;
+          // Retry OpenAI streaming with basic retry handling
+          let stream: AsyncGenerator<string> | null = null;
           const maxStreamRetries = 3;
           const streamRetryDelay = 1000;
           
           for (let attempt = 1; attempt <= maxStreamRetries; attempt++) {
             try {
-              console.log(`[Assistant] Starting Claude stream (attempt ${attempt}/${maxStreamRetries})`);
+              console.log(`[Assistant] Starting OpenAI stream (attempt ${attempt}/${maxStreamRetries})`);
               
-              // Acquire rate limit slot before making request
-              await replicateRateLimiter.acquire();
-              
-              stream = await replicate.stream('anthropic/claude-4-sonnet', {
-                input: {
-                  prompt: fullPrompt,
-                  system_prompt: ASSISTANT_SYSTEM_PROMPT,
-                  // Higher budget to reduce mid-reflexion truncation for longer requests
-                  max_tokens: 8192,
-                }
+              stream = streamOpenAIChat({
+                prompt: fullPrompt,
+                system_prompt: ASSISTANT_SYSTEM_PROMPT,
+                // Higher budget to reduce mid-reflexion truncation for longer requests
+                max_tokens: 8192,
               });
               
-              console.log(`[Assistant] Claude stream started successfully`);
+              console.log(`[Assistant] OpenAI stream started successfully`);
               break; // Success, exit retry loop
-              
             } catch (error: any) {
-              console.error(`[Assistant] Claude stream error on attempt ${attempt}:`, error.message);
-              
-              // Check if this is a rate limiting error
-              const isRateLimit = error.message?.includes('429') || 
-                                 error.message?.includes('Too Many Requests') ||
-                                 error.message?.includes('throttled');
-              
-              if (isRateLimit) {
-                let retryAfter = 1;
-                
-                // Try to extract retry_after from error message
-                const retryMatch = error.message.match(/retry_after['":](\d+)/);
-                if (retryMatch) {
-                  retryAfter = parseInt(retryMatch[1], 10);
-                } else if (error.message.includes('resets in ~')) {
-                  // Parse "resets in ~1s" format
-                  const resetMatch = error.message.match(/resets in ~(\d+)s/);
-                  if (resetMatch) {
-                    retryAfter = parseInt(resetMatch[1], 10);
-                  }
-                }
-                
-                console.log(`[Assistant] Rate limited, waiting ${retryAfter}s before retry ${attempt}/${maxStreamRetries}`);
-                
-                if (attempt === maxStreamRetries) {
-                  throw new Error(`Claude API rate limited after ${maxStreamRetries} attempts: ${error.message}`);
-                }
-                
-                // Wait for retry_after time plus buffer
-                await new Promise(resolve => setTimeout(resolve, (retryAfter * 1000) + 500));
-                continue;
-              } else {
-                // Non-rate-limit error
-                if (attempt === maxStreamRetries) {
-                  throw error;
-                }
-                
-                // Exponential backoff for other errors
-                await new Promise(resolve => setTimeout(resolve, streamRetryDelay * attempt));
-                continue;
-              }
+              console.error(`[Assistant] OpenAI stream error on attempt ${attempt}:`, error.message);
+              if (attempt === maxStreamRetries) throw error;
+              await new Promise(resolve => setTimeout(resolve, streamRetryDelay * attempt));
             }
           }
           
+          if (!stream) {
+            throw new Error('Failed to start OpenAI stream');
+          }
+
           let inReflexion = false;
           let didSendReflexionEnd = false;
           let didSendResponseStart = false;
