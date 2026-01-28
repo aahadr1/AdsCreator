@@ -244,6 +244,14 @@ export interface SceneOutline {
   needs_product_image?: boolean;
   /** Whether to use the previous scene's last frame for a smooth visual transition */
   use_prev_scene_transition?: boolean;
+  
+  // NEW FIELDS FOR VISUAL CONSISTENCY (from scenario planning)
+  /** Short concrete setting description (e.g., "Small modern bathroom, warm morning light") */
+  scene_setting?: string;
+  /** TRUE if this scene moves to a new location/environment vs previous scene */
+  setting_change?: boolean;
+  /** Numeric ID grouping consecutive scenes in the same setting (for tracking continuity) */
+  continuity_group_id?: number;
 }
 
 /**
@@ -266,6 +274,12 @@ export interface StoryboardScene {
   
   // Video generation prompt - describes the motion/action between frames
   video_generation_prompt: string;
+  
+  // NEW FIELDS FOR VISUAL CONSISTENCY (from scene refinement)
+  /** Setting anchor that applies to BOTH first and last frame for consistency enforcement */
+  scene_setting_lock?: string;
+  /** Optional notes explaining camera moves/reveals within the scene */
+  continuity_notes?: string;
 
   // Video generation output (populated when user proceeds to generation)
   video_model?: string;

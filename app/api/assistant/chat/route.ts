@@ -883,23 +883,33 @@ async function executeScriptCreation(input: ScriptCreationInput): Promise<{ succ
     
     const composedPrompt = parts.join(' ');
     
-    const scriptSystemPrompt = `You are the brand’s lead creative director + senior copywriter for short-form ads.
+    const scriptSystemPrompt = `You are the brand’s lead creative director + senior copywriter for short-form videos.
 
-Goal: write a script that feels like a real brand campaign concept, not generic ad copy.
+Goal: Write a script that matches the user's intent - promotional, educational, entertainment, tutorial, story, or announcement.
 
 Rules:
-- Start from a clear creative thesis (what is the fresh angle?).
+- Start from a clear creative thesis (what is the fresh angle or core message?).
 - Give the creator believable, human lines. Avoid AI-ish hype and generic superlatives.
 - Make the story art-directable: include specific on-screen actions, props, and setting cues in [BRACKETS].
 - Use cadence and subtext. Include micro-beats (pause, glance, gesture) where helpful.
 - Use the user’s tone/platform constraints. Keep it shootable.
+- **CRITICAL**: Only use promotional/ad structure (Hook → Problem → Solution → CTA) when the user wants to promote/sell something. Otherwise, adapt structure to the content type:
+  - Educational/Tutorial: Intro → Teach/Demonstrate → Summary/Takeaway
+  - Entertainment/Story: Setup → Build → Payoff
+  - Announcement: Context → News → What It Means
 
-Output format (required):
+Output format (adapt timing to requested length and content type):
+For PROMOTIONAL videos:
 - [0-3s] HOOK: ...
 - [3-8s] PROBLEM: ...
 - [8-18s] MOMENT/DEMO: ...
 - [18-25s] PROOF/DETAIL: ...
 - [25-30s] CTA: ...
+
+For NON-PROMOTIONAL videos (educational, entertainment, tutorial, story):
+- [0-5s] INTRO/SETUP: ...
+- [5-20s] MAIN CONTENT/BUILD: ...
+- [20-30s] CONCLUSION/PAYOFF: ...
 
 Also include at the end:
 - VISUAL NOTES: 3-5 bullet points describing the signature look, palette, and props.
@@ -1382,6 +1392,7 @@ async function getImageReferenceReflexion(params: {
   usesAvatar: boolean;
   needsProduct: boolean;
   usePrevSceneTransition: boolean;
+  settingChange?: boolean;
 }): Promise<string[]> {
   // Use deterministic logic instead of AI call (Fix #6)
   return buildDeterministicImageReferences(params);
@@ -1390,6 +1401,9 @@ async function getImageReferenceReflexion(params: {
 /**
  * Deterministic image reference selection using simple rules
  * Fast, predictable, and effective for maintaining visual consistency
+ * 
+ * KEY FIX: Prevents cross-scene "setting bleed" by only including previous scene frames
+ * when explicitly requested via usePrevSceneTransition (same setting continuation)
  */
 function buildDeterministicImageReferences(params: {
   frameType: 'first' | 'last';
@@ -1401,6 +1415,7 @@ function buildDeterministicImageReferences(params: {
   usesAvatar: boolean;
   needsProduct: boolean;
   usePrevSceneTransition: boolean;
+  settingChange?: boolean;
 }): string[] {
   const refs: string[] = [];
   const {
@@ -1413,9 +1428,10 @@ function buildDeterministicImageReferences(params: {
     usesAvatar,
     needsProduct,
     usePrevSceneTransition,
+    settingChange,
   } = params;
   
-  // For last frame, ALWAYS include scene's first frame
+  // For last frame, ALWAYS include scene's first frame (critical for same-scene consistency)
   if (frameType === 'last') {
     const sceneKey = `${storyboardId}:${sceneNumber}`;
     const firstFrameId = imageRegistry.byScene[sceneKey]?.firstFrame;
@@ -1427,38 +1443,41 @@ function buildDeterministicImageReferences(params: {
     }
   }
   
-  // For smooth transitions, include previous scene's last frame
-  if (usePrevSceneTransition && sceneNumber > 1) {
+  // For first frames with smooth transitions (same setting), include previous scene's last frame
+  // This creates visual flow when staying in the same location
+  if (frameType === 'first' && usePrevSceneTransition && sceneNumber > 1) {
     const prevSceneKey = `${storyboardId}:${sceneNumber - 1}`;
     const prevLastFrameId = imageRegistry.byScene[prevSceneKey]?.lastFrame;
     if (prevLastFrameId && imageRegistry.images[prevLastFrameId]?.url) {
       const url = imageRegistry.images[prevLastFrameId].url;
-      if (!refs.includes(url)) refs.push(url);
+      if (!refs.includes(url)) {
+        refs.push(url);
+        console.log(`✓ [Consistency] Scene ${sceneNumber}: First frame using previous scene last frame (smooth transition)`);
+      }
     }
   }
   
-  // Include avatar if needed
+  // Include avatar if needed (for character consistency)
   if (usesAvatar && avatarUrl && !refs.includes(avatarUrl)) {
     refs.push(avatarUrl);
   }
   
-  // Include product if needed
+  // Include product if needed (for product consistency)
   if (needsProduct && productUrl && !refs.includes(productUrl)) {
     refs.push(productUrl);
   }
   
-  // Include recent previous frames for style consistency (limit to last 2 scenes)
-  const recentFrames = queryImages(imageRegistry, {
-    storyboardId,
-    hasUrl: true,
-    status: 'succeeded',
-  }).filter(img => img.sceneNumber! < sceneNumber && img.sceneNumber! >= Math.max(1, sceneNumber - 2));
+  // REMOVED: "recentFrames" block that was causing cross-scene setting bleed
+  // The old code would unconditionally add frames from previous scenes, which would
+  // accidentally carry over the previous scene's setting/background into the new scene.
+  // Now we ONLY add previous scene references when explicitly requested via usePrevSceneTransition.
+  //
+  // This ensures:
+  // - Last frames stay consistent with their own first frame (same scene setting)
+  // - First frames of new scenes don't inherit the previous scene's background
+  // - Smooth transitions only happen when intentional (usePrevSceneTransition=true)
   
-  for (const img of recentFrames) {
-    if (img.url && !refs.includes(img.url) && refs.length < 14) {
-      refs.push(img.url);
-    }
-  }
+  console.log(`[Consistency] Scene ${sceneNumber} ${frameType} frame: ${refs.length} reference images selected`);
   
   return refs;
 }
@@ -2072,6 +2091,7 @@ async function executeStoryboardCreation(
         usesAvatar,
         needsProduct: needsProductImage,
         usePrevSceneTransition,
+        settingChange: (outline as any).setting_change, // From scenario planning
       });
       
       console.log(`[Storyboard] Scene ${outline.scene_number}: AI selected ${firstFrameReferences.length} reference images for first frame`);
@@ -2186,6 +2206,7 @@ async function executeStoryboardCreation(
           usesAvatar,
           needsProduct: needsProductImage,
           usePrevSceneTransition: false, // Last frames don't use prev scene transition
+          settingChange: (outline as any).setting_change, // From scenario planning (not used for last frames)
         });
         
         console.log(`[Storyboard] Scene ${outline.scene_number}: AI selected ${lastFrameReferences.length} reference images for last frame`);
@@ -3180,6 +3201,16 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           let toolCalls = parseToolCalls(fullResponse);
           const reflexionMeta = parseReflexionMeta(fullResponse);
           
+          // Debug logging for reflexion and tool calls
+          if (reflexionMeta) {
+            console.log('[Reflexion] Selected Action:', reflexionMeta.selectedAction);
+            console.log('[Reflexion] Tool To Use:', reflexionMeta.toolToUse);
+          }
+          console.log('[Tool Calls] Parsed count:', toolCalls.length);
+          if (toolCalls.length > 0) {
+            console.log('[Tool Calls] Tools:', toolCalls.map(tc => tc.tool).join(', '));
+          }
+          
           // Filter tool calls to enforce avatar-first flow
           let filteredToolCalls = toolCalls;
           const hasStoryboardCall = toolCalls.some(tc => tc.tool === 'storyboard_creation');
@@ -3261,13 +3292,23 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           // Default assistant response (may be overridden after tools run)
           let finalAssistantResponse = cleanedResponse.trim();
           
+          // Detect if assistant is claiming to generate without actually calling tools
+          const claimsGeneration = /\b(creat(ing|e)|generat(ing|e)|start(ing|ed)|build(ing))\b.{0,50}\b(storyboard|avatar|image|video|script)\b/i.test(finalAssistantResponse);
+          
+          if (claimsGeneration && toolCalls.length === 0 && !wantedToolCall) {
+            console.error('[Tool Call] Assistant claims to be generating but no tool calls were made');
+            console.error('[Tool Call] Response:', finalAssistantResponse.substring(0, 200));
+            // Clear the false claim and provide error message
+            finalAssistantResponse = '⚠️ I attempted to start generation but failed to execute the tool call properly. Let me try again - what would you like me to create?';
+          }
+          
           // Only ask for retry if reflexion explicitly wanted a tool call and we have none
           if (wantedToolCall && toolCalls.length === 0) {
             console.error('[Tool Call] Reflexion wanted TOOL_CALL but none were parsed successfully');
             console.log('[Tool Call] User message was:', body.message);
             
             // Instead of asking user to retry, provide a helpful message
-            finalAssistantResponse = 'I had trouble formatting that request. Could you try rephrasing what you\'d like me to create?';
+            finalAssistantResponse = '⚠️ I had trouble formatting that request. Could you try rephrasing what you\'d like me to create?';
           }
           
           // Execute tool calls if any
