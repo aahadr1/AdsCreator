@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: adscreator
+    runtime: node
+    plan: starter
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: NODE_ENV
+        value: production
+      # Add your environment variables in the Render dashboard:
+      # - SUPABASE_URL
+      # - SUPABASE_ANON_KEY
+      # - SUPABASE_SERVICE_ROLE_KEY
+      # - OPENAI_API_KEY
+      # - REPLICATE_API_TOKEN
+      # - FAL_KEY
+      # - ELEVENLABS_API_KEY
+      # - STRIPE_SECRET_KEY
+      # - CLOUDFLARE_ACCOUNT_ID
+      # - CLOUDFLARE_API_TOKEN
+      # - CLOUDFLARE_R2_ACCESS_KEY_ID
+      # - CLOUDFLARE_R2_SECRET_ACCESS_KEY
+      # - CLOUDFLARE_R2_BUCKET_NAME
+      # etc...

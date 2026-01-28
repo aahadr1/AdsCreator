@@ -5,6 +5,10 @@ import { SubscriptionGate } from '../components/SubscriptionGate';
 import { CreditProvider } from '../lib/creditContext';
 import { TaskStateProvider } from '../components/TaskStateProvider';
 
+// Force dynamic rendering for all pages
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export const metadata = {
   title: "AdzCreator - AI-Powered Content Creation Platform",
   description: "Create studio-quality ads and content with AI lipsync, video generation, auto-editing, and 15+ powerful tools. No experience required.",
