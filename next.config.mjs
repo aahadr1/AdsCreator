@@ -14,6 +14,10 @@ const nextConfig = {
     ],
   },
   headers: async () => [],
+  // Skip generating error pages during build
+  generateBuildId: async () => {
+    return 'build-' + Date.now();
+  },
 };
 
 export default nextConfig;
