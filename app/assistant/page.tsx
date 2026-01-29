@@ -61,6 +61,8 @@ export default function AssistantPage() {
   const [openStoryboardId, setOpenStoryboardId] = useState<string | null>(null);
   const [openStoryboard, setOpenStoryboard] = useState<Storyboard | null>(null);
   const storyboardPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [isGeneratingVideos, setIsGeneratingVideos] = useState(false);
+  const [videoGenerationError, setVideoGenerationError] = useState<string | null>(null);
   
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -599,7 +601,7 @@ export default function AssistantPage() {
       setIsThinking(false);
       abortControllerRef.current = null;
     }
-  }, [input, uploadedFiles, isLoading, authToken, activeConversationId]);
+  }, [input, uploadedFiles, isLoading, authToken, activeConversationId, patchStoryboardInMessage]);
 
   function Markdown({ content }: { content: string }) {
     // Custom link renderer to intercept storyboard links
@@ -1203,16 +1205,19 @@ export default function AssistantPage() {
   const openStoryboardModal = (storyboard: Storyboard) => {
     setOpenStoryboard(storyboard);
     setOpenStoryboardId(storyboard.id);
+    setIsGeneratingVideos(false);
+    setVideoGenerationError(null);
     
-    // Start polling if storyboard has generating frames
-    const hasGeneratingFrames = storyboard.scenes.some(s => 
+    // Start polling if storyboard has generating frames or videos
+    const hasGeneratingItems = storyboard.scenes.some(s => 
       s.first_frame_status === 'generating' || 
       s.last_frame_status === 'generating' ||
       (s.first_frame_prediction_id && !s.first_frame_url) ||
-      (s.last_frame_prediction_id && !s.last_frame_url)
+      (s.last_frame_prediction_id && !s.last_frame_url) ||
+      (s.video_prediction_id && !s.video_url && s.video_status !== 'failed')
     );
     
-    if (hasGeneratingFrames) {
+    if (hasGeneratingItems) {
       startStoryboardPolling(storyboard.id);
     }
   };
@@ -1239,17 +1244,71 @@ export default function AssistantPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.storyboard) {
-            setOpenStoryboard(data.storyboard);
+            // Check for video predictions that need polling
+            let updatedStoryboard = data.storyboard;
+            let hasUpdates = false;
             
-            // Stop polling if all frames are ready
-            const hasGeneratingFrames = data.storyboard.scenes.some((s: any) => 
+            for (let i = 0; i < updatedStoryboard.scenes.length; i++) {
+              const scene = updatedStoryboard.scenes[i];
+              
+              // If scene has a video_prediction_id but no video_url, poll for status
+              if (scene.video_prediction_id && !scene.video_url && scene.video_status !== 'failed') {
+                try {
+                  const statusRes = await fetch(`/api/replicate/status?id=${encodeURIComponent(scene.video_prediction_id)}`, { cache: 'no-store' });
+                  if (statusRes.ok) {
+                    const statusData = await statusRes.json();
+                    
+                    if (statusData.outputUrl) {
+                      // Video is ready!
+                      const videoUrl = `/api/proxy?type=video&url=${encodeURIComponent(statusData.outputUrl)}`;
+                      updatedStoryboard = {
+                        ...updatedStoryboard,
+                        scenes: updatedStoryboard.scenes.map((s: any, idx: number) => 
+                          idx === i ? { ...s, video_url: videoUrl, video_status: 'succeeded', video_raw_url: statusData.outputUrl } : s
+                        )
+                      };
+                      hasUpdates = true;
+                      
+                      // Update database
+                      await fetch('/api/storyboard', {
+                        method: 'PATCH',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          Authorization: `Bearer ${authToken}`,
+                        },
+                        body: JSON.stringify({
+                          id: storyboardId,
+                          scenes: updatedStoryboard.scenes,
+                        }),
+                      });
+                    } else if (statusData.error || statusData.status === 'failed') {
+                      updatedStoryboard = {
+                        ...updatedStoryboard,
+                        scenes: updatedStoryboard.scenes.map((s: any, idx: number) => 
+                          idx === i ? { ...s, video_status: 'failed', video_error: statusData.error || 'Video generation failed' } : s
+                        )
+                      };
+                      hasUpdates = true;
+                    }
+                  }
+                } catch (err) {
+                  console.error('Error polling video status:', err);
+                }
+              }
+            }
+            
+            setOpenStoryboard(updatedStoryboard);
+            
+            // Stop polling if all frames and videos are ready or failed
+            const hasGeneratingItems = updatedStoryboard.scenes.some((s: any) => 
               s.first_frame_status === 'generating' || 
               s.last_frame_status === 'generating' ||
               (s.first_frame_prediction_id && !s.first_frame_url) ||
-              (s.last_frame_prediction_id && !s.last_frame_url)
+              (s.last_frame_prediction_id && !s.last_frame_url) ||
+              (s.video_prediction_id && !s.video_url && s.video_status !== 'failed')
             );
             
-            if (!hasGeneratingFrames) {
+            if (!hasGeneratingItems) {
               stopStoryboardPolling();
             }
           }
@@ -1294,6 +1353,83 @@ export default function AssistantPage() {
       }
     } catch (error) {
       console.error('Error loading storyboard:', error);
+    }
+  };
+
+  const handleGenerateVideos = async () => {
+    if (!openStoryboard || !authToken || isGeneratingVideos) return;
+
+    setIsGeneratingVideos(true);
+    setVideoGenerationError(null);
+
+    try {
+      const res = await fetch('/api/storyboard/generate-videos', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          storyboard_id: openStoryboard.id,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to start video generation');
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+
+          try {
+            const event = JSON.parse(line.slice(6));
+
+            switch (event.type) {
+              case 'storyboard_update':
+                if (event.storyboard) {
+                  setOpenStoryboard(event.storyboard);
+                }
+                break;
+
+              case 'complete':
+                if (event.storyboard) {
+                  setOpenStoryboard(event.storyboard);
+                }
+                setIsGeneratingVideos(false);
+                // Start polling to check video status
+                if (openStoryboard.id) {
+                  startStoryboardPolling(openStoryboard.id);
+                }
+                break;
+
+              case 'error':
+                setVideoGenerationError(event.message || 'Failed to generate videos');
+                setIsGeneratingVideos(false);
+                break;
+            }
+          } catch (e) {
+            console.error('Failed to parse event:', e);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Error generating videos:', error);
+      setVideoGenerationError(error.message || 'Failed to generate videos');
+      setIsGeneratingVideos(false);
     }
   };
 
@@ -1959,6 +2095,44 @@ export default function AssistantPage() {
                 </div>
               )}
 
+              {/* Video Generation Control */}
+              {(!openStoryboard.scenes.some(s => s.video_prediction_id || s.video_url || s.video_status === 'generating') || isGeneratingVideos || videoGenerationError) && (
+                <div className={styles.videoGenerationControl}>
+                  {!openStoryboard.scenes.some(s => s.video_prediction_id || s.video_url || s.video_status === 'generating') && (
+                    <button
+                      className={styles.generateVideosBtn}
+                      onClick={handleGenerateVideos}
+                      disabled={isGeneratingVideos}
+                      type="button"
+                    >
+                      {isGeneratingVideos ? (
+                        <>
+                          <Loader2 size={18} className={styles.spinner} />
+                          Generating Videos...
+                        </>
+                      ) : (
+                        <>
+                          <Play size={18} />
+                          Proceed with Video Generation
+                        </>
+                      )}
+                    </button>
+                  )}
+                  {videoGenerationError && (
+                    <div className={styles.videoGenerationError}>
+                      <AlertCircle size={16} />
+                      {videoGenerationError}
+                    </div>
+                  )}
+                  {isGeneratingVideos && (
+                    <div className={styles.videoGenerationStatus}>
+                      <Loader2 size={16} className={styles.spinner} />
+                      <span>Generating videos for {openStoryboard.scenes.length} scenes. This may take a few minutes...</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Scenes Grid */}
               <div className={styles.storyboardModalScenes}>
                 <h3>{openStoryboard.scenes.length} Scenes</h3>
@@ -2019,15 +2193,48 @@ export default function AssistantPage() {
                         </div>
                       </div>
 
-                      {/* Video */}
-                      {scene.video_url && (
+                      {/* Video Section */}
+                      {(scene.video_prediction_id || scene.video_url || scene.video_status === 'generating' || scene.video_status === 'pending') && (
                         <div className={styles.videoSection}>
-                          <div className={styles.frameLabel}>Generated Video</div>
-                          <video 
-                            src={scene.video_url} 
-                            controls 
-                            className={styles.videoPreview}
-                          />
+                          <div className={styles.frameLabel}>
+                            {scene.video_url ? 'Generated Video' : 'Video Generation'}
+                          </div>
+                          {scene.video_url ? (
+                            <video 
+                              src={scene.video_url} 
+                              controls 
+                              className={styles.videoPreview}
+                            />
+                          ) : scene.video_status === 'generating' ? (
+                            <div className={styles.videoGenerating}>
+                              <Loader2 size={24} className={styles.spinner} />
+                              <span>Generating video...</span>
+                              <p className={styles.videoGeneratingHint}>
+                                This may take 2-3 minutes. The video will appear here automatically when ready.
+                              </p>
+                            </div>
+                          ) : scene.video_status === 'pending' ? (
+                            <div className={styles.videoPending}>
+                              <Clock size={24} />
+                              <span>Waiting to start...</span>
+                            </div>
+                          ) : scene.video_prediction_id && !scene.video_url ? (
+                            <div className={styles.videoGenerating}>
+                              <Loader2 size={24} className={styles.spinner} />
+                              <span>Processing video...</span>
+                              <p className={styles.videoGeneratingHint}>
+                                Checking status...
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                      
+                      {/* Video Error */}
+                      {scene.video_error && (
+                        <div className={styles.videoError}>
+                          <AlertCircle size={16} />
+                          <span>{scene.video_error}</span>
                         </div>
                       )}
 

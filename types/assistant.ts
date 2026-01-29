@@ -326,7 +326,7 @@ export interface StoryboardScene {
   // Video generation output (populated when user proceeds to generation)
   video_model?: string;
   video_prediction_id?: string;
-  video_status?: 'pending' | 'generating' | 'succeeded' | 'failed';
+  video_status?: 'pending' | 'generating' | 'processing' | 'succeeded' | 'failed';
   video_url?: string; // (typically proxied/persisted)
   video_raw_url?: string; // direct output from provider
   video_error?: string;

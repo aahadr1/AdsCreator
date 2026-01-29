@@ -25,6 +25,48 @@ export type ImageRegistryType =
 export type ImageGenerationStatus = 'pending' | 'generating' | 'succeeded' | 'failed';
 
 /**
+ * GPT-4o image analysis result
+ */
+export interface GPT4oAnalysis {
+  /** When the analysis was performed */
+  analyzed_at: string;
+  
+  /** Primary subject type in the image */
+  subject_type: 'person' | 'product' | 'scene' | 'object' | 'mixed';
+  
+  /** Inferred purpose/use case for this image */
+  inferred_purpose: 'avatar' | 'product' | 'setting' | 'style_ref' | 'prop' | 'unknown';
+  
+  /** Detailed visual description */
+  visual_details: {
+    /** Main subjects visible */
+    subjects: string[];
+    /** Clothing description (if person visible) */
+    clothing?: string;
+    /** Setting/environment description */
+    setting?: string;
+    /** Lighting description */
+    lighting?: string;
+    /** Props/objects visible */
+    props?: string[];
+    /** Camera composition notes */
+    composition?: string;
+  };
+  
+  /** Recommended uses for this image */
+  suggested_uses: string[];
+  
+  /** Whether a phone is visible in the image */
+  has_phone_visible: boolean;
+  
+  /** Confidence score for the analysis (0-1) */
+  confidence_score: number;
+  
+  /** Full GPT-4o description (raw) */
+  full_description: string;
+}
+
+/**
  * A single registered image entry
  */
 export interface RegisteredImage {
@@ -51,6 +93,9 @@ export interface RegisteredImage {
   
   /** Description of the image content */
   description?: string;
+  
+  /** GPT-4o vision analysis of the image */
+  gpt4o_analysis?: GPT4oAnalysis;
   
   /** Aspect ratio used */
   aspectRatio?: string;
@@ -427,4 +472,108 @@ export function setActiveProduct(registry: ImageRegistry, imageId: string): Imag
     activeProductId: imageId,
     lastUpdated: new Date().toISOString(),
   };
+}
+
+/**
+ * Find the best image for a specific purpose using GPT-4o analysis
+ */
+export function findBestImageForPurpose(
+  registry: ImageRegistry,
+  purpose: 'avatar' | 'product' | 'setting' | 'prop',
+  context?: string
+): RegisteredImage | null {
+  const allImages = Object.values(registry.images)
+    .filter(img => img.url && img.gpt4o_analysis);
+  
+  if (allImages.length === 0) return null;
+  
+  // Filter by inferred purpose
+  let candidates = allImages.filter(img => 
+    img.gpt4o_analysis?.inferred_purpose === purpose
+  );
+  
+  // If no exact matches, try subject_type
+  if (candidates.length === 0) {
+    const subjectTypeMap: Record<string, string> = {
+      avatar: 'person',
+      product: 'product',
+      setting: 'scene',
+      prop: 'object'
+    };
+    const targetSubjectType = subjectTypeMap[purpose];
+    candidates = allImages.filter(img => 
+      img.gpt4o_analysis?.subject_type === targetSubjectType
+    );
+  }
+  
+  if (candidates.length === 0) return null;
+  
+  // Return highest confidence match
+  candidates.sort((a, b) => 
+    (b.gpt4o_analysis?.confidence_score || 0) - (a.gpt4o_analysis?.confidence_score || 0)
+  );
+  
+  return candidates[0];
+}
+
+/**
+ * Get suggested reference images for a scene based on its description
+ */
+export function getSuggestedReferencesForScene(
+  registry: ImageRegistry,
+  sceneDescription: string,
+  sceneType: string
+): {
+  avatarUrl?: string;
+  productUrl?: string;
+  settingUrl?: string;
+  propUrls?: string[];
+} {
+  const result: any = {};
+  
+  // Check if scene needs avatar (mentions person, character, speaker, etc.)
+  const needsAvatar = /\b(person|character|woman|man|speaker|creator|he|she)\b/i.test(sceneDescription);
+  if (needsAvatar) {
+    const avatar = findBestImageForPurpose(registry, 'avatar');
+    if (avatar?.url) result.avatarUrl = avatar.url;
+  }
+  
+  // Check if scene needs product (mentions product, bottle, item, etc.)
+  const needsProduct = /\b(product|bottle|item|package|box)\b/i.test(sceneDescription) ||
+    sceneType === 'product_showcase';
+  if (needsProduct) {
+    const product = findBestImageForPurpose(registry, 'product');
+    if (product?.url) result.productUrl = product.url;
+  }
+  
+  // Extract prop mentions from description
+  const propUrls: string[] = [];
+  const allImages = Object.values(registry.images).filter(img => img.url && img.gpt4o_analysis);
+  
+  for (const img of allImages) {
+    const props = img.gpt4o_analysis?.visual_details?.props || [];
+    for (const prop of props) {
+      if (sceneDescription.toLowerCase().includes(prop.toLowerCase())) {
+        if (img.url) propUrls.push(img.url);
+        break;
+      }
+    }
+  }
+  
+  if (propUrls.length > 0) result.propUrls = propUrls;
+  
+  return result;
+}
+
+/**
+ * Find images that have specific props visible
+ */
+export function findImagesWithProp(
+  registry: ImageRegistry,
+  propName: string
+): RegisteredImage[] {
+  return Object.values(registry.images).filter(img => {
+    const props = img.gpt4o_analysis?.visual_details?.props || [];
+    return props.some(p => p.toLowerCase().includes(propName.toLowerCase()));
+  });
 }

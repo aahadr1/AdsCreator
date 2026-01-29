@@ -9,8 +9,8 @@ import Replicate from 'replicate';
 import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
 import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline, ImageReferenceReflexion } from '../../../../types/assistant';
-import type { ImageRegistry, RegisteredImage, ReferenceImagesResult } from '../../../../types/imageRegistry';
-import { createEmptyRegistry, registerImage, updateRegisteredImage, getReferenceImagesForGeneration, setActiveAvatar, setActiveProduct, queryImages } from '../../../../types/imageRegistry';
+import type { ImageRegistry, RegisteredImage, ReferenceImagesResult, GPT4oAnalysis } from '../../../../types/imageRegistry';
+import { createEmptyRegistry, registerImage, updateRegisteredImage, getReferenceImagesForGeneration, setActiveAvatar, setActiveProduct, queryImages, findBestImageForPurpose, getSuggestedReferencesForScene, findImagesWithProp } from '../../../../types/imageRegistry';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -83,6 +83,284 @@ async function callOpenAIJson<T>(opts: {
     throw new Error(`Failed to parse JSON from OpenAI. Raw starts with: ${snippet}`);
   }
   return parsed as T;
+}
+
+/**
+ * Build intelligent reference images for a scene using GPT-4o analysis
+ */
+async function selectIntelligentReferences(params: {
+  sceneDescription: string;
+  sceneType?: string;
+  imageRegistry: ImageRegistry;
+  userMessage: string;
+}): Promise<{
+  avatarUrl?: string;
+  productUrl?: string;
+  settingUrl?: string;
+  propUrls?: string[];
+  reasoning: string;
+}> {
+  const { sceneDescription, sceneType, imageRegistry } = params;
+  
+  // Use GPT-4o analysis to intelligently match images
+  const allAnalyzedImages = Object.values(imageRegistry.images)
+    .filter(img => img.url && img.gpt4o_analysis);
+  
+  const result: any = { reasoning: '' };
+  
+  // Find avatar if scene mentions person/character
+  if (/\b(person|character|woman|man|speaker|creator|actor)\b/i.test(sceneDescription)) {
+    const avatar = findBestImageForPurpose(imageRegistry, 'avatar');
+    if (avatar?.url) {
+      result.avatarUrl = avatar.url;
+      result.reasoning += `Using avatar: ${avatar.gpt4o_analysis?.full_description || 'character reference'}. `;
+    }
+  }
+  
+  // Find product if scene mentions product or is product_showcase type
+  if (/\b(product|bottle|item|package|showing|holds)\b/i.test(sceneDescription) || sceneType === 'product_showcase') {
+    const product = findBestImageForPurpose(imageRegistry, 'product');
+    if (product?.url) {
+      result.productUrl = product.url;
+      result.reasoning += `Using product: ${product.gpt4o_analysis?.full_description || 'product reference'}. `;
+    }
+  }
+  
+  // Find setting reference if scene mentions specific environment
+  const settingImage = allAnalyzedImages.find(img => 
+    img.gpt4o_analysis?.subject_type === 'scene' &&
+    img.gpt4o_analysis?.visual_details?.setting
+  );
+  if (settingImage?.url) {
+    result.settingUrl = settingImage.url;
+    result.reasoning += `Using setting: ${settingImage.gpt4o_analysis?.visual_details?.setting}. `;
+  }
+  
+  // Find props mentioned in scene description
+  const propUrls: string[] = [];
+  const lowerDesc = sceneDescription.toLowerCase();
+  
+  for (const img of allAnalyzedImages) {
+    const props = img.gpt4o_analysis?.visual_details?.props || [];
+    for (const prop of props) {
+      if (lowerDesc.includes(prop.toLowerCase()) && img.url) {
+        if (!propUrls.includes(img.url)) {
+          propUrls.push(img.url);
+          result.reasoning += `Including prop (${prop}) from reference image. `;
+        }
+      }
+    }
+  }
+  
+  if (propUrls.length > 0) {
+    result.propUrls = propUrls;
+  }
+  
+  console.log('[Reference Selection]', result.reasoning || 'No specific references selected');
+  return result;
+}
+
+/**
+ * Analyze user intent to understand what type of video they want
+ */
+async function analyzeUserIntent(params: {
+  userMessage: string;
+  conversationHistory?: string;
+  availableImages?: Array<{ url: string; analysis?: GPT4oAnalysis }>;
+}): Promise<{
+  video_type: string;
+  creative_direction: {
+    camera_style: string;
+    movement_level: string;
+    setting_continuity: string;
+    suggested_scene_count: number;
+    narrative_structure: string;
+  };
+  detected_assets: {
+    avatar_candidate?: string;
+    product_candidate?: string;
+    setting_reference?: string;
+    props?: string[];
+  };
+  user_expectations: string[];
+} | null> {
+  try {
+    const key = requireOpenAIKey();
+    
+    const availableImagesContext = params.availableImages && params.availableImages.length > 0
+      ? `\n\nAvailable images:\n${params.availableImages.map((img, i) => 
+          `${i + 1}. ${img.analysis?.full_description || 'Image'} (${img.analysis?.inferred_purpose || 'unknown purpose'})`
+        ).join('\n')}`
+      : '';
+    
+    const intentPrompt = `Analyze the user's request and infer their creative intent. Return STRICT JSON ONLY:
+
+{
+  "video_type": "ugc_ad" | "tutorial" | "story" | "product_demo" | "entertainment" | "announcement" | "educational" | "promotional",
+  "creative_direction": {
+    "camera_style": "static" | "handheld" | "gimbal" | "tripod" | "dynamic",
+    "movement_level": "none" | "minimal" | "moderate" | "dynamic",
+    "setting_continuity": "single_location" | "multi_location" | "contextual",
+    "suggested_scene_count": <number 2-8>,
+    "narrative_structure": "description of story flow based on video_type"
+  },
+  "detected_assets": {
+    "avatar_candidate": "image URL or null",
+    "product_candidate": "image URL or null",
+    "setting_reference": "image URL or null",
+    "props": ["prop names if visible in images"]
+  },
+  "user_expectations": ["list of what user expects to see"]
+}
+
+User Request: ${params.userMessage}
+${params.conversationHistory ? `\nConversation Context: ${params.conversationHistory}` : ''}${availableImagesContext}
+
+Guidelines:
+- Infer video_type from keywords: "UGC"/"authentic" = ugc_ad, "tutorial"/"how to" = tutorial, "story" = story, etc.
+- For camera_style: static if tutorial/educational, handheld if UGC, dynamic if cinematic
+- For movement_level: none if static shots mentioned, minimal if subtle, dynamic if action-heavy
+- For setting_continuity: single_location if user wants simple/static, multi_location if variety needed
+- For narrative_structure: match video_type (tutorial = step-by-step, story = beginning/middle/end, ugc_ad = hook/problem/solution)
+- Detect which available images match avatar (person), product (item/bottle), setting (environment)
+- List user expectations based on their language and tone`;
+
+    const response = await callOpenAIText({
+      prompt: intentPrompt,
+      system_prompt: 'You are an expert at understanding creative video intent. Return only valid JSON.',
+      max_tokens: 800,
+      temperature: 0.3,
+      model: 'gpt-4o'
+    });
+
+    const parsed = tryParseAnyJson(response);
+    if (!parsed) {
+      console.error('[Intent Analyzer] Failed to parse JSON');
+      return null;
+    }
+
+    console.log('[Intent Analyzer] Detected:', {
+      video_type: parsed.video_type,
+      camera_style: parsed.creative_direction?.camera_style,
+      movement: parsed.creative_direction?.movement_level
+    });
+
+    return {
+      video_type: parsed.video_type || 'promotional',
+      creative_direction: parsed.creative_direction || {
+        camera_style: 'tripod',
+        movement_level: 'minimal',
+        setting_continuity: 'contextual',
+        suggested_scene_count: 4,
+        narrative_structure: 'beginning, middle, end'
+      },
+      detected_assets: parsed.detected_assets || {},
+      user_expectations: Array.isArray(parsed.user_expectations) ? parsed.user_expectations : []
+    };
+  } catch (e: any) {
+    console.error('[Intent Analyzer] Error:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Analyze image with GPT-4o vision to understand its content and purpose
+ */
+async function analyzeImageWithGPT4o(imageUrl: string): Promise<GPT4oAnalysis | null> {
+  try {
+    const key = requireOpenAIKey();
+    
+    const analysisPrompt = `Analyze this image and provide a structured analysis. Return STRICT JSON ONLY with this exact schema:
+
+{
+  "subject_type": "person" | "product" | "scene" | "object" | "mixed",
+  "inferred_purpose": "avatar" | "product" | "setting" | "style_ref" | "prop" | "unknown",
+  "visual_details": {
+    "subjects": ["list of main subjects visible"],
+    "clothing": "clothing description if person visible",
+    "setting": "environment/location description",
+    "lighting": "lighting description",
+    "props": ["list of props/objects visible"],
+    "composition": "camera angle and framing"
+  },
+  "suggested_uses": ["list of recommended use cases"],
+  "has_phone_visible": true|false,
+  "confidence_score": 0.0-1.0,
+  "full_description": "comprehensive description of what you see"
+}
+
+Guidelines:
+- Be specific and literal about what you see
+- Don't assume context - describe only visible elements
+- For subjects: describe age range, clothing, posture, expression
+- For products: describe type, color, packaging, branding if visible
+- For settings: describe location type, lighting, atmosphere
+- List ALL visible props (phone, bottle, tools, furniture, etc.)
+- Infer the most likely purpose based on composition and subject
+- Confidence: 1.0 = very clear, 0.5 = ambiguous, 0.3 = unclear`;
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: analysisPrompt },
+              { type: 'image_url', image_url: { url: imageUrl } }
+            ]
+          }
+        ],
+        max_tokens: 1000,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!res.ok) {
+      console.error('[GPT-4o Analysis] HTTP error:', await res.text());
+      return null;
+    }
+
+    const json = await res.json();
+    const content = json?.choices?.[0]?.message?.content;
+    
+    if (!content) {
+      console.error('[GPT-4o Analysis] No content in response');
+      return null;
+    }
+
+    // Parse JSON response
+    const parsed = tryParseAnyJson(content);
+    if (!parsed) {
+      console.error('[GPT-4o Analysis] Failed to parse JSON:', content.substring(0, 200));
+      return null;
+    }
+
+    console.log('[GPT-4o Analysis] Success:', {
+      subject_type: parsed.subject_type,
+      inferred_purpose: parsed.inferred_purpose,
+      has_phone: parsed.has_phone_visible
+    });
+
+    return {
+      analyzed_at: new Date().toISOString(),
+      subject_type: parsed.subject_type || 'unknown',
+      inferred_purpose: parsed.inferred_purpose || 'unknown',
+      visual_details: parsed.visual_details || {},
+      suggested_uses: Array.isArray(parsed.suggested_uses) ? parsed.suggested_uses : [],
+      has_phone_visible: Boolean(parsed.has_phone_visible),
+      confidence_score: typeof parsed.confidence_score === 'number' ? parsed.confidence_score : 0.5,
+      full_description: parsed.full_description || '',
+    };
+  } catch (e: any) {
+    console.error('[GPT-4o Analysis] Error:', e.message);
+    return null;
+  }
 }
 
 async function* streamOpenAIChat(opts: {
@@ -1949,10 +2227,12 @@ async function executeStoryboardCreation(
     requireOpenAIKey();
 
     function outlineFromInputScene(s: any, idx: number): SceneOutline {
-      const st: SceneOutline['scene_type'] =
-        (s?.scene_type as any) ||
-        (String(s?.scene_name || '').toLowerCase().includes('end card') ? 'text_card' : 'talking_head');
-      const needsAvatar = typeof s?.uses_avatar === 'boolean' ? Boolean(s.uses_avatar) : true;
+        // Don't default scene_type - let it be undefined if not specified
+        const st: SceneOutline['scene_type'] =
+          (s?.scene_type as any) ||
+          (String(s?.scene_name || '').toLowerCase().includes('end card') ? 'text_card' : undefined);
+        // Don't default uses_avatar - let scene description determine if avatar is needed
+        const needsAvatar = typeof s?.uses_avatar === 'boolean' ? Boolean(s.uses_avatar) : false;
       return {
         scene_number: typeof s?.scene_number === 'number' ? s.scene_number : idx + 1,
         scene_name: typeof s?.scene_name === 'string' ? s.scene_name : `Scene ${idx + 1}`,
@@ -1975,8 +2255,8 @@ async function executeStoryboardCreation(
       scenario = {
         title: input.title,
         concept: `Storyboard for ${input.brand_name || 'brand'} ${input.product || 'product'}`,
-        narrative_arc: 'Hook → demo → proof → CTA',
-        target_emotion: 'curiosity → desire → confidence',
+          narrative_arc: '', // Let scenario planning determine based on video type
+          target_emotion: '', // Let scenario planning determine based on user intent
         key_message: input.call_to_action || 'Take action now',
         scene_breakdown: outlines,
       };
@@ -3651,7 +3931,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               };
               
               // For image generation, include purpose and descriptions in the output
-              // so they can be retrieved later for avatar/product context
+              // AND analyze the image with GPT-4o vision
               if (toolCall.tool === 'image_generation') {
                 const input = toolCall.input as any;
                 if (input?.purpose) {
@@ -3661,8 +3941,30 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   enhancedToolOutput.avatar_description = input.avatar_description;
                 }
                 if (input?.prompt) {
-                  // Store prompt for product description retrieval
                   enhancedToolOutput.prompt = input.prompt;
+                }
+                
+                // Analyze the generated image with GPT-4o vision
+                const outputUrl = (toolResult.result as any)?.output?.outputUrl || 
+                  (toolResult.result as any)?.outputUrl ||
+                  (toolResult.result as any)?.output_url;
+                
+                if (outputUrl && typeof outputUrl === 'string' && outputUrl.startsWith('http')) {
+                  console.log('[Image Analysis] Analyzing generated image:', outputUrl.substring(0, 80));
+                  try {
+                    const analysis = await analyzeImageWithGPT4o(outputUrl);
+                    if (analysis) {
+                      enhancedToolOutput.gpt4o_analysis = analysis;
+                      console.log('[Image Analysis] Complete:', {
+                        subject_type: analysis.subject_type,
+                        inferred_purpose: analysis.inferred_purpose,
+                        has_phone: analysis.has_phone_visible
+                      });
+                    }
+                  } catch (e: any) {
+                    console.error('[Image Analysis] Failed:', e.message);
+                    // Don't fail the whole generation if analysis fails
+                  }
                 }
               }
               

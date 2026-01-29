@@ -44,6 +44,12 @@ export default function StoryboardPage() {
   const [selection, setSelection] = useState<StoryboardSelection | null>(null);
   const [selectionMode, setSelectionMode] = useState<SelectionType>('scene');
   
+  // Track frames that are currently being modified
+  const [modifyingFrames, setModifyingFrames] = useState<Set<string>>(new Set());
+  
+  // Track unsaved modifications
+  const [hasUnsavedModifications, setHasUnsavedModifications] = useState(false);
+  
   // Version viewer state
   const [versionViewerOpen, setVersionViewerOpen] = useState(false);
   const [versionViewerElement, setVersionViewerElement] = useState<{
@@ -347,7 +353,17 @@ export default function StoryboardPage() {
     setSelection(null);
   }, []);
 
+  const handleModificationStart = useCallback((sceneNumber: number, framePosition?: 'first' | 'last') => {
+    if (framePosition) {
+      const key = `${sceneNumber}_${framePosition}`;
+      setModifyingFrames(prev => new Set(prev).add(key));
+    }
+  }, []);
+
   const handleModificationApplied = useCallback((changedFields?: string[]) => {
+    // Clear modifying state
+    setModifyingFrames(new Set());
+    
     // Mark changed elements for visual feedback
     if (changedFields && changedFields.length > 0) {
       const changedSet = new Set(changedFields);
@@ -358,6 +374,9 @@ export default function StoryboardPage() {
         setRecentlyChanged(new Set());
       }, 3000);
     }
+    
+    // Mark as having unsaved modifications
+    setHasUnsavedModifications(true);
     
     // Reload storyboard to get updated data
     if (!authToken || !storyboardId) return;
@@ -371,8 +390,6 @@ export default function StoryboardPage() {
         if (res.ok) {
           const data = await res.json();
           setStoryboard(data.storyboard);
-          setSaveStatus('saved');
-          setTimeout(() => setSaveStatus('idle'), 2000);
         }
       } catch (error) {
         console.error('Error reloading storyboard:', error);
@@ -381,6 +398,37 @@ export default function StoryboardPage() {
 
     loadStoryboard();
   }, [authToken, storyboardId]);
+  
+  const handleSaveModifications = useCallback(async () => {
+    if (!storyboard || !authToken) return;
+    
+    setSaveStatus('saving');
+    try {
+      const res = await fetch('/api/storyboard', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          id: storyboard.id,
+          scenes: storyboard.scenes,
+        }),
+      });
+
+      if (res.ok) {
+        setHasUnsavedModifications(false);
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } else {
+        console.error('Failed to save modifications');
+        setSaveStatus('idle');
+      }
+    } catch (error) {
+      console.error('Error saving modifications:', error);
+      setSaveStatus('idle');
+    }
+  }, [storyboard, authToken]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -512,6 +560,26 @@ export default function StoryboardPage() {
             </div>
           )}
           
+          {hasUnsavedModifications && (
+            <button 
+              className={styles.saveModificationsBtn}
+              onClick={handleSaveModifications}
+              disabled={saveStatus === 'saving'}
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <Loader2 size={16} className={styles.spinner} />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  <span>Save Modifications</span>
+                </>
+              )}
+            </button>
+          )}
+          
           <div className={`${styles.saveStatus} ${saveStatus === 'saving' ? styles.saving : saveStatus === 'saved' ? styles.saved : ''}`}>
             {saveStatus === 'saving' && (
               <>
@@ -525,8 +593,11 @@ export default function StoryboardPage() {
                 <span>Saved</span>
               </>
             )}
-            {saveStatus === 'idle' && (
+            {saveStatus === 'idle' && !hasUnsavedModifications && (
               <span>Auto-save enabled</span>
+            )}
+            {saveStatus === 'idle' && hasUnsavedModifications && (
+              <span style={{ color: 'var(--status-warning)' }}>Unsaved changes</span>
             )}
           </div>
           <select
@@ -864,7 +935,7 @@ export default function StoryboardPage() {
 
                   <div className={styles.framesRow}>
                     <div 
-                      className={`${styles.frameBox} ${styles.selectableFrame} ${isFirstFrameSelected ? styles.selectedFrame : ''} ${firstFrameChanged ? styles.recentlyChanged : ''}`}
+                      className={`${styles.frameBox} ${styles.selectableFrame} ${isFirstFrameSelected ? styles.selectedFrame : ''} ${firstFrameChanged ? styles.recentlyChanged : ''} ${modifyingFrames.has(`${scene.scene_number}_first`) ? styles.modifying : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleFrameSelection(scene.scene_number, 'first', e.metaKey || e.ctrlKey || e.shiftKey);
@@ -892,12 +963,18 @@ export default function StoryboardPage() {
                       {isFirstFrameSelected && (
                         <div className={styles.frameSelectionBadge}>Selected</div>
                       )}
+                      {modifyingFrames.has(`${scene.scene_number}_first`) && (
+                        <div className={styles.modifyingOverlay}>
+                          <Loader2 size={24} className={styles.modifyingSpinner} />
+                          <span className={styles.modifyingText}>Modifying</span>
+                        </div>
+                      )}
                     </div>
                     <div className={styles.frameArrow}>
                       <Play size={14} />
                     </div>
                     <div 
-                      className={`${styles.frameBox} ${styles.selectableFrame} ${isLastFrameSelected ? styles.selectedFrame : ''} ${lastFrameChanged ? styles.recentlyChanged : ''}`}
+                      className={`${styles.frameBox} ${styles.selectableFrame} ${isLastFrameSelected ? styles.selectedFrame : ''} ${lastFrameChanged ? styles.recentlyChanged : ''} ${modifyingFrames.has(`${scene.scene_number}_last`) ? styles.modifying : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleFrameSelection(scene.scene_number, 'last', e.metaKey || e.ctrlKey || e.shiftKey);
@@ -924,6 +1001,12 @@ export default function StoryboardPage() {
                       )}
                       {isLastFrameSelected && (
                         <div className={styles.frameSelectionBadge}>Selected</div>
+                      )}
+                      {modifyingFrames.has(`${scene.scene_number}_last`) && (
+                        <div className={styles.modifyingOverlay}>
+                          <Loader2 size={24} className={styles.modifyingSpinner} />
+                          <span className={styles.modifyingText}>Modifying</span>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1052,6 +1135,7 @@ export default function StoryboardPage() {
           authToken={authToken}
           onClearSelection={clearSelection}
           onModificationApplied={handleModificationApplied}
+          onModificationStart={handleModificationStart}
         />
       )}
       

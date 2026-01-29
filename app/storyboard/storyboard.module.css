@@ -139,6 +139,42 @@
   box-shadow: var(--shadow-md);
 }
 
+.saveModificationsBtn {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 8px 16px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: all var(--motion-duration-fast) var(--motion-ease);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+.saveModificationsBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.4);
+}
+
+.saveModificationsBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  animation: none;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+}
+
 /* Main Content */
 .main {
   flex: 1;
@@ -348,6 +384,40 @@
   justify-content: center;
   overflow: hidden;
   position: relative;
+}
+
+.frameBox.modifying {
+  pointer-events: none;
+}
+
+.modifyingOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 10;
+}
+
+.modifyingSpinner {
+  color: #a78bfa;
+  animation: spin 1s linear infinite;
+}
+
+.modifyingText {
+  color: #a78bfa;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  animation: pulse 2s ease-in-out infinite;
 }
 
 .frameImage {
@@ -618,8 +688,8 @@
 }
 
 .selectableFrame.selectedFrame {
-  border: 2px solid rgba(99, 102, 241, 0.6);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
 }
 
 .frameSelectionBadge {

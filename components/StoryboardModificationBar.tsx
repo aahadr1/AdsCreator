@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, Loader2, Sparkles } from 'lucide-react';
+import { Send, X, Loader2, Sparkles, Upload, Image as ImageIcon } from 'lucide-react';
 import type { StoryboardSelection } from '@/types/storyboardSelection';
 import { describeSelection } from '@/types/storyboardSelection';
 import styles from './StoryboardModificationBar.module.css';
@@ -12,6 +12,7 @@ interface StoryboardModificationBarProps {
   authToken: string;
   onClearSelection: () => void;
   onModificationApplied: (changedFields?: string[]) => void;
+  onModificationStart?: (sceneNumber: number, framePosition?: 'first' | 'last') => void;
 }
 
 export function StoryboardModificationBar({
@@ -20,12 +21,15 @@ export function StoryboardModificationBar({
   authToken,
   onClearSelection,
   onModificationApplied,
+  onModificationStart,
 }: StoryboardModificationBarProps) {
   const [modificationText, setModificationText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-focus input when selection changes
   useEffect(() => {
@@ -41,50 +45,104 @@ export function StoryboardModificationBar({
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     
-    if (!modificationText.trim() || isSubmitting) return;
+    if ((!modificationText.trim() && selectedImages.length === 0) || isSubmitting) return;
     
     setIsSubmitting(true);
     setError(null);
     
     try {
-      // Use AI-powered modification endpoint that actually regenerates content
-      const res = await fetch('/api/storyboard/ai-modify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          storyboard_id: storyboardId,
-          selection,
-          modification_text: modificationText,
-        }),
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to apply modifications');
+      // If this is a frame selection with image upload
+      if (selection?.type === 'frame' && selectedImages.length > 0) {
+        // Handle image upload for each selected frame
+        for (const item of selection.items) {
+          const frameSelection = item as { sceneNumber: number; framePosition: 'first' | 'last' };
+          
+          // Notify parent that modification is starting
+          if (onModificationStart) {
+            onModificationStart(frameSelection.sceneNumber, frameSelection.framePosition);
+          }
+          
+          const formData = new FormData();
+          formData.append('storyboard_id', storyboardId);
+          formData.append('scene_number', frameSelection.sceneNumber.toString());
+          formData.append('frame_position', frameSelection.framePosition);
+          formData.append('image', selectedImages[0]); // Use first image
+          if (modificationText.trim()) {
+            formData.append('modification_text', modificationText);
+          }
+          
+          const res = await fetch('/api/storyboard/modify-image', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+            },
+            body: formData,
+          });
+          
+          const data = await res.json();
+          
+          if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to upload image');
+          }
+        }
+        
+        setSuccessMessage('Image(s) uploaded successfully!');
+        setModificationText('');
+        setSelectedImages([]);
+        
+        // Show success message for 3 seconds
+        setTimeout(() => {
+          setSuccessMessage(null);
+        }, 3000);
+        
+        // Reload storyboard
+        onModificationApplied();
+        
+        // Clear selection after short delay
+        setTimeout(() => {
+          onClearSelection();
+        }, 1500);
+        
+      } else {
+        // Use AI-powered modification endpoint for text-based modifications
+        const res = await fetch('/api/storyboard/ai-modify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            storyboard_id: storyboardId,
+            selection,
+            modification_text: modificationText,
+          }),
+        });
+        
+        const data = await res.json();
+        
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Failed to apply modifications');
+        }
+        
+        // Success!
+        const successMsg = data.summary || data.details || data.message || 'Modifications applied successfully';
+        const reflexionMsg = data.reflexion ? `\n💡 ${data.reflexion}` : '';
+        setSuccessMessage(successMsg + reflexionMsg);
+        setModificationText('');
+        
+        // Show success message for 3 seconds
+        setTimeout(() => {
+          setSuccessMessage(null);
+        }, 3000);
+        
+        // Reload storyboard immediately with changed fields for visual feedback
+        onModificationApplied(data.changed_fields);
+        
+        // Clear selection after short delay (so user sees what was modified)
+        setTimeout(() => {
+          onClearSelection();
+        }, 1500);
       }
-      
-      // Success!
-      const successMsg = data.summary || data.details || data.message || 'Modifications applied successfully';
-      const reflexionMsg = data.reflexion ? `\n💡 ${data.reflexion}` : '';
-      setSuccessMessage(successMsg + reflexionMsg);
-      setModificationText('');
-      
-      // Show success message for 3 seconds
-      setTimeout(() => {
-        setSuccessMessage(null);
-      }, 3000);
-      
-      // Reload storyboard immediately with changed fields for visual feedback
-      onModificationApplied(data.changed_fields);
-      
-      // Clear selection after short delay (so user sees what was modified)
-      setTimeout(() => {
-        onClearSelection();
-      }, 1500);
       
     } catch (err: any) {
       console.error('Modification error:', err);
@@ -105,6 +163,18 @@ export function StoryboardModificationBar({
   };
 
   const selectionDescription = describeSelection(selection);
+  const isFrameSelection = selection.type === 'frame';
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      setSelectedImages(Array.from(files));
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+  };
 
   return (
     <div className={styles.container}>
@@ -117,21 +187,63 @@ export function StoryboardModificationBar({
         </div>
         
         <form onSubmit={handleSubmit} className={styles.form}>
-          <input
-            ref={inputRef}
-            type="text"
-            className={styles.input}
-            placeholder={`What would you like to change about ${selectionDescription}?`}
-            value={modificationText}
-            onChange={(e) => setModificationText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isSubmitting}
-          />
+          <div className={styles.inputWrapper}>
+            <input
+              ref={inputRef}
+              type="text"
+              className={styles.input}
+              placeholder={isFrameSelection ? 'Describe modifications or upload an image...' : `What would you like to change about ${selectionDescription}?`}
+              value={modificationText}
+              onChange={(e) => setModificationText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isSubmitting}
+            />
+            
+            {selectedImages.length > 0 && (
+              <div className={styles.imagePreviewContainer}>
+                {selectedImages.map((file, index) => (
+                  <div key={index} className={styles.imagePreview}>
+                    <ImageIcon size={14} />
+                    <span className={styles.imageName}>{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeImage(index)}
+                      className={styles.removeImageBtn}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          {isFrameSelection && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageSelect}
+                style={{ display: 'none' }}
+                multiple={false}
+              />
+              <button
+                type="button"
+                className={styles.uploadBtn}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isSubmitting}
+                title="Upload image"
+              >
+                <Upload size={18} />
+              </button>
+            </>
+          )}
           
           <button
             type="submit"
             className={styles.submitBtn}
-            disabled={!modificationText.trim() || isSubmitting}
+            disabled={(!modificationText.trim() && selectedImages.length === 0) || isSubmitting}
             title="Apply modification (Enter)"
           >
             {isSubmitting ? (

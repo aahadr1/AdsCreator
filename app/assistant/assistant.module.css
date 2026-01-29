@@ -1447,3 +1447,117 @@
     max-height: 240px;
   }
 }
+
+/* Video Generation Controls */
+.videoGenerationControl {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+}
+
+.generateVideosBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: 15px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.generateVideosBtn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+}
+
+.generateVideosBtn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.generateVideosBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.videoGenerationStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.videoGenerationError {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius);
+  color: rgba(239, 68, 68, 0.9);
+  font-size: 13px;
+}
+
+.videoGenerating,
+.videoPending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px;
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px dashed rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.videoGenerating span,
+.videoPending span {
+  font-size: 14px;
+  font-weight: var(--font-medium);
+  color: rgba(139, 92, 246, 0.9);
+}
+
+.videoGeneratingHint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.videoPending {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--border);
+}
+
+.videoPending span {
+  color: var(--text-muted);
+}
+
+.videoError {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius);
+  color: rgba(239, 68, 68, 0.9);
+  font-size: 13px;
+}
