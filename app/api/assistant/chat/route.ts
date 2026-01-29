@@ -3526,10 +3526,9 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               
               // Create storyboard ID immediately and send link to user
               const storyboardId = crypto.randomUUID();
-              const storyboardUrl = `${origin}/storyboard/${storyboardId}`;
               
-              // Send immediate link to user
-              const linkMessage = `🎬 **Creating your storyboard...**\n\n📋 **[Open Storyboard Page →](${storyboardUrl})**\n\nYour storyboard is being generated. You can open it now - scenes will appear as they're created.\n\n`;
+              // Send immediate link with special data attribute for modal opening
+              const linkMessage = `🎬 **Creating your storyboard...**\n\n📋 **[View Storyboard →](#storyboard:${storyboardId})**\n\nYour storyboard is being generated. Click the link above to view it - scenes will appear as they're created.\n\n`;
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: linkMessage })}\n\n`));
               
               // Pass stream controller and encoder for real-time progress updates during sequential generation

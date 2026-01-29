@@ -60,6 +60,7 @@ export default function AssistantPage() {
   // Storyboard modal state
   const [openStoryboardId, setOpenStoryboardId] = useState<string | null>(null);
   const [openStoryboard, setOpenStoryboard] = useState<Storyboard | null>(null);
+  const storyboardPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -601,9 +602,35 @@ export default function AssistantPage() {
   }, [input, uploadedFiles, isLoading, authToken, activeConversationId]);
 
   function Markdown({ content }: { content: string }) {
+    // Custom link renderer to intercept storyboard links
+    const components = {
+      a: ({ href, children, ...props }: any) => {
+        // Check if this is a storyboard link
+        if (href && href.startsWith('#storyboard:')) {
+          const storyboardId = href.replace('#storyboard:', '');
+          return (
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                // Load and open the storyboard in modal
+                loadStoryboardById(storyboardId);
+              }}
+              className={styles.storyboardLink}
+              {...props}
+            >
+              {children}
+            </a>
+          );
+        }
+        // Regular link
+        return <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+      }
+    };
+
     return (
       <div className={styles.markdown}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
           {content}
         </ReactMarkdown>
       </div>
@@ -1176,11 +1203,98 @@ export default function AssistantPage() {
   const openStoryboardModal = (storyboard: Storyboard) => {
     setOpenStoryboard(storyboard);
     setOpenStoryboardId(storyboard.id);
+    
+    // Start polling if storyboard has generating frames
+    const hasGeneratingFrames = storyboard.scenes.some(s => 
+      s.first_frame_status === 'generating' || 
+      s.last_frame_status === 'generating' ||
+      (s.first_frame_prediction_id && !s.first_frame_url) ||
+      (s.last_frame_prediction_id && !s.last_frame_url)
+    );
+    
+    if (hasGeneratingFrames) {
+      startStoryboardPolling(storyboard.id);
+    }
   };
 
   const closeStoryboardModal = () => {
     setOpenStoryboard(null);
     setOpenStoryboardId(null);
+    stopStoryboardPolling();
+  };
+
+  const startStoryboardPolling = (storyboardId: string) => {
+    // Clear any existing polling
+    stopStoryboardPolling();
+    
+    // Poll every 3 seconds
+    storyboardPollIntervalRef.current = setInterval(async () => {
+      if (!authToken) return;
+      
+      try {
+        const res = await fetch(`/api/storyboard?id=${storyboardId}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.storyboard) {
+            setOpenStoryboard(data.storyboard);
+            
+            // Stop polling if all frames are ready
+            const hasGeneratingFrames = data.storyboard.scenes.some((s: any) => 
+              s.first_frame_status === 'generating' || 
+              s.last_frame_status === 'generating' ||
+              (s.first_frame_prediction_id && !s.first_frame_url) ||
+              (s.last_frame_prediction_id && !s.last_frame_url)
+            );
+            
+            if (!hasGeneratingFrames) {
+              stopStoryboardPolling();
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error polling storyboard:', error);
+      }
+    }, 3000);
+  };
+
+  const stopStoryboardPolling = () => {
+    if (storyboardPollIntervalRef.current) {
+      clearInterval(storyboardPollIntervalRef.current);
+      storyboardPollIntervalRef.current = null;
+    }
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopStoryboardPolling();
+    };
+  }, []);
+
+  const loadStoryboardById = async (storyboardId: string) => {
+    if (!authToken) return;
+    
+    try {
+      const res = await fetch(`/api/storyboard?id=${storyboardId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.storyboard) {
+          openStoryboardModal(data.storyboard);
+        } else {
+          console.error('Storyboard not found');
+        }
+      } else {
+        console.error('Failed to load storyboard');
+      }
+    } catch (error) {
+      console.error('Error loading storyboard:', error);
+    }
   };
 
   function StoryboardCard({ storyboard, messageId }: { storyboard: Storyboard; messageId: string }) {

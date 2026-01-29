@@ -1404,3 +1404,25 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Storyboard Link Styling */
+.storyboardLink {
+  color: rgba(139, 92, 246, 1) !important;
+  text-decoration: none;
+  font-weight: var(--font-medium);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.storyboardLink:hover {
+  background: rgba(139, 92, 246, 0.1);
+  text-decoration: none;
+}
+
+.storyboardLink:active {
+  transform: scale(0.98);
+}
