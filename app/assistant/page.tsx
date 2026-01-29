@@ -1499,12 +1499,27 @@ export default function AssistantPage() {
           </div>
           <div className={`${styles.bubble} ${(message.tool_name === 'storyboard_creation' || message.tool_name === 'video_generation') ? styles.bubbleWide : ''}`}>
             {message.tool_name === 'image_generation' ? (
-              <ImagePredictionCard
-                messageId={message.id}
-                predictionId={predictionId ? String(predictionId) : ''}
-                initialStatus={initialStatus}
-                initialUrl={persistedUrl}
-              />
+              (() => {
+                // Hide scene frames from chat - they're shown in the storyboard modal
+                const toolInput = (message.tool_input || message.tool_output) as any;
+                const purpose = toolInput?.purpose || '';
+                const isSceneFrame = purpose === 'scene_frame' || purpose === 'scene_first_frame' || purpose === 'scene_last_frame';
+                
+                if (isSceneFrame) {
+                  // Don't show scene frames in chat
+                  return null;
+                }
+                
+                // Show avatars and other images normally
+                return (
+                  <ImagePredictionCard
+                    messageId={message.id}
+                    predictionId={predictionId ? String(predictionId) : ''}
+                    initialStatus={initialStatus}
+                    initialUrl={persistedUrl}
+                  />
+                );
+              })()
             ) : message.tool_name === 'script_creation' ? (
               <ScriptCard content={message.content} />
             ) : message.tool_name === 'video_analysis' ? (
@@ -1568,7 +1583,26 @@ export default function AssistantPage() {
                 </div>
               </div>
             ) : (message.tool_name === 'storyboard_creation' || message.tool_name === 'video_generation') && storyboardData ? (
-              <StoryboardCard storyboard={storyboardData as Storyboard} messageId={message.id} />
+              <div className={styles.toolCard}>
+                <div className={styles.toolHeader}>
+                  <Film size={16} />
+                  <span>Storyboard Created</span>
+                  <span className={`${styles.pill} ${styles.pillGood}`}>
+                    {(storyboardData as Storyboard).scenes.length} scenes
+                  </span>
+                </div>
+                <div className={styles.toolBody}>
+                  <button 
+                    className={styles.viewStoryboardBtn}
+                    onClick={() => openStoryboardModal(storyboardData as Storyboard)}
+                    type="button"
+                  >
+                    <Film size={16} />
+                    View Full Storyboard
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
             ) : (
               <Markdown content={message.content} />
             )}
@@ -1940,46 +1974,49 @@ export default function AssistantPage() {
                         </div>
                       </div>
                       
-                      {/* First Frame */}
-                      <div className={styles.frameSection}>
-                        <div className={styles.frameLabel}>First Frame</div>
-                        {scene.first_frame_url ? (
-                          <div className={styles.framePreview}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={scene.first_frame_url} alt={`Scene ${scene.scene_number} first frame`} />
-                          </div>
-                        ) : scene.first_frame_status === 'generating' ? (
-                          <div className={styles.frameGenerating}>
-                            <Loader2 size={16} className={styles.spinner} />
-                            Generating...
-                          </div>
-                        ) : (
-                          <div className={styles.framePending}>
-                            <ImageIcon size={16} />
-                            Pending
-                          </div>
-                        )}
-                      </div>
+                      {/* Frames Side-by-Side */}
+                      <div className={styles.framesRow}>
+                        {/* First Frame */}
+                        <div className={styles.frameSection}>
+                          <div className={styles.frameLabel}>First Frame</div>
+                          {scene.first_frame_url ? (
+                            <div className={styles.framePreview}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={scene.first_frame_url} alt={`Scene ${scene.scene_number} first frame`} />
+                            </div>
+                          ) : scene.first_frame_status === 'generating' ? (
+                            <div className={styles.frameGenerating}>
+                              <Loader2 size={16} className={styles.spinner} />
+                              Generating...
+                            </div>
+                          ) : (
+                            <div className={styles.framePending}>
+                              <ImageIcon size={16} />
+                              Pending
+                            </div>
+                          )}
+                        </div>
 
-                      {/* Last Frame */}
-                      <div className={styles.frameSection}>
-                        <div className={styles.frameLabel}>Last Frame</div>
-                        {scene.last_frame_url ? (
-                          <div className={styles.framePreview}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={scene.last_frame_url} alt={`Scene ${scene.scene_number} last frame`} />
-                          </div>
-                        ) : scene.last_frame_status === 'generating' ? (
-                          <div className={styles.frameGenerating}>
-                            <Loader2 size={16} className={styles.spinner} />
-                            Generating...
-                          </div>
-                        ) : (
-                          <div className={styles.framePending}>
-                            <ImageIcon size={16} />
-                            Pending
-                          </div>
-                        )}
+                        {/* Last Frame */}
+                        <div className={styles.frameSection}>
+                          <div className={styles.frameLabel}>Last Frame</div>
+                          {scene.last_frame_url ? (
+                            <div className={styles.framePreview}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={scene.last_frame_url} alt={`Scene ${scene.scene_number} last frame`} />
+                            </div>
+                          ) : scene.last_frame_status === 'generating' ? (
+                            <div className={styles.frameGenerating}>
+                              <Loader2 size={16} className={styles.spinner} />
+                              Generating...
+                            </div>
+                          ) : (
+                            <div className={styles.framePending}>
+                              <ImageIcon size={16} />
+                              Pending
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Video */}
