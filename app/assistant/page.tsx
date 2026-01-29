@@ -56,6 +56,10 @@ export default function AssistantPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [visibleConversations, setVisibleConversations] = useState(12);
   
+  // Storyboard modal state
+  const [openStoryboardId, setOpenStoryboardId] = useState<string | null>(null);
+  const [openStoryboard, setOpenStoryboard] = useState<Storyboard | null>(null);
+  
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1168,6 +1172,16 @@ export default function AssistantPage() {
   }
 
   // Full storyboard card component - Production Ready
+  const openStoryboardModal = (storyboard: Storyboard) => {
+    setOpenStoryboard(storyboard);
+    setOpenStoryboardId(storyboard.id);
+  };
+
+  const closeStoryboardModal = () => {
+    setOpenStoryboard(null);
+    setOpenStoryboardId(null);
+  };
+
   function StoryboardCard({ storyboard, messageId }: { storyboard: Storyboard; messageId: string }) {
     const totalDuration = storyboard.total_duration_seconds || 
       storyboard.scenes.reduce((sum, s) => sum + (s.duration_seconds || 0), 0);
@@ -1178,6 +1192,16 @@ export default function AssistantPage() {
 
     return (
       <div className={styles.storyboardCard}>
+        {/* View Full Storyboard Button */}
+        <button 
+          className={styles.viewStoryboardBtn}
+          onClick={() => openStoryboardModal(storyboard)}
+          type="button"
+        >
+          <Film size={16} />
+          View Full Storyboard
+          <ChevronRight size={16} />
+        </button>
         {/* Header */}
         <div className={styles.storyboardHeader}>
           <div className={styles.storyboardHeaderLeft}>
@@ -1721,6 +1745,162 @@ export default function AssistantPage() {
           </div>
         </div>
       </main>
+
+      {/* Storyboard Modal Overlay */}
+      {openStoryboard && (
+        <div className={styles.storyboardModalOverlay} onClick={closeStoryboardModal}>
+          <div className={styles.storyboardModalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.storyboardModalHeader}>
+              <div className={styles.storyboardModalTitle}>
+                <Film size={20} />
+                <h2>{openStoryboard.title}</h2>
+              </div>
+              <button 
+                className={styles.storyboardModalClose}
+                onClick={closeStoryboardModal}
+                type="button"
+              >
+                <ArrowLeft size={20} />
+                Back to Chat
+              </button>
+            </div>
+            <div className={styles.storyboardModalBody}>
+              {/* Storyboard Info */}
+              <div className={styles.storyboardModalInfo}>
+                <div className={styles.storyboardModalMeta}>
+                  {openStoryboard.brand_name && (
+                    <div className={styles.metaChip}>
+                      <span>Brand:</span> {openStoryboard.brand_name}
+                    </div>
+                  )}
+                  {openStoryboard.product && (
+                    <div className={styles.metaChip}>
+                      <span>Product:</span> {openStoryboard.product}
+                    </div>
+                  )}
+                  {openStoryboard.platform && (
+                    <div className={styles.metaChip}>
+                      <span>Platform:</span> {openStoryboard.platform}
+                    </div>
+                  )}
+                  {openStoryboard.aspect_ratio && (
+                    <div className={styles.metaChip}>
+                      <span>Aspect Ratio:</span> {openStoryboard.aspect_ratio}
+                    </div>
+                  )}
+                  <div className={styles.metaChip}>
+                    <Clock size={14} />
+                    {openStoryboard.total_duration_seconds || 
+                      openStoryboard.scenes.reduce((sum, s) => sum + (s.duration_seconds || 0), 0)}s
+                  </div>
+                </div>
+              </div>
+
+              {/* Avatar Reference */}
+              {openStoryboard.avatar_image_url && (
+                <div className={styles.storyboardModalAvatar}>
+                  <h3>Avatar Reference</h3>
+                  <div className={styles.avatarPreview}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={openStoryboard.avatar_image_url} alt="Avatar" />
+                    {openStoryboard.avatar_description && (
+                      <p>{openStoryboard.avatar_description}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Scenes Grid */}
+              <div className={styles.storyboardModalScenes}>
+                <h3>{openStoryboard.scenes.length} Scenes</h3>
+                <div className={styles.scenesGrid}>
+                  {openStoryboard.scenes.map((scene) => (
+                    <div key={scene.scene_number} className={styles.sceneModalCard}>
+                      <div className={styles.sceneModalHeader}>
+                        <div className={styles.sceneNumber}>#{scene.scene_number}</div>
+                        <div className={styles.sceneName}>{scene.scene_name}</div>
+                        <div className={styles.sceneDuration}>
+                          <Clock size={12} />
+                          {scene.duration_seconds}s
+                        </div>
+                      </div>
+                      
+                      {/* First Frame */}
+                      <div className={styles.frameSection}>
+                        <div className={styles.frameLabel}>First Frame</div>
+                        {scene.first_frame_url ? (
+                          <div className={styles.framePreview}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={scene.first_frame_url} alt={`Scene ${scene.scene_number} first frame`} />
+                          </div>
+                        ) : scene.first_frame_status === 'generating' ? (
+                          <div className={styles.frameGenerating}>
+                            <Loader2 size={16} className={styles.spinner} />
+                            Generating...
+                          </div>
+                        ) : (
+                          <div className={styles.framePending}>
+                            <ImageIcon size={16} />
+                            Pending
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Last Frame */}
+                      <div className={styles.frameSection}>
+                        <div className={styles.frameLabel}>Last Frame</div>
+                        {scene.last_frame_url ? (
+                          <div className={styles.framePreview}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={scene.last_frame_url} alt={`Scene ${scene.scene_number} last frame`} />
+                          </div>
+                        ) : scene.last_frame_status === 'generating' ? (
+                          <div className={styles.frameGenerating}>
+                            <Loader2 size={16} className={styles.spinner} />
+                            Generating...
+                          </div>
+                        ) : (
+                          <div className={styles.framePending}>
+                            <ImageIcon size={16} />
+                            Pending
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Video */}
+                      {scene.video_url && (
+                        <div className={styles.videoSection}>
+                          <div className={styles.frameLabel}>Generated Video</div>
+                          <video 
+                            src={scene.video_url} 
+                            controls 
+                            className={styles.videoPreview}
+                          />
+                        </div>
+                      )}
+
+                      {/* Scene Description */}
+                      {scene.description && (
+                        <div className={styles.sceneDescription}>
+                          <strong>Description:</strong> {scene.description}
+                        </div>
+                      )}
+
+                      {/* Voiceover */}
+                      {scene.voiceover_text && (
+                        <div className={styles.sceneVoiceover}>
+                          <Volume2 size={14} />
+                          <span>{scene.voiceover_text}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
