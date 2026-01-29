@@ -847,6 +847,117 @@ function sanitizeStoryboardCreationInput(raw: any): any {
   return out;
 }
 
+// Execute prompt creator tool (validation and structuring)
+async function executePromptCreator(input: any): Promise<{ success: boolean; output?: any; error?: string }> {
+  try {
+    // Validate required fields
+    if (!input.target_model || !input.prompt_type || !input.scene_id || !input.user_intent || !input.render_params) {
+      return { 
+        success: false, 
+        error: 'Missing required fields: target_model, prompt_type, scene_id, user_intent, render_params' 
+      };
+    }
+
+    // This is primarily a validation and structuring tool
+    // It helps the AI organize prompts with proper continuity and grounding
+    // The actual prompt execution happens through image_generation and video_generation tools
+    
+    console.log(`[Prompt Creator] Processing ${input.prompt_type} for scene ${input.scene_id}`);
+    console.log(`[Prompt Creator] Target model: ${input.target_model}`);
+    console.log(`[Prompt Creator] Continuity: ${input.continuity?.is_continuous_from_previous_scene ? 'continuous' : 'cut'}`);
+    
+    // Build visual grounding report from reference images
+    const visualGroundingReport = {
+      for_each_reference_image: (input.reference_images || []).map((ref: any) => ({
+        url: ref.url,
+        role: ref.role,
+        notes: ref.notes || '',
+        literal_description: 'Reference image for consistency',
+        identity_markers: input.must_keep || [],
+        composition_markers: [input.render_params.camera || ''],
+        do_not_assume: input.forbidden || []
+      })),
+      consistency_ledger_update: {
+        character: { 
+          stable_traits: input.must_keep?.filter((k: string) => k.includes('character') || k.includes('face') || k.includes('hair')) || [],
+          wardrobe: input.must_keep?.filter((k: string) => k.includes('wardrobe') || k.includes('clothing')) || [],
+          props: input.must_keep?.filter((k: string) => k.includes('prop')) || []
+        },
+        setting: { 
+          location_traits: input.must_keep?.filter((k: string) => k.includes('setting') || k.includes('location')) || [],
+          lighting_traits: [input.render_params.lighting || ''],
+          time_of_day: ''
+        },
+        style: { 
+          look_and_feel: [input.render_params.style || '']
+        }
+      }
+    };
+
+    // Build final prompt package based on target model
+    const finalPromptPackage: any = {
+      notes_for_operator: []
+    };
+
+    if (input.target_model === 'nano_banana_image') {
+      // Build image generation prompts
+      const positivePrompt = [
+        input.user_intent,
+        ...(input.required_changes || []),
+        input.render_params.camera || '',
+        input.render_params.lighting || '',
+        input.render_params.style || ''
+      ].filter(Boolean).join('. ');
+
+      const negativePrompt = (input.forbidden || []).join(', ');
+
+      finalPromptPackage.nano_banana_prompt = {
+        positive_prompt: positivePrompt,
+        negative_prompt: negativePrompt,
+        change_only_instructions: input.required_changes || [],
+        must_keep_instructions: input.must_keep || []
+      };
+
+      // Add reference images info
+      if (input.continuity?.previous_scene_last_frame_url) {
+        finalPromptPackage.notes_for_operator.push(
+          `CONTINUITY: Use previous scene last frame as reference: ${input.continuity.previous_scene_last_frame_url}`
+        );
+      }
+    } else if (input.target_model === 'i2v_audio_model') {
+      // Build video generation prompts
+      finalPromptPackage.i2v_prompt = {
+        start_frame_url: input.reference_images?.find((r: any) => r.role === 'scene_first_frame_anchor')?.url || '',
+        end_frame_url: input.reference_images?.find((r: any) => r.role === 'scene_last_frame')?.url || '',
+        motion_prompt: input.user_intent,
+        camera_prompt: input.render_params.camera || '',
+        audio_prompt: input.dialogue?.mix_notes || 'Clear audio mix',
+        dialogue_script: input.dialogue?.lines || []
+      };
+
+      if (input.dialogue?.needs_spoken_dialogue) {
+        finalPromptPackage.notes_for_operator.push(
+          `DIALOGUE: ${input.dialogue.language} with ${input.dialogue.accent} accent`
+        );
+      }
+    }
+
+    return {
+      success: true,
+      output: {
+        visual_grounding_report: visualGroundingReport,
+        final_prompt_package: finalPromptPackage,
+        scene_id: input.scene_id,
+        shot_id: input.shot_id,
+        prompt_type: input.prompt_type
+      }
+    };
+  } catch (e: any) {
+    console.error('[Prompt Creator] Error:', e);
+    return { success: false, error: e.message || 'Failed to process prompt creation' };
+  }
+}
+
 // Execute script creation tool
 async function executeScriptCreation(input: ScriptCreationInput): Promise<{ success: boolean; output?: string; error?: string }> {
   try {
@@ -3395,7 +3506,12 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             })}\n\n`));
             
             let result;
-            if (toolCall.tool === 'script_creation') {
+            if (toolCall.tool === 'prompt_creator') {
+              // Handle prompt_creator tool - this is a validation/planning tool
+              // It doesn't generate assets, just validates and structures prompts
+              const safeInput: unknown = toolCall.input;
+              result = await executePromptCreator(safeInput);
+            } else if (toolCall.tool === 'script_creation') {
               const safeInput: unknown = toolCall.input;
               result = isScriptCreationInput(safeInput)
                 ? await executeScriptCreation(safeInput)

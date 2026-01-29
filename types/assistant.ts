@@ -82,7 +82,7 @@ export interface PlanStep {
 }
 
 // Tool Definitions
-export type ToolName = 'script_creation' | 'image_generation' | 'storyboard_creation' | 'video_generation' | 'video_analysis' | 'motion_control';
+export type ToolName = 'prompt_creator' | 'script_creation' | 'image_generation' | 'storyboard_creation' | 'video_generation' | 'video_analysis' | 'motion_control';
 
 export interface Tool {
   name: ToolName;
@@ -150,6 +150,48 @@ export type StreamEventType =
 export interface StreamEvent {
   type: StreamEventType;
   data: unknown;
+}
+
+// Prompt Creator specific types
+export interface PromptCreatorInput {
+  target_model: 'nano_banana_image' | 'i2v_audio_model';
+  prompt_type: 'scene_first_frame' | 'scene_last_frame' | 'intermediate_frame' | 'insert_shot' | 'i2v_job';
+  scene_id: string;
+  shot_id?: string;
+  continuity?: {
+    is_continuous_from_previous_scene: boolean;
+    previous_scene_last_frame_url?: string | null;
+  };
+  reference_images?: Array<{
+    url: string;
+    role: 'previous_scene_last_frame' | 'scene_first_frame_anchor' | 'avatar_ref' | 'style_ref' | 'location_ref' | 'prop_ref';
+    notes?: string;
+  }>;
+  user_intent: string;
+  required_changes?: string[];
+  must_keep?: string[];
+  forbidden?: string[];
+  dialogue?: {
+    needs_spoken_dialogue: boolean;
+    language?: string;
+    accent?: string;
+    lines?: Array<{
+      speaker: string;
+      text: string;
+      start_s?: number;
+      end_s?: number;
+      emotion?: string;
+    }>;
+    mix_notes?: string;
+  };
+  render_params: {
+    aspect_ratio?: string;
+    style?: string;
+    camera?: string;
+    lighting?: string;
+    motion_strength?: 'low' | 'med' | 'high';
+    i2i_strength?: 'low' | 'med' | 'high';
+  };
 }
 
 // Script creation specific types

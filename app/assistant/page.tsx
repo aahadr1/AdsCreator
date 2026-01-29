@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Clock,
   Volume2,
+  ArrowLeft,
 } from 'lucide-react';
 import type { Message, Conversation, Storyboard, StoryboardScene } from '../../types/assistant';
 import styles from './assistant.module.css';
