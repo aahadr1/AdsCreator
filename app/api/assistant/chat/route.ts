@@ -1887,7 +1887,7 @@ async function waitForPredictionComplete(
 // Execute video generation tool - Generate videos from a completed storyboard
 async function executeVideoGeneration(input: VideoGenerationInput): Promise<{ success: boolean; output?: { storyboard: Storyboard }; error?: string }> {
   try {
-    const { storyboard_id, scenes_to_generate, video_model = 'kwaivgi/kling-v2.6', resolution = '720p' } = input;
+    const { storyboard_id, scenes_to_generate, video_model = 'bytedance/seedance-1.5-pro', resolution = '720p' } = input;
     
     // For now, return an error indicating this functionality needs to be implemented
     // This will be handled by the streaming logic in the route handler
@@ -2981,7 +2981,7 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response_chunk', data: toolCallText })}\n\n`));
 
             const videoMessageId = crypto.randomUUID();
-            const model = 'kwaivgi/kling-v2.6'; // Use Kling 2.6 Pro for native audio generation
+            const model = 'bytedance/seedance-1.5-pro'; // Use Seedance 1.5 Pro for native audio with first+last frame support
 
             // Build a storyboard copy with video placeholders
             const nextStoryboard: Storyboard = {
@@ -3107,20 +3107,18 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                   ` Target end state should show: ${scene.last_frame_visual_elements.join(', ')}` : '';
                 
                 // Create enhanced prompt with voiceover, motion, and visual context
-                let enhancedPrompt =
-                  `START_FRAME_URL (image input): ${normalizedStartImage}\n` +
-                  `END_FRAME_URL (end_image input): ${normalizedEndImage}\n\n` +
-                  `${prompt}${lastFrameContext}`;
+                // Note: Actual image URLs are passed via 'image' and 'last_frame_image' parameters
+                let enhancedPrompt = `${prompt}${lastFrameContext}`;
                 
-                // Add voiceover context for lip sync and expressions
+                // Add voiceover context for lip sync and expressions (Seedance has native audio generation)
                 if (voiceoverText && scene.uses_avatar) {
-                  enhancedPrompt += ` DIALOGUE: The person is saying: "${voiceoverText}". Generate appropriate lip movements, facial expressions, and gestures that match the speech content. Sync mouth movements naturally with the spoken words.`;
+                  enhancedPrompt += ` The person says: "${voiceoverText}". Generate natural lip movements, facial expressions, and gestures synchronized with the speech.`;
                 } else if (voiceoverText) {
-                  enhancedPrompt += ` AUDIO CONTEXT: Scene includes voiceover: "${voiceoverText}". Generate visuals that complement and support this narrative.`;
+                  enhancedPrompt += ` Voiceover: "${voiceoverText}". Generate visuals and audio that complement this narrative.`;
                 }
                 
                 // Add motion direction and timing
-                enhancedPrompt += ` MOTION DIRECTION: Use the provided START frame (image) and END frame (end_image) to interpolate motion between them. Preserve identity, scene layout, lighting, and product placement. The output video should begin matching the start frame and end matching the end frame, with natural motion between.`;
+                enhancedPrompt += ` The video transitions smoothly from the first frame to the last frame. Preserve character identity, wardrobe, setting, lighting, and product placement throughout. Natural, fluid motion.`;
                 
                 // Add scene-specific enhancements based on scene type
                 if (scene.scene_type === 'talking_head' && scene.uses_avatar) {
@@ -3146,18 +3144,22 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
                 const isVertical = aspectRatio === '9:16' || aspectRatio === '4:5';
                 const isSquare = aspectRatio === '1:1';
                 
+                // Build input for Seedance 1.5 Pro
+                const videoInput: Record<string, unknown> = {
+                  prompt: enhancedPrompt,
+                  image: normalizedStartImage,           // First frame (required for i2v)
+                  last_frame_image: normalizedEndImage,  // Last frame (Seedance specific)
+                  duration: Math.min(10, Math.max(5, Math.ceil(scene.duration_seconds || 5))), // 5 or 10 seconds
+                  aspect_ratio: aspectRatio,
+                  fps: 24,
+                  camera_fixed: false,
+                  generate_audio: true,  // Enable native audio generation with lip-sync
+                };
+
                 const prediction = await createReplicatePrediction({
                   token: tokenStr,
                   model: model,
-                  input: {
-                    prompt: enhancedPrompt,
-                    resolution: '720p',
-                    aspect_ratio: aspectRatio, // Pass aspect ratio to VEO
-                    // VEO start + end frame guidance
-                    image: normalizedStartImage,
-                    start_image: normalizedStartImage,
-                    end_image: normalizedEndImage,
-                  },
+                  input: videoInput,
                 });
                 
                 // Update scene with video model

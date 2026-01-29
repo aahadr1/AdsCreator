@@ -181,8 +181,15 @@ export const MODEL_COSTS: Record<string, ModelCost> = {
     provider: 'Kwaivgi',
     description: 'Image-to-video generation that requires a start image (720p/1080p)',
   },
+  'bytedance/seedance-1.5-pro': {
+    name: 'Seedance 1.5 Pro',
+    category: 'other',
+    credits: 38,
+    provider: 'ByteDance',
+    description: 'Cinema-quality video with synchronized audio, precise lip-syncing, and first+last frame control',
+  },
   'kwaivgi/kling-v2.6': {
-    name: 'Kling v2.6 Pro',
+    name: 'Kling v2.6 Pro (deprecated)',
     category: 'other',
     credits: 38,
     provider: 'Kwaivgi',

@@ -356,7 +356,7 @@ Scene outline structure:
 ---
 TOOL 5: video_generation
 ---
-Generate video clips from completed storyboard scenes using Kling 2.6 Pro.
+Generate video clips from completed storyboard scenes using Seedance 1.5 Pro.
 
 When to use:
 - User confirms they want videos after storyboard creation
@@ -365,7 +365,7 @@ When to use:
 Parameters:
 - storyboard_id (string, required)
 - scenes_to_generate (array, optional): Scene numbers to generate
-- video_model (string, optional): Default is kwaivgi/kling-v2.6
+- video_model (string, optional): Default is bytedance/seedance-1.5-pro
 - resolution (string, optional): "720p" or "1080p"
 - quality_priority (string, optional): "quality" or "speed"
 

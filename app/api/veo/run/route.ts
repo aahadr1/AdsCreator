@@ -16,7 +16,8 @@ type VeoInput = {
     | 'openai/sora-2-pro'
     | 'kwaivgi/kling-v2.5-turbo-pro'
     | 'kwaivgi/kling-v2.1'
-    | 'kwaivgi/kling-v2.6';
+    | 'kwaivgi/kling-v2.6'
+    | 'bytedance/seedance-1.5-pro';
   image?: string | null;
   negative_prompt?: string | null;
   resolution?: '720p' | '1080p';
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
       'kwaivgi/kling-v2.5-turbo-pro',
       'kwaivgi/kling-v2.1',
       'kwaivgi/kling-v2.6',
+      'bytedance/seedance-1.5-pro',
     ]);
     const model = allowedModels.has((body.model as string) || '')
       ? (body.model as string)

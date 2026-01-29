@@ -128,15 +128,16 @@ export function selectVideoModel(context: ModelSelectionContext): {
     };
   }
 
-  // RULE 3: Balanced quality/speed → Kling 2.6 (DEFAULT for most cases)
+  // RULE 3: Balanced quality/speed → Seedance 1.5 Pro (DEFAULT for most cases)
   if (qualityPriority === 'quality' && latencyTolerance === 'normal') {
     return {
-      model: 'kwaivgi/kling-v2.6',
-      reasoning: 'Balanced quality and speed requirements. Kling 2.6 Pro is optimal for production use with native audio generation.',
+      model: 'bytedance/seedance-1.5-pro',
+      reasoning: 'Balanced quality and speed requirements. Seedance 1.5 Pro is optimal for production use with native audio generation and first+last frame control.',
       adjustedParams: {
         duration: 5,
         generate_audio: true,
-        aspect_ratio: '16:9'
+        fps: 24,
+        camera_fixed: false
       }
     };
   }
@@ -163,14 +164,15 @@ export function selectVideoModel(context: ModelSelectionContext): {
     };
   }
 
-  // RULE 6: Default to Kling 2.6 (best balance with audio)
+  // RULE 6: Default to Seedance 1.5 Pro (best balance with audio and frame control)
   return {
-    model: 'kwaivgi/kling-v2.6',
-    reasoning: 'General video generation. Kling 2.6 Pro provides best balance of quality, speed, and cost with native audio generation.',
+    model: 'bytedance/seedance-1.5-pro',
+    reasoning: 'General video generation. Seedance 1.5 Pro provides best balance of quality, speed, and cost with native audio generation and first+last frame control.',
     adjustedParams: {
       duration: 5,
       generate_audio: true,
-      aspect_ratio: '16:9'
+      fps: 24,
+      camera_fixed: false
     }
   };
 }
@@ -412,6 +414,7 @@ export const MODEL_COSTS: Record<string, number> = {
   'lightricks/ltx-2-pro': 1.20,
   'kwaivgi/kling-v2.5-turbo-pro': 1.50,
   'kwaivgi/kling-v2.1': 1.80,
+  'bytedance/seedance-1.5-pro': 2.00,
   'kwaivgi/kling-v2.6': 2.00,
   'kwaivgi/kling-v2.6-motion-control': 2.25,
 
@@ -455,6 +458,7 @@ export const MODEL_LATENCIES: Record<string, number> = {
   'lightricks/ltx-2-pro': 240,
   'kwaivgi/kling-v2.5-turbo-pro': 250,
   'kwaivgi/kling-v2.1': 350,
+  'bytedance/seedance-1.5-pro': 300, // 5 min
   'kwaivgi/kling-v2.6': 300, // 5 min
   'kwaivgi/kling-v2.6-motion-control': 450,
 
