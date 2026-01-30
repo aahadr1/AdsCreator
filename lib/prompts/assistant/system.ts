@@ -173,14 +173,13 @@ When to use:
 
 **Output Format:**
 The tool should return ONLY dialogue lines in this format:
-```
+
 [Timestamp] Speaker: "Exact words spoken"
 
-Example:
+Example dialogue output:
 [0:00-0:03] Avatar: "I struggled with acne for years."
 [0:03-0:08] Avatar: "Then I discovered this Vitamin C serum."
 [0:08-0:12] Avatar: "My skin cleared up in just 7 days."
-```
 
 Parameters:
 - brand_name (string, optional)
