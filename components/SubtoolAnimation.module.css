@@ -1,0 +1,262 @@
+/* Subtool Animation */
+
+.subtoolAnimation {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.subtoolAnimation:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Icon Wrapper */
+
+.iconWrapper {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border: 3px solid #e5e7eb;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #ffffff;
+  transition: all 0.3s ease;
+}
+
+.iconAnimating {
+  animation: iconFloat 2s ease-in-out infinite;
+}
+
+@keyframes iconFloat {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.05);
+  }
+}
+
+/* Pulse Ring Animation */
+
+.pulseRing {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  right: -6px;
+  bottom: -6px;
+  border: 3px solid;
+  border-radius: 50%;
+  opacity: 0;
+  animation: pulse 2s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}
+
+/* Status Badges */
+
+.checkmark,
+.errorMark {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffffff;
+  animation: statusPop 0.3s ease-out;
+}
+
+@keyframes statusPop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Info Section */
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.info h4 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.description {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+/* Progress Bar */
+
+.progressBar {
+  width: 100%;
+  height: 6px;
+  background: #f3f4f6;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.progressFill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Subtool Progress (Multiple Subtools) */
+
+.subtoolProgress {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 24px;
+  background: #f9fafb;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+
+.subtoolProgress .subtoolAnimation {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px;
+}
+
+.subtoolProgress .iconWrapper {
+  margin-bottom: 12px;
+}
+
+.subtoolProgress .info {
+  width: 100%;
+}
+
+.arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* Responsive */
+
+@media (max-width: 768px) {
+  .subtoolProgress {
+    flex-direction: column;
+  }
+  
+  .arrow {
+    transform: rotate(90deg);
+    margin: 8px 0;
+  }
+  
+  .subtoolAnimation {
+    flex-direction: row;
+    text-align: left;
+  }
+  
+  .subtoolProgress .subtoolAnimation {
+    flex-direction: row;
+    text-align: left;
+  }
+  
+  .subtoolProgress .iconWrapper {
+    margin-bottom: 0;
+    margin-right: 16px;
+  }
+}
+
+/* Dark Mode */
+
+@media (prefers-color-scheme: dark) {
+  .subtoolAnimation {
+    background: #1f2937;
+    border-color: #374151;
+  }
+  
+  .subtoolAnimation:hover {
+    border-color: #4b5563;
+  }
+  
+  .iconWrapper {
+    background: #111827;
+    border-color: #374151;
+  }
+  
+  .description {
+    color: #9ca3af;
+  }
+  
+  .progressBar {
+    background: #374151;
+  }
+  
+  .subtoolProgress {
+    background: #111827;
+  }
+  
+  .checkmark,
+  .errorMark {
+    border-color: #1f2937;
+  }
+}

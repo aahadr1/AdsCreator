@@ -70,6 +70,13 @@ export interface AssistantPlan {
    * Enables the AI to reference any image as input for new generations
    */
   image_registry?: import('./imageRegistry').ImageRegistry;
+  
+  /**
+   * Media Pool - Natural asset tracking system
+   * Tracks all assets (images, scripts, videos) with natural descriptions
+   * instead of rigid structured metadata.
+   */
+  media_pool?: import('./mediaPool').MediaPool;
 }
 
 export interface PlanStep {
@@ -82,18 +89,7 @@ export interface PlanStep {
 }
 
 // Tool Definitions
-export type ToolName = 
-  | 'script_creation' 
-  | 'image_generation' 
-  | 'requirements_check'
-  | 'scene_director'
-  | 'frame_generator'
-  | 'frame_prompt_generator'
-  | 'storyboard_creation' 
-  | 'video_generation' 
-  | 'video_analysis' 
-  | 'motion_control'
-  | 'prompt_creator'; // Legacy, kept for backwards compatibility
+export type ToolName = 'prompt_creator' | 'script_creation' | 'image_generation' | 'storyboard_creation' | 'video_generation' | 'video_analysis' | 'motion_control';
 
 export interface Tool {
   name: ToolName;
@@ -207,28 +203,15 @@ export interface PromptCreatorInput {
 
 // Script creation specific types
 export interface ScriptCreationInput {
-  // New comprehensive input structure
-  video_type?: 'ugc' | 'high_production' | 'tutorial' | 'testimonial' | 'reel' | 'ad' | 'vlog' | 'demo' | 'comparison' | 'explainer' | 'other';
-  duration_seconds?: number;
-  purpose?: string;
-  platform?: 'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'general' | 'youtube_shorts';
-  tone?: 'casual' | 'professional' | 'energetic' | 'calm' | 'humorous' | 'serious' | 'inspiring' | string;
-  has_voiceover?: boolean;
-  has_dialogue?: boolean;
-  speaker_description?: string;
-  product_name?: string;
-  product_description?: string;
-  target_audience?: string;
-  key_message?: string;
-  include_hook?: boolean;
-  additional_instructions?: string;
-  // Legacy fields for backwards compatibility
   brand_name?: string;
   product?: string;
   offer?: string;
+  target_audience?: string;
   key_benefits?: string;
   pain_points?: string;
   social_proof?: string;
+  tone?: string;
+  platform?: 'tiktok' | 'instagram' | 'facebook' | 'youtube_shorts';
   hook_style?: string;
   cta?: string;
   length_seconds?: number;
@@ -237,355 +220,8 @@ export interface ScriptCreationInput {
 }
 
 export interface ScriptCreationOutput {
-  script: {
-    full_text: string;
-    hook?: string;
-    body?: string;
-    cta?: string;
-  } | string;
-  timing_breakdown?: Array<{
-    start_s: number;
-    end_s: number;
-    section?: string;
-    text: string;
-    visual_note?: string;
-  }>;
-  total_duration_seconds?: number;
-  word_count?: number;
-  speaker_notes?: {
-    tone?: string;
-    pace?: string;
-    emphasis?: string;
-    pauses?: string;
-  };
-  visual_suggestions?: string[];
-  scene_suggestions?: Array<{
-    name: string;
-    duration_seconds?: number;
-    description: string;
-  }>;
-  audio_notes?: {
-    music_style?: string;
-    sound_effects?: string[];
-    voiceover_style?: string;
-  };
+  script: string;
   task_id?: string;
-}
-
-// Requirements Check types
-export interface RequirementsCheckInput {
-  script: string;
-  video_type: string;
-  video_description?: string;
-  available_avatars?: Array<{ url: string; description: string }>;
-  available_products?: Array<{ url: string; description: string }>;
-  available_settings?: Array<{ url: string; description: string }>;
-  user_uploaded_images?: Array<{ url: string; gpt4v_description?: string }>;
-}
-
-export interface RequirementsCheckOutput {
-  can_proceed: boolean;
-  confidence: number;
-  proceed_reasoning?: string;
-  missing_elements?: Array<{
-    type: 'avatar' | 'product' | 'setting' | 'information';
-    description: string;
-    criticality: 'blocker' | 'important' | 'nice_to_have';
-    can_we_generate?: boolean;
-    can_we_proceed_without?: boolean;
-    recommended_action?: string;
-  }>;
-  questions_for_user?: Array<{
-    question: string;
-    why_asking?: string;
-    default_if_not_answered?: string;
-  }> | string[];
-  assumptions_if_proceeding?: Array<{
-    assumption: string;
-    basis?: string;
-    risk?: string;
-  }>;
-  recommendations?: Array<{
-    recommendation: string;
-    priority?: 'high' | 'medium' | 'low';
-    reasoning?: string;
-  }> | string[];
-  reasoning?: string;
-}
-
-// Scene Director types
-export interface SceneDirectorInput {
-  mode: 'overview' | 'breakdown';
-  script: string;
-  video_type: string;
-  style?: string;
-  aspect_ratio?: string;
-  avatar_descriptions?: string[];
-  product_description?: string;
-  user_creative_direction?: string;
-  video_overview?: string; // For breakdown mode
-}
-
-export interface SceneDirectorOverviewOutput {
-  video_title: string;
-  video_description: string;
-  concept_summary?: string;
-  style_guide?: {
-    visual_style: string;
-    color_palette?: {
-      primary?: string;
-      mood_colors?: string[];
-      avoid?: string;
-    };
-    mood: string;
-    lighting?: string;
-    texture?: string;
-  };
-  pacing?: {
-    overall_rhythm?: string;
-    hook_energy?: string;
-    body_flow?: string;
-    climax_moment?: string;
-    ending_feel?: string;
-  };
-  visual_language?: {
-    shot_style?: string;
-    movement?: string;
-    transitions?: string;
-    recurring_motifs?: string[];
-  };
-  key_visual_moments?: Array<{
-    moment: string;
-    description: string;
-    timing?: string;
-  }> | string[];
-  continuity_requirements?: string[];
-  things_to_avoid?: string[];
-  reference_notes?: string;
-}
-
-export interface SceneDirectorBreakdownOutput {
-  total_scenes: number;
-  total_duration_seconds: number;
-  scenes: Array<{
-    scene_number: number;
-    scene_name: string;
-    scene_description: string;
-    duration_seconds: number;
-    timing?: {
-      start_s: number;
-      end_s: number;
-    };
-    scene_type: 'talking_head' | 'product_showcase' | 'b_roll' | 'demonstration' | 'text_card' | 'transition';
-    scene_purpose?: string;
-    setting?: {
-      location: string;
-      time_of_day?: string;
-      lighting?: string;
-      key_elements?: string[];
-    };
-    character?: {
-      uses_avatar: boolean;
-      which_avatar?: string;
-      position_in_frame?: string;
-      expression?: string;
-      action?: string;
-    };
-    product?: {
-      appears: boolean;
-      how?: string;
-      prominence?: string;
-    };
-    camera?: {
-      shot_type?: string;
-      angle?: string;
-      movement?: string;
-      framing_notes?: string;
-    };
-    script_text: string;
-    visual_action?: string;
-    audio?: {
-      dialogue?: string;
-      music?: string;
-      sound_effects?: string[];
-    };
-    transition?: {
-      from_previous?: string;
-      continuous_with_previous?: boolean;
-      to_next?: string;
-    };
-    continuity_notes?: string;
-  }>;
-  scene_flow_summary?: string;
-  critical_continuity_points?: string[];
-}
-
-// Frame Generator types
-export interface FrameGeneratorInput {
-  video_description: string;
-  scenes: SceneDirectorBreakdownOutput['scenes'];
-  avatar_references?: Array<{
-    description: string;
-    url: string;
-    gpt4v_analysis?: string;
-  }>;
-  product_references?: Array<{
-    description: string;
-    url: string;
-    gpt4v_analysis?: string;
-  }>;
-  continuity_rules?: string[];
-}
-
-export interface FrameGeneratorOutput {
-  frame_designs: Array<{
-    scene_number: number;
-    scene_name?: string;
-    scene_summary?: string;
-    first_frame: {
-      description: string;
-      key_visual_elements?: string[];
-      composition?: {
-        focal_point?: string;
-        rule_of_thirds?: string;
-        depth?: string;
-        negative_space?: string;
-      };
-      character_state?: {
-        present: boolean;
-        position?: string;
-        pose?: string;
-        expression?: string;
-        eye_direction?: string;
-        hands?: string;
-        wardrobe_visible?: string;
-      };
-      product_state?: {
-        present: boolean;
-        position?: string;
-        visibility?: string;
-        interaction?: string;
-      };
-      environment?: {
-        setting?: string;
-        lighting_quality?: string;
-        light_direction?: string;
-        atmosphere?: string;
-        key_props?: string[];
-      };
-      camera?: {
-        shot_size?: string;
-        angle?: string;
-        lens_feel?: string;
-      };
-      mood_conveyed?: string;
-    };
-    last_frame: {
-      description: string;
-      key_visual_elements?: string[];
-      composition?: object;
-      character_state?: object;
-      product_state?: object;
-      environment?: object;
-      camera?: object;
-      mood_conveyed?: string;
-      progression_from_first_frame?: string;
-      change_from_first?: string;
-    };
-    motion_between_frames?: {
-      character_action?: string;
-      camera_movement?: string;
-      environmental_changes?: string;
-      emotional_arc?: string;
-    };
-    transition_design?: {
-      how_scene_ends?: string;
-      connects_to_next?: string;
-      continuity_handoff?: string;
-    };
-  }>;
-  global_consistency_notes?: {
-    character_constants?: string[];
-    setting_constants?: string[];
-    style_constants?: string[];
-  };
-  frame_by_frame_progression?: string;
-}
-
-// Frame Prompt Generator types
-export interface FramePromptGeneratorInput {
-  frame_designs: FrameGeneratorOutput['frame_designs'];
-  avatar_references: Array<{
-    id: string;
-    description: string;
-    url: string;
-    gpt4v_description?: string;
-  }>;
-  product_references?: Array<{
-    id: string;
-    description: string;
-    url: string;
-    gpt4v_description?: string;
-  }>;
-  setting_references?: Array<{
-    id: string;
-    description: string;
-    url: string;
-    gpt4v_description?: string;
-  }>;
-  previously_generated_frames?: Array<{
-    scene_number: number;
-    frame_type: 'first' | 'last';
-    url: string;
-    gpt4v_description?: string;
-  }>;
-}
-
-export interface FramePromptGeneratorOutput {
-  frame_prompts: Array<{
-    scene_number: number;
-    scene_name?: string;
-    first_frame_prompt: {
-      text_prompt: string;
-      image_inputs: Array<{
-        url: string;
-        role: 'avatar_reference' | 'product_reference' | 'setting_reference' | 'prev_frame_continuity' | 'scene_first_frame';
-        purpose?: string;
-        what_model_gets_from_this?: string;
-        what_prompt_should_add?: string;
-        what_to_maintain?: string;
-        what_to_change?: string;
-      }>;
-      must_keep_from_inputs?: string[];
-      must_change_from_inputs?: string[];
-      should_not_mention_in_prompt?: string[];
-      prompt_strategy_explanation?: string;
-    };
-    last_frame_prompt: {
-      text_prompt: string;
-      image_inputs: Array<{
-        url: string;
-        role: string;
-        purpose?: string;
-      }>;
-      changes_from_first_frame?: string[];
-      must_keep_from_inputs?: string[];
-      must_change_from_inputs?: string[];
-      should_not_mention_in_prompt?: string[];
-      prompt_strategy_explanation?: string;
-    };
-  }>;
-  continuity_chain?: {
-    description?: string;
-    cross_scene_references?: Array<{
-      from_scene: number;
-      from_frame: string;
-      to_scene: number;
-      to_frame: string;
-      relationship: string;
-    }>;
-  };
-  prompt_engineering_notes?: string;
 }
 
 // Image generation specific types
@@ -595,9 +231,8 @@ export interface ImageGenerationInput {
   output_format?: 'jpg' | 'png';
   model?: string;
   image_input?: string[];
-  purpose?: 'avatar' | 'scene_frame' | 'scene_first_frame' | 'scene_last_frame' | 'product' | 'b_roll' | 'setting' | 'other';
+  purpose?: 'avatar' | 'scene_frame' | 'scene_first_frame' | 'scene_last_frame' | 'product' | 'b_roll' | 'other';
   avatar_description?: string;
-  character_role?: 'main_character' | 'supporting' | 'background';
   // Reference images for consistency (DEPRECATED - use image_input directly)
   reference_images?: {
     avatar_url?: string;           // Avatar image for character consistency
@@ -676,26 +311,15 @@ export interface StoryboardScene {
   scene_number: number;
   scene_name: string;
   description: string;
-  /** Full scene description for UI display (from scene_director) */
-  scene_description?: string;
   duration_seconds?: number;
-  /** Timing info */
-  timing?: {
-    start_s: number;
-    end_s: number;
-  };
   
   // First frame prompt - extremely precise and specific
   first_frame_prompt: string;
   first_frame_visual_elements: string[]; // Explicit list of visual elements
-  /** Image input URLs for first frame generation (avatars, products, previous frames) */
-  first_frame_image_inputs?: string[];
   
   // Last frame prompt - extremely precise and specific  
   last_frame_prompt: string;
   last_frame_visual_elements: string[]; // Explicit list of visual elements
-  /** Image input URLs for last frame generation */
-  last_frame_image_inputs?: string[];
   
   // Video generation prompt - describes the motion/action between frames
   video_generation_prompt: string;
@@ -729,8 +353,6 @@ export interface StoryboardScene {
   
   // Avatar usage
   uses_avatar?: boolean;
-  /** Which avatar identifier this scene uses (for multi-character videos) */
-  which_avatar?: string;
   avatar_action?: string; // What the avatar is doing in this scene
   avatar_expression?: string; // Facial expression description
   avatar_position?: string; // Where avatar is in frame
@@ -774,24 +396,13 @@ export interface Storyboard {
   brand_name?: string;
   product?: string;
   target_audience?: string;
-  platform?: 'tiktok' | 'instagram' | 'facebook' | 'youtube_shorts' | 'youtube' | 'general';
+  platform?: 'tiktok' | 'instagram' | 'facebook' | 'youtube_shorts';
   total_duration_seconds?: number;
   style?: string;
   aspect_ratio?: string;
-  // NEW: Video description for display in UI
-  video_description?: string;
-  video_type?: string;
-  // NEW: Full script text
-  script_full_text?: string;
   // Avatar reference for consistency
   avatar_image_url?: string;
   avatar_description?: string;
-  // Additional avatars for multi-character videos
-  additional_avatars?: Array<{
-    url: string;
-    description: string;
-    role?: string;
-  }>;
   // Product image reference for consistent product appearance across scenes
   product_image_url?: string;
   product_image_description?: string;
