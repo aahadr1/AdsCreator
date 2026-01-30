@@ -1375,7 +1375,15 @@ export default function AssistantPage() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to start video generation');
+        // Try to get detailed error message from server
+        let errorMessage = 'Failed to start video generation';
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          errorMessage = `${errorMessage} (${res.status} ${res.statusText})`;
+        }
+        throw new Error(errorMessage);
       }
 
       const reader = res.body?.getReader();
