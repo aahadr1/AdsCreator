@@ -1207,8 +1207,16 @@ export default function AssistantPage() {
 
         {/* Scene Description */}
         <div className={styles.sceneDescription}>
-          {scene.description}
+          {scene.scene_description || scene.description}
         </div>
+        
+        {/* Script Text (if different from description) */}
+        {scene.voiceover_text && scene.voiceover_text !== (scene.scene_description || scene.description) && (
+          <div className={styles.sceneScriptPreview}>
+            <span className={styles.scriptLabel}>📝 Script:</span>
+            <span className={styles.scriptText}>&quot;{scene.voiceover_text}&quot;</span>
+          </div>
+        )}
 
         {/* Needs user details */}
         {scene.needs_user_details && scene.user_question && (
@@ -1648,6 +1656,17 @@ export default function AssistantPage() {
                 <span className={styles.metaValue}>{storyboard.style}</span>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Video Description (if exists) */}
+        {storyboard.video_description && (
+          <div className={styles.videoDescriptionBox}>
+            <div className={styles.videoDescriptionLabel}>
+              <Film size={12} />
+              <span>Video Vision</span>
+            </div>
+            <p className={styles.videoDescriptionText}>{storyboard.video_description}</p>
           </div>
         )}
 

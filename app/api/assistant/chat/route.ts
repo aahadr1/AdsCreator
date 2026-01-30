@@ -7,6 +7,13 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
 import { ASSISTANT_SYSTEM_PROMPT, SCENE_REFINEMENT_PROMPT, SCENARIO_PLANNING_PROMPT, buildConversationContext, extractAvatarContextFromMessages } from '../../../../lib/prompts/assistant/system';
+import { 
+  buildRequirementsCheckPrompt,
+  buildSceneDirectorOverviewPrompt,
+  buildSceneDirectorBreakdownPrompt,
+  buildFrameGeneratorPrompt,
+  buildFramePromptGeneratorPrompt
+} from '../../../../lib/prompts/agents';
 import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2';
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline, ImageReferenceReflexion } from '../../../../types/assistant';
 import type { ImageRegistry, RegisteredImage, ReferenceImagesResult, GPT4oAnalysis } from '../../../../types/imageRegistry';
@@ -1622,6 +1629,259 @@ async function executeMotionControl(
   } catch (e: any) {
     console.error('Motion control error:', e);
     return { success: false, error: e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NEW AGENT TOOLS - Requirements Check, Scene Director, Frame Generator, Frame Prompt Generator
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Execute requirements check tool
+ * Analyzes what elements are needed before storyboard creation
+ */
+async function executeRequirementsCheck(input: unknown): Promise<{ success: boolean; output?: unknown; error?: string }> {
+  try {
+    requireOpenAIKey();
+    
+    const typedInput = input as {
+      script: string;
+      video_type: string;
+      video_description?: string;
+      available_avatars?: Array<{ url: string; description: string }>;
+      available_products?: Array<{ url: string; description: string }>;
+      available_settings?: Array<{ url: string; description: string }>;
+      user_uploaded_images?: Array<{ url: string; gpt4v_description?: string }>;
+    };
+    
+    if (!typedInput.script || !typedInput.video_type) {
+      return { success: false, error: 'Missing required fields: script and video_type' };
+    }
+    
+    const systemPrompt = buildRequirementsCheckPrompt();
+    
+    const userPrompt = `Analyze the requirements for this video production:
+
+**Script:**
+${typedInput.script}
+
+**Video Type:** ${typedInput.video_type}
+
+**Video Description:** ${typedInput.video_description || 'Not provided'}
+
+**Available Avatars:** ${typedInput.available_avatars?.length ? JSON.stringify(typedInput.available_avatars) : 'None'}
+
+**Available Products:** ${typedInput.available_products?.length ? JSON.stringify(typedInput.available_products) : 'None'}
+
+**Available Settings:** ${typedInput.available_settings?.length ? JSON.stringify(typedInput.available_settings) : 'None'}
+
+**User Uploaded Images:** ${typedInput.user_uploaded_images?.length ? JSON.stringify(typedInput.user_uploaded_images) : 'None'}
+
+Analyze and return the JSON requirements check output.`;
+
+    const result = await callOpenAIJson<any>({
+      prompt: userPrompt,
+      system_prompt: systemPrompt,
+      max_tokens: 2000,
+      temperature: 0.3,
+    });
+    
+    return { success: true, output: result };
+  } catch (e: any) {
+    console.error('Requirements check error:', e);
+    return { success: false, error: e.message || 'Failed to check requirements' };
+  }
+}
+
+/**
+ * Execute scene director tool
+ * Creates video vision (mode=overview) or scene breakdown (mode=breakdown)
+ */
+async function executeSceneDirector(input: unknown): Promise<{ success: boolean; output?: unknown; error?: string }> {
+  try {
+    requireOpenAIKey();
+    
+    const typedInput = input as {
+      mode: 'overview' | 'breakdown';
+      script: string;
+      video_type: string;
+      style?: string;
+      aspect_ratio?: string;
+      avatar_descriptions?: string[];
+      product_description?: string;
+      user_creative_direction?: string;
+      video_overview?: string;
+    };
+    
+    if (!typedInput.mode || !typedInput.script || !typedInput.video_type) {
+      return { success: false, error: 'Missing required fields: mode, script, and video_type' };
+    }
+    
+    const systemPrompt = typedInput.mode === 'overview' 
+      ? buildSceneDirectorOverviewPrompt() 
+      : buildSceneDirectorBreakdownPrompt();
+    
+    let userPrompt = '';
+    
+    if (typedInput.mode === 'overview') {
+      userPrompt = `Create the video vision for this production:
+
+**Script:**
+${typedInput.script}
+
+**Video Type:** ${typedInput.video_type}
+**Style:** ${typedInput.style || 'Authentic, platform-native'}
+**Aspect Ratio:** ${typedInput.aspect_ratio || '9:16'}
+**Avatar Descriptions:** ${typedInput.avatar_descriptions?.join(', ') || 'Not specified'}
+**Product Description:** ${typedInput.product_description || 'Not specified'}
+**User Creative Direction:** ${typedInput.user_creative_direction || 'None specified'}
+
+Create a comprehensive video vision including title, description, style guide, pacing, and continuity requirements.`;
+    } else {
+      if (!typedInput.video_overview) {
+        return { success: false, error: 'video_overview is required for breakdown mode' };
+      }
+      
+      userPrompt = `Break down this video into scenes:
+
+**Video Overview:**
+${typedInput.video_overview}
+
+**Script:**
+${typedInput.script}
+
+**Video Type:** ${typedInput.video_type}
+**Avatar Descriptions:** ${typedInput.avatar_descriptions?.join(', ') || 'Not specified'}
+**Product Description:** ${typedInput.product_description || 'Not specified'}
+
+Create a detailed scene-by-scene breakdown with timing, descriptions, and continuity notes.`;
+    }
+
+    const result = await callOpenAIJson<any>({
+      prompt: userPrompt,
+      system_prompt: systemPrompt,
+      max_tokens: 4000,
+      temperature: 0.4,
+    });
+    
+    return { success: true, output: result };
+  } catch (e: any) {
+    console.error('Scene director error:', e);
+    return { success: false, error: e.message || 'Failed to direct scenes' };
+  }
+}
+
+/**
+ * Execute frame generator tool
+ * Creates detailed descriptions of first and last frames for each scene
+ */
+async function executeFrameGenerator(input: unknown): Promise<{ success: boolean; output?: unknown; error?: string }> {
+  try {
+    requireOpenAIKey();
+    
+    const typedInput = input as {
+      video_description: string;
+      scenes: any[];
+      avatar_references?: Array<{ description: string; url: string; gpt4v_analysis?: string }>;
+      product_references?: Array<{ description: string; url: string; gpt4v_analysis?: string }>;
+      continuity_rules?: string[];
+    };
+    
+    if (!typedInput.video_description || !typedInput.scenes?.length) {
+      return { success: false, error: 'Missing required fields: video_description and scenes' };
+    }
+    
+    const systemPrompt = buildFrameGeneratorPrompt();
+    
+    const userPrompt = `Design the first and last frames for each scene:
+
+**Video Description:**
+${typedInput.video_description}
+
+**Scenes:**
+${JSON.stringify(typedInput.scenes, null, 2)}
+
+**Avatar References:**
+${typedInput.avatar_references?.length ? JSON.stringify(typedInput.avatar_references, null, 2) : 'None'}
+
+**Product References:**
+${typedInput.product_references?.length ? JSON.stringify(typedInput.product_references, null, 2) : 'None'}
+
+**Continuity Rules:**
+${typedInput.continuity_rules?.length ? typedInput.continuity_rules.join('\n') : 'Standard continuity'}
+
+Design detailed first and last frames for each scene with visual descriptions, character states, and motion between frames.`;
+
+    const result = await callOpenAIJson<any>({
+      prompt: userPrompt,
+      system_prompt: systemPrompt,
+      max_tokens: 6000,
+      temperature: 0.4,
+    });
+    
+    return { success: true, output: result };
+  } catch (e: any) {
+    console.error('Frame generator error:', e);
+    return { success: false, error: e.message || 'Failed to generate frames' };
+  }
+}
+
+/**
+ * Execute frame prompt generator tool
+ * Creates optimized prompts with intelligent reference image management
+ */
+async function executeFramePromptGenerator(input: unknown): Promise<{ success: boolean; output?: unknown; error?: string }> {
+  try {
+    requireOpenAIKey();
+    
+    const typedInput = input as {
+      frame_designs: any[];
+      avatar_references: Array<{ id: string; description: string; url: string; gpt4v_description?: string }>;
+      product_references?: Array<{ id: string; description: string; url: string; gpt4v_description?: string }>;
+      setting_references?: Array<{ id: string; description: string; url: string; gpt4v_description?: string }>;
+      previously_generated_frames?: Array<{ scene_number: number; frame_type: string; url: string; gpt4v_description?: string }>;
+    };
+    
+    if (!typedInput.frame_designs?.length || !typedInput.avatar_references?.length) {
+      return { success: false, error: 'Missing required fields: frame_designs and avatar_references' };
+    }
+    
+    const systemPrompt = buildFramePromptGeneratorPrompt();
+    
+    const userPrompt = `Create optimized image generation prompts:
+
+**Frame Designs:**
+${JSON.stringify(typedInput.frame_designs, null, 2)}
+
+**Avatar References:**
+${JSON.stringify(typedInput.avatar_references, null, 2)}
+
+**Product References:**
+${typedInput.product_references?.length ? JSON.stringify(typedInput.product_references, null, 2) : 'None'}
+
+**Setting References:**
+${typedInput.setting_references?.length ? JSON.stringify(typedInput.setting_references, null, 2) : 'None'}
+
+**Previously Generated Frames:**
+${typedInput.previously_generated_frames?.length ? JSON.stringify(typedInput.previously_generated_frames, null, 2) : 'None'}
+
+Create optimized prompts that:
+1. Don't re-describe what's in input images
+2. Focus on changes and actions
+3. Include proper image inputs for continuity
+4. Follow the continuity chain rules`;
+
+    const result = await callOpenAIJson<any>({
+      prompt: userPrompt,
+      system_prompt: systemPrompt,
+      max_tokens: 6000,
+      temperature: 0.3,
+    });
+    
+    return { success: true, output: result };
+  } catch (e: any) {
+    console.error('Frame prompt generator error:', e);
+    return { success: false, error: e.message || 'Failed to generate frame prompts' };
   }
 }
 
@@ -3857,6 +4117,22 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
               result = isMotionControlInput(safeInput)
                 ? await executeMotionControl(safeInput)
                 : { success: false, error: 'Invalid motion_control input: missing video_url or image_url' };
+            } else if (toolCall.tool === 'requirements_check') {
+              // Requirements check tool - analyzes if we have everything needed for storyboard
+              const safeInput: unknown = toolCall.input;
+              result = await executeRequirementsCheck(safeInput);
+            } else if (toolCall.tool === 'scene_director') {
+              // Scene director tool - creates video vision or scene breakdown
+              const safeInput: unknown = toolCall.input;
+              result = await executeSceneDirector(safeInput);
+            } else if (toolCall.tool === 'frame_generator') {
+              // Frame generator tool - creates frame descriptions
+              const safeInput: unknown = toolCall.input;
+              result = await executeFrameGenerator(safeInput);
+            } else if (toolCall.tool === 'frame_prompt_generator') {
+              // Frame prompt generator tool - creates optimized prompts
+              const safeInput: unknown = toolCall.input;
+              result = await executeFramePromptGenerator(safeInput);
             }
             
             if (result) {
