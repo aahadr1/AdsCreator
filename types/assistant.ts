@@ -77,6 +77,35 @@ export interface AssistantPlan {
    * instead of rigid structured metadata.
    */
   media_pool?: import('./mediaPool').MediaPool;
+  
+  /**
+   * Dynamic Workflow State - Tracks current goal and progress
+   * 
+   * The assistant creates this workflow dynamically based on user request,
+   * then uses it to track progress and automatically move to next steps.
+   */
+  workflow_state?: {
+    /** User's original request/goal */
+    goal: string;
+    
+    /** Dynamically created checklist items */
+    checklist: Array<{
+      id: string;
+      item: string; // e.g., "Avatar image", "Script", "Storyboard"
+      status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+      assetId?: string; // Link to media pool asset if applicable
+      completedAt?: string;
+    }>;
+    
+    /** Current step in the workflow */
+    currentStep: number;
+    
+    /** Overall workflow status */
+    status: 'planning' | 'in_progress' | 'completed' | 'blocked';
+    
+    /** Any blocking issues that need user input */
+    blockedReason?: string;
+  };
 }
 
 export interface PlanStep {
