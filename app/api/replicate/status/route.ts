@@ -43,10 +43,9 @@ async function persistToR2FromUrl(params: { url: string; keyPrefix: string; orig
   await ensureR2Bucket(r2, bucket);
   await r2PutObject({ client: r2, bucket, key, body: new Uint8Array(arrayBuffer), contentType, cacheControl: '31536000' });
 
-  // Prefer our stable app proxy endpoint for reliability.
-  // (R2 public buckets can be misconfigured/private and return 404 even when upload succeeded.)
-  const base = params.origin.replace(/\/$/, '');
-  return `${base}/api/r2/get?key=${encodeURIComponent(key)}`;
+  // Prefer our stable app endpoint for reliability.
+  // IMPORTANT: return a RELATIVE URL so we don't depend on potentially-wrong Host/origin (e.g. 0.0.0.0).
+  return `/api/r2/get?key=${encodeURIComponent(key)}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -66,21 +65,33 @@ export async function GET(req: NextRequest) {
     if (!res.ok) return new Response(await res.text(), { status: res.status });
     const json = await res.json();
 
-    // Normalize outputs
+    // Normalize outputs (Replicate can return string, array, or object with url/image)
     let outputUrl: string | null = null;
     const out = json.output;
     if (typeof out === 'string') outputUrl = out;
     else if (Array.isArray(out)) outputUrl = typeof out[0] === 'string' ? out[0] : null;
-    else if (out && typeof out === 'object' && typeof out.url === 'string') outputUrl = out.url;
+    else if (out && typeof out === 'object') {
+      if (typeof out.url === 'string') outputUrl = out.url;
+      else if (typeof out.image === 'string') outputUrl = out.image;
+      else if (typeof out.output === 'string') outputUrl = out.output;
+    }
+
+    const statusLower = String(json.status || '').toLowerCase();
 
     // If succeeded, persist the output to R2 so we never rely on replicate.delivery URLs.
-    if (String(json.status || '').toLowerCase() === 'succeeded' && outputUrl) {
+    if (statusLower === 'succeeded' && outputUrl) {
       const pid = String(json.id || id);
       const persisted = await persistToR2FromUrl({ url: outputUrl, keyPrefix: `replicate/outputs/${pid}`, origin });
       outputUrl = persisted || outputUrl;
     }
 
-    return Response.json({ id: json.id, status: json.status, outputUrl, error: json.error || json.logs || null });
+    // Only send error when prediction actually failed/canceled - Replicate often puts logs in error/logs even on success
+    const errorForClient =
+      statusLower === 'failed' || statusLower === 'canceled'
+        ? (json.error || json.logs || null)
+        : null;
+
+    return Response.json({ id: json.id, status: json.status, outputUrl, error: errorForClient });
   } catch (e: any) {
     return new Response(`Error: ${e.message}`, { status: 500 });
   }

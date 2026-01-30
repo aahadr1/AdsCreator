@@ -675,27 +675,20 @@ export default function AssistantPage() {
     initialUrl?: string | null;
   }) {
     const [status, setStatus] = useState<string>(initialStatus || 'starting');
-    const [outputUrl, setOutputUrl] = useState<string | null>(
-      typeof initialUrl === 'string' && initialUrl.startsWith('http') ? initialUrl : null
-    );
+    const [outputUrl, setOutputUrl] = useState<string | null>(() => {
+      if (typeof initialUrl !== 'string' || initialUrl.length === 0) return null;
+      return initialUrl.startsWith('http') || initialUrl.startsWith('/') ? initialUrl : null;
+    });
     const [pollError, setPollError] = useState<string | null>(null);
-
-    // Debug logging
-    useEffect(() => {
-      console.log('[ImageGeneration] Card mounted:', {
-        messageId,
-        predictionId: predictionId ? predictionId.substring(0, 20) : 'none',
-        initialStatus,
-        initialUrl: initialUrl ? initialUrl.substring(0, 60) : 'none',
-        hasValidInitialUrl: Boolean(initialUrl && initialUrl.startsWith('http'))
-      });
-    }, [messageId, predictionId, initialStatus, initialUrl]);
 
     useEffect(() => {
       let mounted = true;
       let timeout: any = null;
       let pollCount = 0;
-      const maxPolls = 120; // Max 2 minutes of polling (120 * 2s = 240s)
+      const pollIntervalMs = 2000;
+      const minPollDurationMs = 60 * 1000; // Minimum 1 minute before giving up
+      const maxPollDurationMs = Math.max(3 * 60 * 1000, minPollDurationMs); // At least 3 minutes total
+      const maxPolls = Math.ceil(maxPollDurationMs / pollIntervalMs);
       const pollStartTime = Date.now();
 
       const isTerminal = (s: string) => ['succeeded', 'failed', 'canceled'].includes((s || '').toLowerCase());
@@ -707,10 +700,10 @@ export default function AssistantPage() {
           return;
         }
         
-        // Check timeout
+        // Check timeout: never give up before minPollDurationMs (1 min), then allow up to maxPollDurationMs
         pollCount++;
         const elapsed = Date.now() - pollStartTime;
-        if (pollCount > maxPolls || elapsed > 240000) {
+        if (elapsed >= minPollDurationMs && (pollCount > maxPolls || elapsed > maxPollDurationMs)) {
           console.error('[ImageGeneration] Polling timeout after', elapsed, 'ms');
           setPollError('Image generation timed out. Please try again.');
           setStatus('timeout');
@@ -718,7 +711,7 @@ export default function AssistantPage() {
         }
         
         try {
-          console.log(`[ImageGeneration] Polling status for: ${predictionId} (attempt ${pollCount}/${maxPolls})`);
+          console.log(`[ImageGeneration] Polling status for: ${predictionId} (attempt ${pollCount}/${maxPolls}, elapsed ${Math.round(elapsed / 1000)}s)`);
           const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(predictionId)}`, { cache: 'no-store' });
           if (!res.ok) {
             const errorText = await res.text();
@@ -730,8 +723,27 @@ export default function AssistantPage() {
 
           console.log(`[ImageGeneration] Status: ${json.status}, URL: ${json.outputUrl ? 'present' : 'null'}`);
           setStatus(json.status || status);
-          if (json.outputUrl && typeof json.outputUrl === 'string' && json.outputUrl.startsWith('http')) {
-            const finalUrl = String(json.outputUrl);
+          // Accept full URLs (http/https) or relative paths (e.g. /api/r2/get?key=...)
+          const rawUrl = json.outputUrl;
+          const isValidUrl = typeof rawUrl === 'string' && rawUrl.length > 0 && (rawUrl.startsWith('http') || rawUrl.startsWith('/'));
+          if (isValidUrl) {
+            const raw = String(rawUrl);
+            let finalUrl = raw.startsWith('/') ? raw : raw;
+            // If the API returned an absolute URL with a non-routable host (e.g. 0.0.0.0),
+            // rewrite it to the current origin so the browser can load it.
+            try {
+              if (raw.startsWith('http')) {
+                const u = new URL(raw);
+                if (u.hostname === '0.0.0.0') {
+                  finalUrl = `${window.location.origin}${u.pathname}${u.search}`;
+                } else {
+                  finalUrl = raw;
+                }
+              }
+            } catch {
+              // ignore URL parse failures; fall back to raw
+              finalUrl = raw;
+            }
             console.log(`[ImageGeneration] Image ready: ${finalUrl.substring(0, 80)}...`);
             setOutputUrl(finalUrl);
             setPollError(null);
@@ -750,20 +762,25 @@ export default function AssistantPage() {
             });
             return;
           }
-          if (json.error) {
-            console.error('[ImageGeneration] Error:', json.error);
-            setPollError(json.error);
+          const statusNorm = String(json.status || '').toLowerCase();
+          // Only treat as failed when Replicate status is actually failed/canceled (not from error field alone)
+          if (statusNorm === 'failed' || statusNorm === 'canceled') {
+            const errMsg = json.error || 'Image generation failed.';
+            console.error('[ImageGeneration] Prediction failed:', errMsg);
+            setPollError(typeof errMsg === 'string' ? errMsg : String(errMsg));
             setStatus('failed');
             return;
           }
+          if (json.error && statusNorm !== 'succeeded') {
+            setPollError(typeof json.error === 'string' ? json.error : String(json.error));
+          }
 
-          if (!isTerminal(json.status || '')) {
+          if (!isTerminal(statusNorm)) {
             timeout = setTimeout(poll, 2000);
-          } else if (json.status === 'succeeded' && !json.outputUrl) {
-            // Image generation succeeded but no URL returned - this is an error
-            console.error('[ImageGeneration] Status is succeeded but no outputUrl');
-            setPollError('Image generation completed but no URL was provided. Please try again.');
-            setStatus('failed');
+          } else if (statusNorm === 'succeeded' && !json.outputUrl) {
+            console.warn('[ImageGeneration] Status succeeded but no outputUrl yet');
+            setPollError('Image ready but URL could not be loaded. Check Replicate dashboard.');
+            setStatus('succeeded');
           }
         } catch (e: any) {
           if (!mounted) return;
@@ -1808,7 +1825,7 @@ export default function AssistantPage() {
           (typeof message.content === 'string' && message.content.startsWith('http') ? message.content : null)
         ];
         for (const url of possibleUrls) {
-          if (typeof url === 'string' && url.startsWith('http')) {
+          if (typeof url === 'string' && url.length > 0 && (url.startsWith('http') || url.startsWith('/'))) {
             persistedUrl = url;
             break;
           }
