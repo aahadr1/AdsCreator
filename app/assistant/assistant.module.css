@@ -1,3 +1,11 @@
+.assistantLayout {
+  display: flex;
+  height: 100vh;
+  gap: 0;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
 .shell {
   height: 100%;
   max-height: none;
@@ -8,6 +16,8 @@
   color: var(--text);
   overflow: hidden;
   position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
 .sidebar {

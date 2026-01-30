@@ -26,6 +26,8 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import type { Message, Conversation, Storyboard, StoryboardScene } from '../../types/assistant';
+import type { MediaPool as MediaPoolType } from '../../types/mediaPool';
+import { MediaPool } from '../../components/MediaPool';
 import styles from './assistant.module.css';
 
 type StreamEvent = {
@@ -63,6 +65,10 @@ export default function AssistantPage() {
   const storyboardPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [isGeneratingVideos, setIsGeneratingVideos] = useState(false);
   const [videoGenerationError, setVideoGenerationError] = useState<string | null>(null);
+  
+  // Media Pool state
+  const [mediaPool, setMediaPool] = useState<MediaPoolType | null>(null);
+  const [showMediaPool, setShowMediaPool] = useState(true);
   
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -331,6 +337,7 @@ export default function AssistantPage() {
   const startNewConversation = () => {
     setActiveConversationId(null);
     setMessages([]);
+    setMediaPool(null);
     setCurrentReflexion('');
     setCurrentResponse('');
     setError(null);
@@ -339,6 +346,7 @@ export default function AssistantPage() {
   const loadConversation = (conv: Conversation) => {
     setActiveConversationId(conv.id);
     setMessages(conv.messages || []);
+    setMediaPool((conv as any).plan?.media_pool || null);
     setCurrentReflexion('');
     setCurrentResponse('');
     setError(null);
@@ -558,13 +566,21 @@ export default function AssistantPage() {
                 setCurrentReflexion('');
                 setCurrentResponse('');
                 
-                // Refresh conversations list
+                // Refresh conversations list and media pool
                 const convRes = await fetch('/api/assistant/conversations', {
                   headers: { Authorization: `Bearer ${authToken}` }
                 });
                 if (convRes.ok) {
                   const data = await convRes.json();
                   setConversations(data.conversations || []);
+                  
+                  // Update media pool from latest conversation data
+                  if (newConversationId) {
+                    const updatedConv = (data.conversations || []).find((c: Conversation) => c.id === newConversationId);
+                    if (updatedConv) {
+                      setMediaPool((updatedConv as any).plan?.media_pool || null);
+                    }
+                  }
                 }
                 break;
               
@@ -2017,7 +2033,21 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className={styles.shell}>
+    <div className={styles.assistantLayout}>
+      {/* Media Pool Sidebar */}
+      {showMediaPool && mediaPool && (
+        <MediaPool 
+          conversationId={activeConversationId || ''}
+          mediaPool={mediaPool}
+          onAssetAction={(action, assetId) => {
+            console.log(`Media pool action: ${action} on ${assetId}`);
+            // TODO: Handle approve/use/remove actions
+          }}
+          onToggle={() => setShowMediaPool(!showMediaPool)}
+        />
+      )}
+      
+      <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <div>
@@ -2493,6 +2523,7 @@ export default function AssistantPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -11,6 +11,23 @@ import { createR2Client, ensureR2Bucket, r2PutObject } from '../../../../lib/r2'
 import type { Message, ScriptCreationInput, ImageGenerationInput, StoryboardCreationInput, VideoGenerationInput, Storyboard, StoryboardScene, VideoScenario, SceneOutline, ImageReferenceReflexion } from '../../../../types/assistant';
 import type { ImageRegistry, RegisteredImage, ReferenceImagesResult, GPT4oAnalysis } from '../../../../types/imageRegistry';
 import { createEmptyRegistry, registerImage, updateRegisteredImage, getReferenceImagesForGeneration, setActiveAvatar, setActiveProduct, queryImages, findBestImageForPurpose, getSuggestedReferencesForScene, findImagesWithProp } from '../../../../types/imageRegistry';
+import { 
+  createEmptyMediaPool, 
+  addAssetToPool, 
+  updateAsset, 
+  setActiveAvatar as setActiveAvatarInPool, 
+  setActiveProduct as setActiveProductInPool, 
+  setApprovedScript,
+  buildNaturalMediaPoolContext 
+} from '../../../../types/mediaPool';
+import {
+  createWorkflowFromRequest,
+  markItemCompleted,
+  markItemInProgress,
+  getNextPendingItem,
+  syncWorkflowWithMediaPool,
+  getWorkflowProgress
+} from '../../../../lib/workflowStateHelper';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -371,6 +388,78 @@ Guidelines:
     console.error('[GPT-4o Analysis] Error:', e.message);
     return null;
   }
+}
+
+/**
+ * Determine if assistant should auto-proceed to next step
+ * Returns tool call to execute if auto-progression is possible
+ */
+function checkAutoProgression(params: {
+  userMessage: string;
+  workflowState: any;
+  mediaPool: any;
+  lastToolResult?: any;
+}): { shouldProceed: boolean; nextTool?: string; reasoning: string } {
+  
+  const { userMessage, workflowState, mediaPool, lastToolResult } = params;
+  const msg = userMessage.toLowerCase();
+  
+  // Check for explicit approval phrases
+  const approvalPhrases = [
+    'use this', 'use it', 'perfect', 'looks good', 'great', 
+    'yes', 'ok', 'continue', 'proceed', 'go ahead', 'parfait'
+  ];
+  
+  const userApproved = approvalPhrases.some(phrase => msg.includes(phrase));
+  
+  if (!userApproved || !workflowState) {
+    return { shouldProceed: false, reasoning: 'No approval detected or no workflow state' };
+  }
+  
+  // Find what was just completed
+  const lastInProgress = workflowState.checklist.find((item: any) => 
+    item.status === 'in_progress'
+  );
+  
+  if (!lastInProgress) {
+    return { shouldProceed: false, reasoning: 'No in-progress item to complete' };
+  }
+  
+  // User just approved - find next pending item
+  const nextPending = workflowState.checklist.find((item: any) => 
+    item.status === 'pending'
+  );
+  
+  if (!nextPending) {
+    return { shouldProceed: false, reasoning: 'No next step in workflow' };
+  }
+  
+  // Map workflow item to tool
+  const itemName = nextPending.item.toLowerCase();
+  
+  if (itemName.includes('script')) {
+    return {
+      shouldProceed: true,
+      nextTool: 'script_creation',
+      reasoning: `User approved ${lastInProgress.item}, auto-generating script next`
+    };
+  }
+  
+  if (itemName.includes('storyboard')) {
+    // Check prerequisites
+    const hasAvatar = !!mediaPool.activeAvatarId;
+    const hasScript = !!mediaPool.approvedScriptId;
+    
+    if (hasAvatar && hasScript) {
+      return {
+        shouldProceed: true,
+        nextTool: 'storyboard_creation',
+        reasoning: 'All prerequisites met (avatar + script), auto-creating storyboard'
+      };
+    }
+  }
+  
+  return { shouldProceed: false, reasoning: 'Prerequisites not met for auto-progression' };
 }
 
 async function* streamOpenAIChat(opts: {
@@ -3138,6 +3227,42 @@ export async function POST(req: NextRequest) {
         .eq('id', conversationId);
       existingPlan = nextPlan;
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STATE MANAGEMENT: Initialize Media Pool & Workflow State
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Initialize or load media pool
+    let mediaPool = existingPlan?.media_pool || createEmptyMediaPool();
+    
+    // Initialize or load workflow state
+    let workflowState = existingPlan?.workflow_state;
+    
+    // If new request and no workflow, create one dynamically
+    if (!workflowState && body.message) {
+      workflowState = createWorkflowFromRequest({
+        userRequest: body.message,
+        hasAvatar: !!mediaPool.activeAvatarId,
+        hasScript: !!mediaPool.approvedScriptId,
+        hasProduct: !!mediaPool.activeProductId
+      });
+      console.log('[Workflow] Created new workflow:', {
+        goal: workflowState.goal,
+        steps: workflowState.checklist.length
+      });
+    }
+    
+    // Sync workflow with media pool reality
+    if (workflowState && mediaPool) {
+      const prevStatus = workflowState.status;
+      workflowState = syncWorkflowWithMediaPool(workflowState, mediaPool);
+      if (workflowState.status !== prevStatus) {
+        console.log('[Workflow] Synced with media pool:', {
+          from: prevStatus,
+          to: workflowState.status
+        });
+      }
+    }
   
     // Build conversation context for Claude (now includes avatar generation results)
     const conversationContext = buildConversationContext(existingMessages, { includeAvatarResults: true });
@@ -3252,6 +3377,73 @@ NOTE:
 - The user has NOT yet confirmed this script.
 - Ask them to confirm (“Use this script” / “Looks good” / “Parfait”) or request edits.
 - If they confirm, proceed automatically to storyboard creation.
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MEDIA POOL & WORKFLOW CONTEXT FOR AI
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Build media pool context for AI
+    if (mediaPool && Object.keys(mediaPool.assets).length > 0) {
+      contextBlock += `
+═══════════════════════════════════════════════════════════════════════════
+📦 MEDIA POOL (Available Assets)
+═══════════════════════════════════════════════════════════════════════════
+${buildNaturalMediaPoolContext(mediaPool)}
+
+IMPORTANT: Check this media pool FIRST before generating new assets.
+- If an asset exists here, DO NOT regenerate it - use the existing one
+- Assets marked [ACTIVE AVATAR], [ACTIVE PRODUCT], or [APPROVED SCRIPT] are ready to use
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    }
+    
+    // Build workflow progress context for AI
+    if (workflowState) {
+      contextBlock += `
+═══════════════════════════════════════════════════════════════════════════
+🎯 WORKFLOW PROGRESS
+═══════════════════════════════════════════════════════════════════════════
+Goal: ${workflowState.goal}
+
+${getWorkflowProgress(workflowState)}
+
+STATUS: ${workflowState.status.toUpperCase()}
+
+CRITICAL: Check completed items above. If user just approved something, AUTO-PROCEED to next pending step WITHOUT asking redundant questions.
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AUTO-PROGRESSION CHECK
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Check if we should auto-proceed to next step
+    const autoProgress = checkAutoProgression({
+      userMessage: body.message,
+      workflowState,
+      mediaPool,
+      lastToolResult: existingMessages[existingMessages.length - 1]
+    });
+    
+    if (autoProgress.shouldProceed && autoProgress.nextTool) {
+      console.log('[Auto-Progression]', autoProgress.reasoning);
+      
+      // Inject auto-progression hint into context
+      contextBlock += `
+═══════════════════════════════════════════════════════════════════════════
+🚀 AUTO-PROGRESSION HINT
+═══════════════════════════════════════════════════════════════════════════
+${autoProgress.reasoning}
+
+ACTION REQUIRED: Proceed with ${autoProgress.nextTool} WITHOUT asking further questions.
+The user has already approved the previous step - move forward automatically.
 ═══════════════════════════════════════════════════════════════════════════
 
 `;
@@ -4112,6 +4304,136 @@ NOTE:
                 type: 'tool_result', 
                 data: { tool: toolCall.tool, result: resultWithMessageId }
               })}\n\n`));
+              
+              // ═══════════════════════════════════════════════════════════════════════════
+              // UPDATE MEDIA POOL after successful tool execution
+              // ═══════════════════════════════════════════════════════════════════════════
+              
+              if (result && (result as any).success) {
+                const output = (result as any).output;
+                const input = toolCall.input as any;
+                
+                // Track image generation in media pool
+                if (toolCall.tool === 'image_generation') {
+                  const outputUrl = output?.outputUrl || output?.output_url;
+                  if (outputUrl) {
+                    const { pool: updatedPool, assetId } = addAssetToPool(mediaPool, {
+                      type: input.purpose || 'generated_image',
+                      url: outputUrl,
+                      description: input.avatar_description || input.prompt || 'Generated image',
+                      analysis: output?.gpt4o_analysis?.visual_description,
+                      status: 'ready',
+                      approved: false,
+                      toolCallId: toolMessageId
+                    });
+                    
+                    mediaPool = updatedPool;
+                    console.log('[Media Pool] Added image asset:', { assetId, purpose: input.purpose });
+                    
+                    // If avatar and user confirmed, set as active
+                    if (input.purpose === 'avatar' && userConfirmedAvatar) {
+                      mediaPool = setActiveAvatarInPool(mediaPool, assetId);
+                      mediaPool = updateAsset(mediaPool, assetId, { approved: true });
+                      console.log('[Media Pool] Set active avatar:', assetId);
+                      
+                      // Mark workflow item completed
+                      if (workflowState) {
+                        const avatarItem = workflowState.checklist.find((item: any) => 
+                          item.item.toLowerCase().includes('avatar')
+                        );
+                        if (avatarItem && avatarItem.status !== 'completed') {
+                          workflowState = markItemCompleted(workflowState, avatarItem.id, assetId);
+                          console.log('[Workflow] Completed avatar step');
+                        }
+                      }
+                    }
+                    
+                    // If product and user confirmed, set as active
+                    if (input.purpose === 'product' && userConfirmedProduct) {
+                      mediaPool = setActiveProductInPool(mediaPool, assetId);
+                      mediaPool = updateAsset(mediaPool, assetId, { approved: true });
+                      console.log('[Media Pool] Set active product:', assetId);
+                      
+                      // Mark workflow item completed
+                      if (workflowState) {
+                        const productItem = workflowState.checklist.find((item: any) => 
+                          item.item.toLowerCase().includes('product')
+                        );
+                        if (productItem && productItem.status !== 'completed') {
+                          workflowState = markItemCompleted(workflowState, productItem.id, assetId);
+                          console.log('[Workflow] Completed product step');
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                // Track script creation in media pool
+                if (toolCall.tool === 'script_creation') {
+                  const scriptContent = typeof output === 'string' ? output : JSON.stringify(output);
+                  if (scriptContent && scriptContent.trim().length > 0) {
+                    const { pool: updatedPool, assetId } = addAssetToPool(mediaPool, {
+                      type: 'script',
+                      content: scriptContent,
+                      description: input.product ? `Script for ${input.product}` : 'Generated script',
+                      status: 'ready',
+                      approved: false,
+                      toolCallId: toolMessageId
+                    });
+                    
+                    mediaPool = updatedPool;
+                    console.log('[Media Pool] Added script asset:', assetId);
+                    
+                    // If user confirmed, set as approved
+                    if (userConfirmedScript) {
+                      mediaPool = setApprovedScript(mediaPool, assetId);
+                      mediaPool = updateAsset(mediaPool, assetId, { approved: true });
+                      console.log('[Media Pool] Set approved script:', assetId);
+                      
+                      // Mark workflow item completed
+                      if (workflowState) {
+                        const scriptItem = workflowState.checklist.find((item: any) => 
+                          item.item.toLowerCase().includes('script')
+                        );
+                        if (scriptItem && scriptItem.status !== 'completed') {
+                          workflowState = markItemCompleted(workflowState, scriptItem.id, assetId);
+                          console.log('[Workflow] Completed script step');
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                // Track storyboard creation in media pool
+                if (toolCall.tool === 'storyboard_creation') {
+                  const storyboard = output?.storyboard;
+                  if (storyboard?.id) {
+                    const { pool: updatedPool, assetId } = addAssetToPool(mediaPool, {
+                      type: 'storyboard',
+                      url: `#storyboard:${storyboard.id}`,
+                      description: storyboard.title || 'Generated storyboard',
+                      status: 'ready',
+                      approved: false,
+                      storyboardId: storyboard.id,
+                      toolCallId: toolMessageId
+                    });
+                    
+                    mediaPool = updatedPool;
+                    console.log('[Media Pool] Added storyboard asset:', { assetId, storyboardId: storyboard.id });
+                    
+                    // Mark workflow item completed
+                    if (workflowState) {
+                      const storyboardItem = workflowState.checklist.find((item: any) => 
+                        item.item.toLowerCase().includes('storyboard')
+                      );
+                      if (storyboardItem && storyboardItem.status !== 'completed') {
+                        workflowState = markItemCompleted(workflowState, storyboardItem.id, assetId);
+                        console.log('[Workflow] Completed storyboard step');
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
 
@@ -4344,14 +4666,34 @@ NOTE:
             });
           }
           
-          // Update conversation in database
+          // Update conversation in database with latest state
+          const updatedPlan = {
+            ...existingPlan,
+            media_pool: mediaPool,
+            workflow_state: workflowState,
+            // Keep existing fields
+            selected_avatar: existingPlan?.selected_avatar,
+            selected_product: existingPlan?.selected_product,
+            selected_script: existingPlan?.selected_script,
+            image_registry: existingPlan?.image_registry,
+            pending_storyboard_action: existingPlan?.pending_storyboard_action
+          };
+          
           await supabase
             .from('assistant_conversations')
             .update({
               messages: messagesToSave,
+              plan: updatedPlan,
               updated_at: new Date().toISOString(),
             })
             .eq('id', conversationId);
+          
+          console.log('[State Persistence] Saved to database:', {
+            conversationId,
+            mediaPoolAssets: Object.keys(mediaPool.assets).length,
+            workflowStatus: workflowState?.status,
+            workflowSteps: workflowState?.checklist.length
+          });
           
           // Signal completion
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
