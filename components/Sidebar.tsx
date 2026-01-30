@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Layers,
   PenTool,
+  Users,
 } from 'lucide-react';
 import { CreditCounter } from './CreditCounter';
 
@@ -51,6 +52,7 @@ const navSections: NavSection[] = [
       { href: '/veo', label: 'Video', icon: <Video size={16} /> },
       { href: '/tts', label: 'Text to Speech', icon: <Mic size={16} /> },
       { href: '/adscript', label: 'Ad Script', icon: <FileText size={16} /> },
+      { href: '/influencer-lab', label: 'Influencer Lab', icon: <Users size={16} />, badge: 'NEW' },
     ],
   },
   {
