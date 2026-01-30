@@ -9,6 +9,11 @@ CREATE TABLE IF NOT EXISTS influencers (
   name TEXT NOT NULL,
   username TEXT, -- Generated from name, same as name
   
+  -- Legacy fields (kept for backward compatibility with older deployments/UI)
+  -- The app now uses user_description/enriched_description primarily.
+  short_description TEXT,
+  full_description TEXT,
+  
   -- User input
   user_description TEXT NOT NULL, -- Original user description
   

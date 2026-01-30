@@ -103,6 +103,9 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         name,
         username: username || null,
+        // Legacy columns: keep older DB constraints happy if they exist
+        short_description: user_description,
+        full_description: enriched_description || null,
         user_description,
         enriched_description: enriched_description || null,
         generation_prompt: enriched_description || user_description, // For backward compatibility

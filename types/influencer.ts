@@ -8,6 +8,9 @@ export interface Influencer {
   user_description: string; // Original user description
   enriched_description?: string; // LLM-enriched description
   generation_prompt?: string; // Deprecated
+  // Legacy (older rows may still have these; UI can fall back)
+  short_description?: string;
+  full_description?: string;
   input_images?: string[];
   photo_face_closeup?: string;
   photo_full_body?: string;

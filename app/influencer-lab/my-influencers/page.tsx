@@ -146,7 +146,7 @@ export default function MyInfluencersPage() {
                       )}
                     </div>
                     <p className="influencer-list-description">
-                      {influencer.user_description}
+                      {influencer.user_description || influencer.short_description || ''}
                     </p>
                     {influencer.status === 'enriching' && (
                       <span className="status-badge enriching">
