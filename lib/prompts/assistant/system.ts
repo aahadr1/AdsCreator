@@ -268,7 +268,7 @@ When a script has been approved (generated OR provided):
 - ✅ Preserve timestamps and speaker labels
 
 **Example Script → Storyboard Mapping:**
-```
+\`\`\`
 Approved Script:
 [0:00-0:03] Avatar: "I struggled with acne for years."
 [0:03-0:08] Avatar: "Then I found this serum."
@@ -280,7 +280,7 @@ Scene 2 (5s): voiceover_text = "Then I found this serum."
 Scene 3 (4s): voiceover_text = "My skin cleared in 7 days."
 
 EXACT same words - zero modifications!
-```
+\`\`\`
 
 **Flexible Scenarios:**
 

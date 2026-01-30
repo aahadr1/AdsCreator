@@ -675,22 +675,50 @@ export default function AssistantPage() {
     initialUrl?: string | null;
   }) {
     const [status, setStatus] = useState<string>(initialStatus || 'starting');
-    const [outputUrl, setOutputUrl] = useState<string | null>(typeof initialUrl === 'string' ? initialUrl : null);
+    const [outputUrl, setOutputUrl] = useState<string | null>(
+      typeof initialUrl === 'string' && initialUrl.startsWith('http') ? initialUrl : null
+    );
     const [pollError, setPollError] = useState<string | null>(null);
+
+    // Debug logging
+    useEffect(() => {
+      console.log('[ImageGeneration] Card mounted:', {
+        messageId,
+        predictionId: predictionId ? predictionId.substring(0, 20) : 'none',
+        initialStatus,
+        initialUrl: initialUrl ? initialUrl.substring(0, 60) : 'none',
+        hasValidInitialUrl: Boolean(initialUrl && initialUrl.startsWith('http'))
+      });
+    }, [messageId, predictionId, initialStatus, initialUrl]);
 
     useEffect(() => {
       let mounted = true;
       let timeout: any = null;
+      let pollCount = 0;
+      const maxPolls = 120; // Max 2 minutes of polling (120 * 2s = 240s)
+      const pollStartTime = Date.now();
 
       const isTerminal = (s: string) => ['succeeded', 'failed', 'canceled'].includes((s || '').toLowerCase());
 
       async function poll() {
         if (!predictionId) {
           console.warn('[ImageGeneration] No prediction ID, cannot poll');
+          setPollError('No prediction ID available');
           return;
         }
+        
+        // Check timeout
+        pollCount++;
+        const elapsed = Date.now() - pollStartTime;
+        if (pollCount > maxPolls || elapsed > 240000) {
+          console.error('[ImageGeneration] Polling timeout after', elapsed, 'ms');
+          setPollError('Image generation timed out. Please try again.');
+          setStatus('timeout');
+          return;
+        }
+        
         try {
-          console.log(`[ImageGeneration] Polling status for: ${predictionId}`);
+          console.log(`[ImageGeneration] Polling status for: ${predictionId} (attempt ${pollCount}/${maxPolls})`);
           const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(predictionId)}`, { cache: 'no-store' });
           if (!res.ok) {
             const errorText = await res.text();
@@ -702,7 +730,7 @@ export default function AssistantPage() {
 
           console.log(`[ImageGeneration] Status: ${json.status}, URL: ${json.outputUrl ? 'present' : 'null'}`);
           setStatus(json.status || status);
-          if (json.outputUrl) {
+          if (json.outputUrl && typeof json.outputUrl === 'string' && json.outputUrl.startsWith('http')) {
             const finalUrl = String(json.outputUrl);
             console.log(`[ImageGeneration] Image ready: ${finalUrl.substring(0, 80)}...`);
             setOutputUrl(finalUrl);
@@ -725,16 +753,26 @@ export default function AssistantPage() {
           if (json.error) {
             console.error('[ImageGeneration] Error:', json.error);
             setPollError(json.error);
+            setStatus('failed');
+            return;
           }
 
           if (!isTerminal(json.status || '')) {
             timeout = setTimeout(poll, 2000);
+          } else if (json.status === 'succeeded' && !json.outputUrl) {
+            // Image generation succeeded but no URL returned - this is an error
+            console.error('[ImageGeneration] Status is succeeded but no outputUrl');
+            setPollError('Image generation completed but no URL was provided. Please try again.');
+            setStatus('failed');
           }
         } catch (e: any) {
           if (!mounted) return;
           console.error('[ImageGeneration] Poll error:', e);
           setPollError(e?.message || 'Failed to fetch image status');
-          timeout = setTimeout(poll, 3000);
+          
+          // Retry on error with exponential backoff
+          const backoffMs = Math.min(3000 * Math.pow(1.5, pollCount), 10000);
+          timeout = setTimeout(poll, backoffMs);
         }
       }
 
@@ -765,19 +803,33 @@ export default function AssistantPage() {
         </div>
         <div className={styles.toolBody}>
           {outputUrl ? (
-            <a href={outputUrl} target="_blank" rel="noreferrer" style={{ display: 'block', borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.10)' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img 
-                src={outputUrl} 
-                alt="Generated image" 
-                style={{ width: '100%', height: 'auto', display: 'block' }} 
-                onLoad={() => console.log('[ImageGeneration] Image loaded successfully:', outputUrl.substring(0, 80))}
-                onError={(e) => {
-                  console.error('[ImageGeneration] Image failed to load:', outputUrl);
-                  console.error('[ImageGeneration] Error event:', e);
-                }}
-              />
-            </a>
+            <div>
+              <a href={outputUrl} target="_blank" rel="noreferrer" style={{ display: 'block', borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.10)' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img 
+                  src={outputUrl} 
+                  alt="Generated image" 
+                  style={{ width: '100%', height: 'auto', display: 'block' }} 
+                  onLoad={() => {
+                    console.log('[ImageGeneration] Image loaded successfully:', outputUrl.substring(0, 80));
+                    setPollError(null);
+                  }}
+                  onError={(e) => {
+                    console.error('[ImageGeneration] Image failed to load:', outputUrl);
+                    console.error('[ImageGeneration] Error event:', e);
+                    setPollError('Image failed to load. The URL may be invalid or inaccessible.');
+                  }}
+                />
+              </a>
+              {pollError && (
+                <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,0.1)', borderRadius: 8, color: 'rgba(239,68,68,0.95)', fontSize: 12 }}>
+                  {pollError}
+                  <div style={{ marginTop: 4, fontSize: 11, color: 'rgba(231,233,238,0.6)' }}>
+                    URL: {outputUrl.substring(0, 60)}...
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <div style={{ border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 16, padding: 14, color: 'rgba(231,233,238,0.65)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1207,16 +1259,8 @@ export default function AssistantPage() {
 
         {/* Scene Description */}
         <div className={styles.sceneDescription}>
-          {scene.scene_description || scene.description}
+          {scene.description}
         </div>
-        
-        {/* Script Text (if different from description) */}
-        {scene.voiceover_text && scene.voiceover_text !== (scene.scene_description || scene.description) && (
-          <div className={styles.sceneScriptPreview}>
-            <span className={styles.scriptLabel}>📝 Script:</span>
-            <span className={styles.scriptText}>&quot;{scene.voiceover_text}&quot;</span>
-          </div>
-        )}
 
         {/* Needs user details */}
         {scene.needs_user_details && scene.user_question && (
@@ -1659,17 +1703,6 @@ export default function AssistantPage() {
           </div>
         )}
 
-        {/* Video Description (if exists) */}
-        {storyboard.video_description && (
-          <div className={styles.videoDescriptionBox}>
-            <div className={styles.videoDescriptionLabel}>
-              <Film size={12} />
-              <span>Video Vision</span>
-            </div>
-            <p className={styles.videoDescriptionText}>{storyboard.video_description}</p>
-          </div>
-        )}
-
         {/* Avatar Reference (if exists) */}
         {storyboard.avatar_image_url && (
           <div className={styles.avatarReference}>
@@ -1764,25 +1797,44 @@ export default function AssistantPage() {
 
     if (isToolResult) {
       const success = message.tool_output && (message.tool_output as any).success !== false;
-      const predictionId =
-        message.tool_name === 'image_generation'
-          ? (message.tool_output as any)?.output?.id ||
-            (message.tool_output as any)?.id ||
-            (message.tool_output as any)?.prediction_id ||
-            (message.tool_output as any)?.predictionId ||
-            null
-          : null;
-      const persistedUrl =
-        message.tool_name === 'image_generation'
-          ? (message.tool_output as any)?.outputUrl ||
-            (message.tool_output as any)?.output_url ||
-            (message.tool_output as any)?.output?.outputUrl ||
-            (typeof message.content === 'string' && message.content.startsWith('http') ? message.content : null)
-          : null;
-      const initialStatus =
-        message.tool_name === 'image_generation'
-          ? (message.tool_output as any)?.output?.status || (message.tool_output as any)?.status
-          : undefined;
+      // Extract and validate image URL first (so we can show already-persisted images)
+      let persistedUrl: string | null = null;
+      let predictionId: string | null = null;
+      if (message.tool_name === 'image_generation') {
+        const possibleUrls = [
+          (message.tool_output as any)?.outputUrl,
+          (message.tool_output as any)?.output_url,
+          (message.tool_output as any)?.output?.outputUrl,
+          (typeof message.content === 'string' && message.content.startsWith('http') ? message.content : null)
+        ];
+        for (const url of possibleUrls) {
+          if (typeof url === 'string' && url.startsWith('http')) {
+            persistedUrl = url;
+            break;
+          }
+        }
+        // Extract and validate prediction ID (for polling when URL not yet available)
+        const possibleIds = [
+          (message.tool_output as any)?.output?.id,
+          (message.tool_output as any)?.id,
+          (message.tool_output as any)?.prediction_id,
+          (message.tool_output as any)?.predictionId
+        ];
+        for (const id of possibleIds) {
+          if (typeof id === 'string' && id.length > 0) {
+            predictionId = id;
+            break;
+          }
+        }
+        if (!predictionId && !persistedUrl) {
+          console.warn('[ImageGeneration] No prediction ID or URL found for message:', message.id);
+        }
+      }
+      // Extract initial status
+      let initialStatus: string | undefined = undefined;
+      if (message.tool_name === 'image_generation') {
+        initialStatus = (message.tool_output as any)?.output?.status || (message.tool_output as any)?.status;
+      }
       
       // Extract storyboard data
       const storyboardData =
