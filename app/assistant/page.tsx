@@ -843,20 +843,48 @@ export default function AssistantPage() {
     const [status, setStatus] = useState<string>(initialUrl ? 'succeeded' : (initialStatus || 'pending'));
 
     useEffect(() => {
-      if (url || !predictionId) return;
+      if (url || !predictionId) {
+        if (url) console.log(`[SceneFrame] ${label}: Already have URL, skipping poll`);
+        return;
+      }
       
       let mounted = true;
       let timeout: ReturnType<typeof setTimeout>;
+      let pollCount = 0;
+      const maxPolls = 60; // Poll for up to 2 minutes
 
       async function poll() {
-        if (!predictionId) return;
+        if (!predictionId) {
+          console.warn(`[SceneFrame] ${label}: No prediction ID`);
+          return;
+        }
+        
+        if (pollCount >= maxPolls) {
+          console.error(`[SceneFrame] ${label}: Polling timeout`);
+          setStatus('failed');
+          return;
+        }
+        
+        pollCount++;
+        console.log(`[SceneFrame] ${label}: Poll #${pollCount} for ${predictionId.substring(0, 20)}...`);
+        
         try {
           const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(predictionId)}`, { cache: 'no-store' });
-          if (!res.ok || !mounted) return;
-          const json = await res.json();
+          if (!res.ok) {
+            console.error(`[SceneFrame] ${label}: Status fetch failed`);
+            if (!mounted) return;
+            timeout = setTimeout(poll, 3000);
+            return;
+          }
           
+          const json = await res.json();
+          if (!mounted) return;
+          
+          console.log(`[SceneFrame] ${label}: Status=${json.status}, URL=${json.outputUrl ? 'present' : 'null'}`);
           setStatus(json.status || 'processing');
+          
           if (json.outputUrl) {
+            console.log(`[SceneFrame] ${label}: Frame ready: ${String(json.outputUrl).substring(0, 80)}...`);
             setUrl(String(json.outputUrl));
             return;
           }
@@ -864,14 +892,20 @@ export default function AssistantPage() {
           if (!['succeeded', 'failed', 'canceled'].includes(json.status || '')) {
             timeout = setTimeout(poll, 2000);
           }
-        } catch {
+        } catch (e: any) {
+          console.error(`[SceneFrame] ${label}: Poll error:`, e);
           if (mounted) timeout = setTimeout(poll, 3000);
         }
       }
 
+      console.log(`[SceneFrame] ${label}: Starting poll...`);
       poll();
-      return () => { mounted = false; clearTimeout(timeout); };
-    }, [predictionId, url]);
+      return () => { 
+        console.log(`[SceneFrame] ${label}: Cleanup`);
+        mounted = false; 
+        clearTimeout(timeout); 
+      };
+    }, [predictionId, url, label]);
 
     const isGenerating = !url && status !== 'failed';
     const isFailed = status === 'failed';
@@ -951,22 +985,54 @@ export default function AssistantPage() {
     const [pollError, setPollError] = useState<string | null>(errorMessage || null);
 
     useEffect(() => {
-      if (url || !predictionId) return;
+      if (url || !predictionId) {
+        if (url) console.log(`[VideoGeneration] Scene ${sceneNumber}: Already have URL, skipping poll`);
+        return;
+      }
       let mounted = true;
       let timeout: ReturnType<typeof setTimeout>;
+      let pollCount = 0;
+      const maxPolls = 120; // Videos take longer - poll for up to 5 minutes (120 * 2.5s = 300s)
 
       async function poll() {
         try {
           const pid = predictionId;
-          if (!pid) return;
+          if (!pid) {
+            console.warn(`[VideoGeneration] Scene ${sceneNumber}: No prediction ID`);
+            return;
+          }
+          
+          if (pollCount >= maxPolls) {
+            const timeoutError = 'Video generation timeout - took too long';
+            console.error(`[VideoGeneration] Scene ${sceneNumber}: ${timeoutError}`);
+            setPollError(timeoutError);
+            return;
+          }
+          
+          pollCount++;
+          console.log(`[VideoGeneration] Scene ${sceneNumber}: Poll #${pollCount} for ${pid.substring(0, 20)}...`);
+          
           const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(pid)}`, { cache: 'no-store' });
-          if (!res.ok || !mounted) return;
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.error(`[VideoGeneration] Scene ${sceneNumber}: Status fetch failed:`, errorText);
+            if (!mounted) return;
+            setPollError(`Status check failed: ${errorText}`);
+            timeout = setTimeout(poll, 3500);
+            return;
+          }
+          
           const json = (await res.json()) as ReplicateStatusResponse;
           if (!mounted) return;
+          
+          console.log(`[VideoGeneration] Scene ${sceneNumber}: Status=${json.status}, URL=${json.outputUrl ? 'present' : 'null'}`);
           setStatus(json.status || 'processing');
+          
           if (json.outputUrl) {
+            console.log(`[VideoGeneration] Scene ${sceneNumber}: Video ready, caching to R2...`);
             const persisted = await persistUrlIfPossible(String(json.outputUrl));
             const proxied = `/api/proxy?type=video&url=${encodeURIComponent(persisted)}`;
+            console.log(`[VideoGeneration] Scene ${sceneNumber}: Video cached and proxied: ${proxied.substring(0, 80)}...`);
             setUrl(proxied);
             setPollError(null);
             patchStoryboardInMessage(messageId, (prevStoryboard) => {
@@ -983,18 +1049,25 @@ export default function AssistantPage() {
             });
             return;
           }
-          if (json.error) setPollError(json.error);
+          
+          if (json.error) {
+            console.error(`[VideoGeneration] Scene ${sceneNumber}: Error:`, json.error);
+            setPollError(json.error);
+          }
+          
           if (!['succeeded', 'failed', 'canceled'].includes(String(json.status || '').toLowerCase())) {
             timeout = setTimeout(poll, 2500);
           } else if (String(json.status || '').toLowerCase() !== 'succeeded') {
-            setPollError(json.error || 'Video generation failed');
+            const failError = json.error || 'Video generation failed';
+            console.error(`[VideoGeneration] Scene ${sceneNumber}: Failed:`, failError);
+            setPollError(failError);
             patchStoryboardInMessage(messageId, (prevStoryboard) => {
               const nextScenes = prevStoryboard.scenes.map((s): StoryboardScene => {
                 if (s.scene_number !== sceneNumber) return s;
                 return {
                   ...s,
                   video_status: 'failed',
-                  video_error: json.error || 'Video generation failed',
+                  video_error: failError,
                 };
               });
               return { ...prevStoryboard, scenes: nextScenes };
@@ -1002,13 +1075,19 @@ export default function AssistantPage() {
           }
         } catch (e: any) {
           if (!mounted) return;
+          console.error(`[VideoGeneration] Scene ${sceneNumber}: Poll error:`, e);
           setPollError(e?.message || 'Failed to fetch video status');
           timeout = setTimeout(poll, 3500);
         }
       }
 
+      console.log(`[VideoGeneration] Scene ${sceneNumber}: Starting poll...`);
       poll();
-      return () => { mounted = false; clearTimeout(timeout); };
+      return () => { 
+        console.log(`[VideoGeneration] Scene ${sceneNumber}: Cleanup, stopping poll`);
+        mounted = false; 
+        clearTimeout(timeout); 
+      };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [predictionId, url]);
 
@@ -1027,16 +1106,36 @@ export default function AssistantPage() {
         </div>
         <div className={styles.toolBody}>
           {url ? (
-            <video controls preload="metadata" playsInline style={{ width: '100%', borderRadius: 14 }}>
+            <video 
+              controls 
+              preload="metadata" 
+              playsInline 
+              style={{ width: '100%', borderRadius: 14 }}
+              onLoadedData={() => console.log(`[VideoGeneration] Scene ${sceneNumber}: Video loaded successfully`)}
+              onError={(e) => {
+                console.error(`[VideoGeneration] Scene ${sceneNumber}: Video failed to load:`, url);
+                console.error('[VideoGeneration] Error event:', e);
+              }}
+            >
               <source src={url} type="video/mp4" />
+              Your browser does not support video playback.
             </video>
           ) : (
             <div style={{ border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 14, padding: 14, color: 'rgba(231,233,238,0.65)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Loader2 size={16} className={styles.spinner} />
-                <span>{predictionId ? 'Generating video…' : 'Not started'}</span>
+                {!pollError && <Loader2 size={16} className={styles.spinner} />}
+                <span>{pollError ? 'Video generation issue' : (predictionId ? 'Generating video…' : 'Not started')}</span>
               </div>
-              {pollError && <div style={{ marginTop: 8, color: 'rgba(239,68,68,0.95)', fontSize: 12, whiteSpace: 'pre-wrap' }}>{pollError}</div>}
+              {pollError && (
+                <div style={{ marginTop: 8, color: 'rgba(239,68,68,0.95)', fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                  {pollError}
+                  {predictionId && (
+                    <div style={{ marginTop: 4, color: 'rgba(231,233,238,0.5)', fontSize: 10 }}>
+                      Prediction ID: {predictionId.substring(0, 30)}...
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
