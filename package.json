@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext js,jsx,ts,tsx --max-warnings=0 || true",
-    "postinstall": "npx playwright install chromium || echo 'Playwright install skipped'"
+    "postinstall": "node -e \"if(process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD||process.env.CI){console.log('Playwright install skipped');process.exit(0)}require('child_process').execSync('npx playwright install chromium',{stdio:'inherit'})\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.884.0",
