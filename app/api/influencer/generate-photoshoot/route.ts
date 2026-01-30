@@ -10,7 +10,17 @@ const NANO_BANANA_MODEL = 'google/nano-banana';
 
 /**
  * POST /api/influencer/generate-photoshoot
- * Generate a complete 5-angle photoshoot for an influencer
+ * Generate a complete 5-angle photoshoot for an influencer with cumulative references
+ * 
+ * Cumulative Generation Strategy:
+ * - 1st image (face closeup): Uses only user's input images (if provided) or pure text prompt
+ * - 2nd image (full body): Uses 1st generated image + user's input images
+ * - 3rd image (right side): Uses 1st + 2nd generated images + user's input images
+ * - 4th image (left side): Uses 1st + 2nd + 3rd generated images + user's input images
+ * - 5th image (back/top): Uses all 4 previous generated images + user's input images
+ * 
+ * This cumulative approach ensures maximum consistency across all angles.
+ * Nano Banana supports up to 14 reference images, so this works perfectly.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -64,11 +74,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate 5 photos for different angles
+    // Generate 5 photos for different angles with cumulative reference images
     const generationResults: Record<string, string> = {};
     const errors: string[] = [];
+    const cumulativeImages: string[] = [];
 
-    for (const angle of PHOTOSHOOT_ANGLES) {
+    // Start with user's input images (if provided)
+    if (Array.isArray(input_images) && input_images.length > 0) {
+      cumulativeImages.push(...input_images);
+    }
+
+    for (let i = 0; i < PHOTOSHOOT_ANGLES.length; i++) {
+      const angle = PHOTOSHOOT_ANGLES[i];
       try {
         const fullPrompt = `${generation_prompt}. ${angle.prompt_suffix}`;
         
@@ -78,12 +95,13 @@ export async function POST(req: NextRequest) {
           output_format: 'jpg',
         };
 
-        // Add input images if provided (for consistency)
-        if (Array.isArray(input_images) && input_images.length > 0) {
-          input.image_input = input_images;
+        // Add cumulative images for consistency (all previous generations + user images)
+        if (cumulativeImages.length > 0) {
+          input.image_input = [...cumulativeImages];
+          console.log(`Generating ${angle.type} for influencer ${influencer_id} with ${cumulativeImages.length} reference image(s)...`);
+        } else {
+          console.log(`Generating ${angle.type} for influencer ${influencer_id} (no reference images)...`);
         }
-
-        console.log(`Generating ${angle.type} for influencer ${influencer_id}...`);
 
         // Create prediction
         const response = await fetch(`${REPLICATE_API}/predictions`, {
@@ -145,6 +163,10 @@ export async function POST(req: NextRequest) {
           
           generationResults[angle.field_name] = imageUrl;
           console.log(`✓ Generated ${angle.type}: ${imageUrl}`);
+          
+          // Add this generated image to cumulative array for next generation
+          cumulativeImages.push(imageUrl);
+          console.log(`  → Added to reference pool. Total references: ${cumulativeImages.length}`);
         } else {
           const errorMsg = finalPrediction.error || 'Generation timeout or failed';
           errors.push(`${angle.type}: ${errorMsg}`);

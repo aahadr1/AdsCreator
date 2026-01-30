@@ -220,7 +220,14 @@ Added to "Create" section:
 - **Style:** Hyperrealistic, hyperdetailed, studio lighting, white background
 - **Generation Time:** ~20-60 seconds per image
 - **Total Time:** ~2-5 minutes for all 5 angles
-- **Consistency:** Supports up to 14 reference images for better consistency
+- **Consistency Strategy:** Cumulative reference images
+  - 1st image (face closeup): User's input images only (or pure text prompt)
+  - 2nd image (full body): 1st generated + user's input images
+  - 3rd image (right side): 1st + 2nd generated + user's input images
+  - 4th image (left side): 1st + 2nd + 3rd generated + user's input images
+  - 5th image (back/top): All 4 previous + user's input images
+  - Each generation uses ALL previous images as references for maximum consistency
+  - Nano Banana supports up to 14 reference images, making this approach highly effective
 
 ### Authentication
 - Uses Supabase auth with JWT tokens
