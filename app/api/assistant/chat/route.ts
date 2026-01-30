@@ -3685,11 +3685,23 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           // Default assistant response (may be overridden after tools run)
           let finalAssistantResponse = cleanedResponse.trim();
           
-          // Detect if assistant is claiming to generate without actually calling tools
-          const claimsGeneration = /\b(creat(ing|e)|generat(ing|e)|start(ing|ed)|build(ing))\b.{0,50}\b(storyboard|avatar|image|video|script)\b/i.test(finalAssistantResponse);
+          // Detect if assistant is claiming to generate RIGHT NOW without actually calling tools
+          // Only flag immediate present-tense claims, not future plans or follow-up questions
+          const isFOLLOW_UP = reflexionMeta?.selectedAction === 'FOLLOW_UP';
+          const hasQuestionMarks = /\?/.test(finalAssistantResponse);
           
-          if (claimsGeneration && toolCalls.length === 0 && !wantedToolCall) {
-            console.error('[Tool Call] Assistant claims to be generating but no tool calls were made');
+          // More specific regex for IMMEDIATE generation claims (present continuous tense)
+          // e.g., "Creating your storyboard now", "Generating the avatar", "Starting generation"
+          const claimsImmediateGeneration = /\b(creating|generating|starting|building)\b.{0,30}\b(your|the|a)\b.{0,30}\b(storyboard|avatar|image|video|script)\b(?!.*\?)/i.test(finalAssistantResponse);
+          
+          // Don't flag if:
+          // 1. Selected Action is FOLLOW_UP (asking questions is expected)
+          // 2. Response contains questions (asking for clarification)
+          // 3. Response mentions future/conditional creation ("I'll create", "I can generate", "I will")
+          const mentionsFutureCreation = /\b(will|would|can|could|should|need to|going to|let me|first|before)\b.{0,50}\b(creat|generat|build|mak)/i.test(finalAssistantResponse);
+          
+          if (claimsImmediateGeneration && toolCalls.length === 0 && !wantedToolCall && !isFOLLOW_UP && !hasQuestionMarks && !mentionsFutureCreation) {
+            console.error('[Tool Call] Assistant claims to be generating NOW but no tool calls were made');
             console.error('[Tool Call] Response:', finalAssistantResponse.substring(0, 200));
             // Clear the false claim and provide error message
             finalAssistantResponse = '⚠️ I attempted to start generation but failed to execute the tool call properly. Let me try again - what would you like me to create?';
