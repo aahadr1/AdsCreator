@@ -46,6 +46,13 @@ export interface AssistantPlan {
     selected_at?: string;
   };
 
+  // Optional: server-side persisted script selection for storyboards
+  selected_script?: {
+    content: string;
+    description?: string;
+    selected_at?: string;
+  };
+
   /**
    * When a storyboard is generated, we prompt the user to either modify it or proceed to video generation.
    * This flag stores the latest storyboard id awaiting confirmation.

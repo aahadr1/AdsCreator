@@ -30,6 +30,16 @@ function normalizeText(s: string): string {
   return String(s || '').trim().toLowerCase();
 }
 
+function getLastAssistantText(messages: Message[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'assistant' && typeof m.content === 'string' && m.content.trim().length > 0) {
+      return m.content;
+    }
+  }
+  return '';
+}
+
 function requireOpenAIKey(): string {
   if (!OPENAI_API_KEY) {
     throw new Error('Server misconfigured: missing OPENAI_API_KEY');
@@ -888,26 +898,150 @@ async function getLastAvatarFromConversation(
   return null;
 }
 
-function isAvatarConfirmation(text: string): boolean {
-  const normalized = text.toLowerCase();
-  return (
+function isAvatarConfirmation(text: string, ctx?: { messages?: Message[] }): boolean {
+  const normalized = normalizeText(text);
+  const lastAssistant = ctx?.messages ? normalizeText(getLastAssistantText(ctx.messages)) : '';
+
+  // Strong, explicit confirmations (EN)
+  if (
     normalized.includes('use this avatar') ||
     normalized.includes('use that avatar') ||
-    normalized.includes('use this one') ||
     normalized.includes('use this image as avatar') ||
+    normalized.includes('use this as the avatar') ||
     normalized.includes('yes use this avatar')
-  );
+  ) return true;
+
+  // Strong, explicit confirmations (FR)
+  if (
+    /\b(utilise|utiliser|garde|prendre|choisis|choisir)\b/.test(normalized) &&
+    /\b(avatar|photo|image|celle[- ]ci|celle ci)\b/.test(normalized)
+  ) return true;
+
+  // Ambiguous short confirmations are only accepted when the assistant JUST asked
+  // to confirm the avatar (to avoid confusing script/product confirmations).
+  const ambiguousYes =
+    normalized === 'use it' ||
+    normalized === 'use this' ||
+    normalized === 'use that' ||
+    normalized === 'use this one' ||
+    normalized === 'ok' ||
+    normalized === 'okay' ||
+    normalized === 'yes' ||
+    normalized === 'oui' ||
+    normalized === 'parfait' ||
+    normalized === 'perfect' ||
+    normalized === 'c\'est bon' ||
+    normalized === 'ca marche' ||
+    normalized === 'ça marche' ||
+    normalized === 'continue';
+
+  const assistantWasAskingForAvatar =
+    lastAssistant.includes('use this avatar') ||
+    lastAssistant.includes('confirm the avatar') ||
+    lastAssistant.includes('before i can create the storyboard, please confirm the avatar') ||
+    lastAssistant.includes('reply "use this avatar"');
+
+  return Boolean(ambiguousYes && assistantWasAskingForAvatar);
 }
 
-function isProductImageConfirmation(text: string): boolean {
-  const normalized = text.toLowerCase();
-  return (
+function isProductImageConfirmation(text: string, ctx?: { messages?: Message[] }): boolean {
+  const normalized = normalizeText(text);
+  const lastAssistant = ctx?.messages ? normalizeText(getLastAssistantText(ctx.messages)) : '';
+
+  // Strong, explicit confirmations (EN)
+  if (
     normalized.includes('use this product') ||
     normalized.includes('use that product') ||
     normalized.includes('use this product image') ||
     normalized.includes('yes use this product') ||
-    normalized.includes('use this as product image')
-  );
+    normalized.includes('use this as product image') ||
+    normalized.includes('use this as the product image')
+  ) return true;
+
+  // Strong, explicit confirmations (FR)
+  if (
+    /\b(utilise|utiliser|garde|prendre|choisis|choisir)\b/.test(normalized) &&
+    /\b(produit|packaging|tube|flacon|photo|image|celle[- ]ci|celle ci)\b/.test(normalized)
+  ) return true;
+
+  // Ambiguous short confirmations are only accepted when the assistant JUST asked
+  // to confirm the product image.
+  const ambiguousYes =
+    normalized === 'use it' ||
+    normalized === 'use this' ||
+    normalized === 'use that' ||
+    normalized === 'use this one' ||
+    normalized === 'ok' ||
+    normalized === 'okay' ||
+    normalized === 'yes' ||
+    normalized === 'oui' ||
+    normalized === 'parfait' ||
+    normalized === 'perfect' ||
+    normalized === 'c\'est bon' ||
+    normalized === 'continue';
+
+  const assistantWasAskingForProduct =
+    lastAssistant.includes('use this product image') ||
+    lastAssistant.includes('use this product') ||
+    lastAssistant.includes('confirm the product') ||
+    lastAssistant.includes('reply "use this product') ||
+    lastAssistant.includes('product image generated (awaiting confirmation)');
+
+  return Boolean(ambiguousYes && assistantWasAskingForProduct);
+}
+
+function isScriptConfirmation(text: string, ctx?: { messages?: Message[] }): boolean {
+  const normalized = normalizeText(text);
+  const lastAssistant = ctx?.messages ? normalizeText(getLastAssistantText(ctx.messages)) : '';
+
+  // Explicit confirmations
+  if (
+    normalized.includes('use this script') ||
+    normalized.includes('use that script') ||
+    normalized.includes('looks good') ||
+    normalized.includes('lock this script') ||
+    normalized.includes('approve this script')
+  ) return true;
+
+  // French confirmations
+  if (
+    /\b(utilise|utiliser|garde|valide|valid[eé]|c['’]?est bon)\b/.test(normalized) &&
+    /\b(script|texte)\b/.test(normalized)
+  ) return true;
+
+  // Ambiguous short confirmations are only accepted when the assistant JUST asked
+  // to confirm the script.
+  const ambiguousYes =
+    normalized === 'ok' ||
+    normalized === 'okay' ||
+    normalized === 'yes' ||
+    normalized === 'oui' ||
+    normalized === 'parfait' ||
+    normalized === 'perfect' ||
+    normalized === 'continue' ||
+    normalized === 'go' ||
+    normalized === 'proceed';
+
+  const assistantWasAskingForScript =
+    lastAssistant.includes('use this script') ||
+    lastAssistant.includes('confirm the script') ||
+    lastAssistant.includes('before i create the storyboard') ||
+    lastAssistant.includes('if you want edits') ||
+    lastAssistant.includes('i just created a script');
+
+  return Boolean(ambiguousYes && assistantWasAskingForScript);
+}
+
+function getLastScriptFromConversation(messages: Message[]): { content?: string } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'tool_result' || msg.tool_name !== 'script_creation') continue;
+    const toolOutput = msg.tool_output as any;
+    const content = typeof toolOutput?.output === 'string' ? toolOutput.output : (typeof msg.content === 'string' ? msg.content : '');
+    const trimmed = String(content || '').trim();
+    if (trimmed.length > 0) return { content: trimmed };
+  }
+  return null;
 }
 
 /**
@@ -2889,7 +3023,7 @@ export async function POST(req: NextRequest) {
     
   // Check if user is confirming avatar usage
   const avatarCandidate = await getLastAvatarFromConversation(existingMessages, { conversationId: String(conversationId || ''), origin });
-  const userConfirmedAvatar = isAvatarConfirmation(body.message);
+  const userConfirmedAvatar = isAvatarConfirmation(body.message, { messages: existingMessages });
   const confirmedAvatarUrl = userConfirmedAvatar && avatarCandidate?.url && isHttpUrl(avatarCandidate.url) ? avatarCandidate.url : undefined;
   const confirmedAvatarDescription = userConfirmedAvatar ? avatarCandidate?.description : undefined;
   const confirmedAvatarPredictionId = userConfirmedAvatar ? avatarCandidate?.predictionId : undefined;
@@ -2897,10 +3031,15 @@ export async function POST(req: NextRequest) {
 
   // Check if user is confirming product image usage
   const productCandidate = await getLastProductFromConversation(existingMessages, { conversationId: String(conversationId || ''), origin });
-  const userConfirmedProduct = isProductImageConfirmation(body.message);
+  const userConfirmedProduct = isProductImageConfirmation(body.message, { messages: existingMessages });
   const confirmedProductUrl = userConfirmedProduct && productCandidate?.url && isHttpUrl(productCandidate.url) ? productCandidate.url : undefined;
   const confirmedProductDescription = userConfirmedProduct ? productCandidate?.description : undefined;
   const confirmedProductPredictionId = userConfirmedProduct ? productCandidate?.predictionId : undefined;
+
+  // Check if user is confirming the latest generated script
+  const scriptCandidate = getLastScriptFromConversation(existingMessages);
+  const userConfirmedScript = isScriptConfirmation(body.message, { messages: existingMessages });
+  const confirmedScriptContent = userConfirmedScript ? scriptCandidate?.content : undefined;
 
     // Read previously selected avatar from plan (server-side persisted)
     const planSelectedAvatarUrl =
@@ -2920,6 +3059,16 @@ export async function POST(req: NextRequest) {
     const planSelectedProductDescription =
       typeof existingPlan?.selected_product?.description === 'string'
         ? String(existingPlan.selected_product.description)
+        : undefined;
+
+    // Read previously selected script from plan (server-side persisted)
+    const planSelectedScriptContent =
+      typeof (existingPlan as any)?.selected_script?.content === 'string' && String((existingPlan as any).selected_script.content).trim().length > 0
+        ? String((existingPlan as any).selected_script.content)
+        : undefined;
+    const planSelectedScriptDescription =
+      typeof (existingPlan as any)?.selected_script?.description === 'string'
+        ? String((existingPlan as any).selected_script.description)
         : undefined;
 
     // If user confirmed avatar, persist selection server-side
@@ -2967,6 +3116,28 @@ export async function POST(req: NextRequest) {
         .eq('id', conversationId);
       existingPlan = nextPlan;
     }
+
+    // If user confirmed script, persist selection server-side
+    let selectedScriptContent: string | undefined = planSelectedScriptContent;
+    let selectedScriptDescription: string | undefined = planSelectedScriptDescription;
+    if (userConfirmedScript && confirmedScriptContent) {
+      selectedScriptContent = confirmedScriptContent;
+      // Keep a short, human-readable description if we have one; otherwise derive a minimal one
+      selectedScriptDescription = selectedScriptDescription || 'Approved short-form script for this video';
+      const nextPlan = {
+        ...(existingPlan || {}),
+        selected_script: {
+          content: selectedScriptContent,
+          description: selectedScriptDescription,
+          selected_at: new Date().toISOString(),
+        },
+      };
+      await supabase
+        .from('assistant_conversations')
+        .update({ plan: nextPlan, updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+      existingPlan = nextPlan;
+    }
   
     // Build conversation context for Claude (now includes avatar generation results)
     const conversationContext = buildConversationContext(existingMessages, { includeAvatarResults: true });
@@ -3005,7 +3176,8 @@ CRITICAL INSTRUCTIONS FOR STORYBOARD GENERATION:
 Avatar Image URL: ${avatarUrlCandidate}
 ${avatarDescCandidate ? `Avatar Description: ${avatarDescCandidate}` : ''}
 
-NOTE: The user has NOT yet confirmed this avatar. Wait for them to say "Use this avatar" before proceeding with storyboard creation.
+NOTE: The user has NOT yet confirmed this avatar. Ask them to confirm before proceeding with storyboard creation.
+Accepted confirmations include: "Use this avatar", "Use it", "Parfait", "OK" (when clearly referring to the avatar).
 ═══════════════════════════════════════════════════════════════════════════
 
 `;
@@ -3037,7 +3209,49 @@ CRITICAL INSTRUCTIONS FOR STORYBOARD GENERATION:
 Product Image URL: ${productCandidate.url}
 ${productCandidate.description ? `Product Description: ${productCandidate.description}` : ''}
 
-NOTE: The user has NOT yet confirmed this product image. Wait for them to say "Use this product image" before proceeding.
+NOTE: The user has NOT yet confirmed this product image. Ask them to confirm before proceeding.
+Accepted confirmations include: "Use this product image", "Use it", "Parfait", "OK" (when clearly referring to the product image).
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    }
+
+    // Script context
+    const effectiveSelectedScriptContent =
+      typeof (existingPlan as any)?.selected_script?.content === 'string' && String((existingPlan as any).selected_script.content).trim().length > 0
+        ? String((existingPlan as any).selected_script.content).trim()
+        : undefined;
+    const effectiveSelectedScriptDescription =
+      typeof (existingPlan as any)?.selected_script?.description === 'string'
+        ? String((existingPlan as any).selected_script.description)
+        : undefined;
+
+    if (effectiveSelectedScriptContent) {
+      contextBlock += `
+═══════════════════════════════════════════════════════════════════════════
+📝 CONFIRMED SCRIPT FOR THIS VIDEO
+═══════════════════════════════════════════════════════════════════════════
+Script: (Use EXACTLY as written; do not rewrite unless user asks)
+${effectiveSelectedScriptContent}
+
+NOTE:
+- The user has approved this script.
+- Do NOT call script_creation again unless the user explicitly requests changes.
+═══════════════════════════════════════════════════════════════════════════
+
+`;
+    } else if (scriptCandidate?.content) {
+      contextBlock += `
+═══════════════════════════════════════════════════════════════════════════
+📝 SCRIPT GENERATED (awaiting confirmation)
+═══════════════════════════════════════════════════════════════════════════
+Latest Script:
+${scriptCandidate.content}
+
+NOTE:
+- The user has NOT yet confirmed this script.
+- Ask them to confirm (“Use this script” / “Looks good” / “Parfait”) or request edits.
+- If they confirm, proceed automatically to storyboard creation.
 ═══════════════════════════════════════════════════════════════════════════
 
 `;
@@ -3909,11 +4123,29 @@ NOTE: The user has NOT yet confirmed this product image. Wait for them to say "U
           ) && filteredToolCalls.some(
             (tc) => tc.tool === 'image_generation' && (tc.input as any)?.purpose === 'avatar'
           );
+          const executedScriptGen = toolResults.some(
+            (tr) => tr.tool === 'script_creation' && tr.result && (tr.result as any).success
+          );
           if (executedAvatarGen) {
             finalAssistantResponse =
               'I just started generating your avatar. You’ll see it appear above as soon as it finishes.\n\n' +
               'If you want to use it, reply **"Use this avatar"**.\n' +
               'If you want a different look (age, vibe, setting, ethnicity, style), tell me what to change and I’ll regenerate.';
+          } else if (executedScriptGen) {
+            const scriptResult = toolResults.find((tr) => tr.tool === 'script_creation')?.result as any;
+            const scriptText = typeof scriptResult?.output === 'string' ? String(scriptResult.output).trim() : '';
+            const scriptToolCall = filteredToolCalls.find((tc) => tc.tool === 'script_creation') as any;
+            const productName = scriptToolCall?.input?.product ? String(scriptToolCall.input.product) : '';
+            const userAskedForProduct = /\b(product|produit|bb\s*cream|bb-?cream|cr[eè]me)\b/i.test(String(body.message || ''));
+            const mention = (productName || userAskedForProduct) ? `\n\nOptional but recommended: upload a clear photo of your product packaging/tube so the storyboard shows the exact product (or reply **"skip product photo"** to proceed without it).` : '';
+
+            // Keep it short (the actual script content is already displayed by the UI as a tool result)
+            finalAssistantResponse =
+              '✅ Script created.\n\n' +
+              'Reply **"Use this script"** (or just **"Parfait"**) to lock it and I’ll create the storyboard next.\n' +
+              'If you want edits, tell me what to change.' +
+              mention +
+              (scriptText ? `\n\n(If you don’t see the script above, tell me and I’ll re-send it.)` : '');
           } else if (!finalAssistantResponse && storyboardBlockedByAvatar) {
             if (userConfirmedAvatar && !confirmedAvatarUrl) {
               finalAssistantResponse =
