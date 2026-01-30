@@ -539,12 +539,19 @@ export default function AssistantPage() {
               case 'media_pool_update': {
                 const payload = event.data as { media_pool: MediaPoolType };
                 if (payload?.media_pool) {
-                  setMediaPool(payload.media_pool);
-                  console.log('[Media Pool] Real-time update:', {
+                  console.log('[Media Pool Client] Received update:', {
                     assetCount: Object.keys(payload.media_pool.assets).length,
-                    activeAvatar: payload.media_pool.activeAvatarId,
-                    approvedScript: payload.media_pool.approvedScriptId
+                    assets: Object.values(payload.media_pool.assets).map((a: any) => ({
+                      id: a.id.substring(0, 8),
+                      type: a.type,
+                      status: a.status,
+                      hasUrl: !!a.url,
+                      approved: a.approved
+                    })),
+                    activeAvatar: payload.media_pool.activeAvatarId?.substring(0, 8),
+                    approvedScript: payload.media_pool.approvedScriptId?.substring(0, 8)
                   });
+                  setMediaPool(payload.media_pool);
                 }
                 break;
               }
@@ -2056,8 +2063,21 @@ export default function AssistantPage() {
             console.log(`Media pool action: ${action} on ${assetId}`);
             // TODO: Handle approve/use/remove actions
           }}
-          onToggle={() => setShowMediaPool(!showMediaPool)}
+          onToggle={() => setShowMediaPool(false)}
         />
+      )}
+      
+      {/* Floating toggle button when Media Pool is hidden */}
+      {!showMediaPool && mediaPool && Object.keys(mediaPool.assets).length > 0 && (
+        <button 
+          className={styles.mediaPoolToggleBtn}
+          onClick={() => setShowMediaPool(true)}
+          title={`Show Media Pool (${Object.keys(mediaPool.assets).length} assets)`}
+          type="button"
+        >
+          <ImageIcon size={20} />
+          <span className={styles.assetCountBadge}>{Object.keys(mediaPool.assets).length}</span>
+        </button>
       )}
       
       <div className={styles.shell}>

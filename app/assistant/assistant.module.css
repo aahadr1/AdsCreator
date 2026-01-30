@@ -4,6 +4,51 @@
   gap: 0;
   background: var(--bg-secondary);
   overflow: hidden;
+  position: relative;
+}
+
+.mediaPoolToggleBtn {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  background: var(--accent);
+  border: 2px solid var(--border);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+
+.mediaPoolToggleBtn:hover {
+  transform: translateY(-50%) scale(1.05);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.mediaPoolToggleBtn:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.assetCountBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ef4444;
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  border: 2px solid var(--bg);
 }
 
 .shell {

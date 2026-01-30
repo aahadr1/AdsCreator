@@ -4328,13 +4328,7 @@ The user has already approved the previous step - move forward automatically.
                     });
                     
                     mediaPool = updatedPool;
-                    console.log('[Media Pool] Added image asset:', { assetId, purpose: input.purpose });
-                    
-                    // Stream media pool update to client in real-time
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                      type: 'media_pool_update', 
-                      data: { media_pool: mediaPool }
-                    })}\n\n`));
+                    console.log('[Media Pool] Added image asset:', { assetId, purpose: input.purpose, url: outputUrl });
                     
                     // If avatar and user confirmed, set as active
                     if (input.purpose === 'avatar' && userConfirmedAvatar) {
@@ -4353,6 +4347,13 @@ The user has already approved the previous step - move forward automatically.
                         }
                       }
                     }
+                    
+                    // Stream media pool update to client in real-time (AFTER all updates)
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                      type: 'media_pool_update', 
+                      data: { media_pool: mediaPool }
+                    })}\n\n`));
+                    console.log('[Media Pool] Streamed update to client - total assets:', Object.keys(mediaPool.assets).length);
                     
                     // If product and user confirmed, set as active
                     if (input.purpose === 'product' && userConfirmedProduct) {
@@ -4390,12 +4391,6 @@ The user has already approved the previous step - move forward automatically.
                     mediaPool = updatedPool;
                     console.log('[Media Pool] Added script asset:', assetId);
                     
-                    // Stream media pool update to client in real-time
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                      type: 'media_pool_update', 
-                      data: { media_pool: mediaPool }
-                    })}\n\n`));
-                    
                     // If user confirmed, set as approved
                     if (userConfirmedScript) {
                       mediaPool = setApprovedScript(mediaPool, assetId);
@@ -4413,6 +4408,13 @@ The user has already approved the previous step - move forward automatically.
                         }
                       }
                     }
+                    
+                    // Stream media pool update to client in real-time (AFTER all updates)
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                      type: 'media_pool_update', 
+                      data: { media_pool: mediaPool }
+                    })}\n\n`));
+                    console.log('[Media Pool] Streamed update to client - total assets:', Object.keys(mediaPool.assets).length);
                   }
                 }
                 
@@ -4433,12 +4435,6 @@ The user has already approved the previous step - move forward automatically.
                     mediaPool = updatedPool;
                     console.log('[Media Pool] Added storyboard asset:', { assetId, storyboardId: storyboard.id });
                     
-                    // Stream media pool update to client in real-time
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                      type: 'media_pool_update', 
-                      data: { media_pool: mediaPool }
-                    })}\n\n`));
-                    
                     // Mark workflow item completed
                     if (workflowState) {
                       const storyboardItem = workflowState.checklist.find((item: any) => 
@@ -4449,6 +4445,13 @@ The user has already approved the previous step - move forward automatically.
                         console.log('[Workflow] Completed storyboard step');
                       }
                     }
+                    
+                    // Stream media pool update to client in real-time (AFTER all updates)
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+                      type: 'media_pool_update', 
+                      data: { media_pool: mediaPool }
+                    })}\n\n`));
+                    console.log('[Media Pool] Streamed update to client - total assets:', Object.keys(mediaPool.assets).length);
                   }
                 }
               }
