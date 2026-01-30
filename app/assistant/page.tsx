@@ -536,6 +536,19 @@ export default function AssistantPage() {
                 break;
               }
               
+              case 'media_pool_update': {
+                const payload = event.data as { media_pool: MediaPoolType };
+                if (payload?.media_pool) {
+                  setMediaPool(payload.media_pool);
+                  console.log('[Media Pool] Real-time update:', {
+                    assetCount: Object.keys(payload.media_pool.assets).length,
+                    activeAvatar: payload.media_pool.activeAvatarId,
+                    approvedScript: payload.media_pool.approvedScriptId
+                  });
+                }
+                break;
+              }
+              
               case 'done':
                 // Add reflexion message if present
                 if (reflexionText.trim()) {
