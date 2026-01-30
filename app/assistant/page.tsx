@@ -685,16 +685,26 @@ export default function AssistantPage() {
       const isTerminal = (s: string) => ['succeeded', 'failed', 'canceled'].includes((s || '').toLowerCase());
 
       async function poll() {
-        if (!predictionId) return;
+        if (!predictionId) {
+          console.warn('[ImageGeneration] No prediction ID, cannot poll');
+          return;
+        }
         try {
+          console.log(`[ImageGeneration] Polling status for: ${predictionId}`);
           const res = await fetch(`/api/replicate/status?id=${encodeURIComponent(predictionId)}`, { cache: 'no-store' });
-          if (!res.ok) throw new Error(await res.text());
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.error('[ImageGeneration] Status fetch failed:', errorText);
+            throw new Error(errorText);
+          }
           const json = (await res.json()) as ReplicateStatusResponse;
           if (!mounted) return;
 
+          console.log(`[ImageGeneration] Status: ${json.status}, URL: ${json.outputUrl ? 'present' : 'null'}`);
           setStatus(json.status || status);
           if (json.outputUrl) {
             const finalUrl = String(json.outputUrl);
+            console.log(`[ImageGeneration] Image ready: ${finalUrl.substring(0, 80)}...`);
             setOutputUrl(finalUrl);
             setPollError(null);
             // Persist outputUrl back into the stored conversation message so it stays permanent
@@ -703,6 +713,7 @@ export default function AssistantPage() {
                 if (m.id !== messageId) return m;
                 const tool_output = { ...(m.tool_output || {}) } as any;
                 tool_output.outputUrl = finalUrl;
+                tool_output.output_url = finalUrl; // Also set output_url for compat
                 tool_output.status = json.status;
                 return { ...m, tool_output, content: finalUrl };
               });
@@ -711,20 +722,29 @@ export default function AssistantPage() {
             });
             return;
           }
-          if (json.error) setPollError(json.error);
+          if (json.error) {
+            console.error('[ImageGeneration] Error:', json.error);
+            setPollError(json.error);
+          }
 
           if (!isTerminal(json.status || '')) {
             timeout = setTimeout(poll, 2000);
           }
         } catch (e: any) {
           if (!mounted) return;
+          console.error('[ImageGeneration] Poll error:', e);
           setPollError(e?.message || 'Failed to fetch image status');
           timeout = setTimeout(poll, 3000);
         }
       }
 
       // If we already have URL, no need to poll
-      if (!outputUrl) void poll();
+      if (!outputUrl) {
+        console.log('[ImageGeneration] Starting poll...');
+        void poll();
+      } else {
+        console.log('[ImageGeneration] Already have URL, skipping poll');
+      }
 
       return () => {
         mounted = false;
@@ -747,7 +767,16 @@ export default function AssistantPage() {
           {outputUrl ? (
             <a href={outputUrl} target="_blank" rel="noreferrer" style={{ display: 'block', borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.10)' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={outputUrl} alt="Generated image" style={{ width: '100%', height: 'auto', display: 'block' }} />
+              <img 
+                src={outputUrl} 
+                alt="Generated image" 
+                style={{ width: '100%', height: 'auto', display: 'block' }} 
+                onLoad={() => console.log('[ImageGeneration] Image loaded successfully:', outputUrl.substring(0, 80))}
+                onError={(e) => {
+                  console.error('[ImageGeneration] Image failed to load:', outputUrl);
+                  console.error('[ImageGeneration] Error event:', e);
+                }}
+              />
             </a>
           ) : (
             <div style={{ border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 16, padding: 14, color: 'rgba(231,233,238,0.65)' }}>
@@ -755,7 +784,16 @@ export default function AssistantPage() {
                 <Loader2 size={16} className={styles.spinner} />
                 <span>Generating image…</span>
               </div>
-              {pollError && <div style={{ marginTop: 8, color: 'rgba(239,68,68,0.95)', fontSize: 12, whiteSpace: 'pre-wrap' }}>{pollError}</div>}
+              {pollError && (
+                <div style={{ marginTop: 8, color: 'rgba(239,68,68,0.95)', fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                  {pollError}
+                  {predictionId && (
+                    <div style={{ marginTop: 4, color: 'rgba(231,233,238,0.5)', fontSize: 10 }}>
+                      ID: {predictionId.substring(0, 30)}...
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
