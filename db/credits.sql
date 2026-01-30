@@ -3,8 +3,8 @@
 -- User credits table
 CREATE TABLE IF NOT EXISTS public.user_credits (
   user_id uuid PRIMARY KEY,
-  subscription_tier text NOT NULL DEFAULT 'basic' CHECK (subscription_tier IN ('basic', 'pro')),
-  monthly_limit integer NOT NULL DEFAULT 500,
+  subscription_tier text NOT NULL DEFAULT 'free' CHECK (subscription_tier IN ('free', 'basic', 'pro')),
+  monthly_limit integer NOT NULL DEFAULT 100,
   used_credits integer NOT NULL DEFAULT 0,
   current_period_start timestamptz NOT NULL DEFAULT now(),
   current_period_end timestamptz NOT NULL DEFAULT (now() + interval '1 month'),
@@ -173,7 +173,7 @@ $$ LANGUAGE plpgsql;
 -- Function to initialize user credits
 CREATE OR REPLACE FUNCTION public.init_user_credits(
   p_user_id uuid,
-  p_subscription_tier text DEFAULT 'basic'
+  p_subscription_tier text DEFAULT 'free'
 )
 RETURNS void AS $$
 DECLARE
@@ -182,7 +182,8 @@ BEGIN
   -- Set limit based on tier
   v_limit := CASE 
     WHEN p_subscription_tier = 'pro' THEN 1000
-    ELSE 500
+    WHEN p_subscription_tier = 'basic' THEN 500
+    ELSE 100
   END;
   
   INSERT INTO public.user_credits (
@@ -207,7 +208,8 @@ BEGIN
   -- Set limit based on tier
   v_new_limit := CASE 
     WHEN p_new_tier = 'pro' THEN 1000
-    ELSE 500
+    WHEN p_new_tier = 'basic' THEN 500
+    ELSE 100
   END;
   
   UPDATE public.user_credits
