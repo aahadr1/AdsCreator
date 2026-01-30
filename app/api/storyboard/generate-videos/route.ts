@@ -29,11 +29,21 @@ export async function POST(req: NextRequest) {
     console.log('[Generate Videos] Starting video generation request');
     
     const supabase = createSupabaseServer();
-    const { data: { user } } = await supabase.auth.getUser();
+    
+    // Get user from auth header
+    const authHeader = req.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '');
+    
+    if (!token) {
+      console.error('[Generate Videos] Unauthorized: No auth token provided');
+      return NextResponse.json({ error: 'Unauthorized - No auth token' }, { status: 401 });
+    }
+    
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
-    if (!user) {
-      console.error('[Generate Videos] Unauthorized: No user found');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (authError || !user) {
+      console.error('[Generate Videos] Unauthorized: Invalid or expired token', authError?.message);
+      return NextResponse.json({ error: 'Unauthorized - Invalid token' }, { status: 401 });
     }
 
     console.log('[Generate Videos] User authenticated:', user.id);
