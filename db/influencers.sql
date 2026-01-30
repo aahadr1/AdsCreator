@@ -7,12 +7,16 @@ CREATE TABLE IF NOT EXISTS influencers (
   
   -- Basic Info
   name TEXT NOT NULL,
-  username TEXT, -- @username style handle
-  short_description TEXT NOT NULL,
-  full_description TEXT,
+  username TEXT, -- Generated from name, same as name
   
-  -- Generation metadata
-  generation_prompt TEXT NOT NULL,
+  -- User input
+  user_description TEXT NOT NULL, -- Original user description
+  
+  -- LLM enriched description
+  enriched_description TEXT, -- Enhanced description by LLM with modern details
+  
+  -- Generation metadata (not used for now, kept for backward compatibility)
+  generation_prompt TEXT, -- Deprecated: use enriched_description instead
   input_images TEXT[], -- Array of URLs if user provided reference images
   
   -- Generated photoshoot images (5 angles)
@@ -27,7 +31,7 @@ CREATE TABLE IF NOT EXISTS influencers (
   
   -- Generation status
   status TEXT NOT NULL DEFAULT 'draft' CHECK (
-    status IN ('draft', 'generating', 'completed', 'failed')
+    status IN ('draft', 'enriching', 'generating', 'completed', 'failed')
   ),
   generation_error TEXT,
   

@@ -84,15 +84,15 @@ export async function POST(req: NextRequest) {
     const {
       name,
       username,
-      short_description,
-      full_description,
-      generation_prompt,
+      user_description,
+      enriched_description,
+      status,
       input_images,
     } = body;
 
-    if (!name || !short_description || !generation_prompt) {
+    if (!name || !user_description) {
       return NextResponse.json(
-        { error: 'name, short_description, and generation_prompt are required' },
+        { error: 'name and user_description are required' },
         { status: 400 }
       );
     }
@@ -103,11 +103,11 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         name,
         username: username || null,
-        short_description,
-        full_description: full_description || null,
-        generation_prompt,
+        user_description,
+        enriched_description: enriched_description || null,
+        generation_prompt: enriched_description || user_description, // For backward compatibility
         input_images: input_images || null,
-        status: 'draft',
+        status: status || 'draft',
       })
       .select()
       .single();

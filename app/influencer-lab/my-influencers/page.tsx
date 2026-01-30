@@ -146,8 +146,14 @@ export default function MyInfluencersPage() {
                       )}
                     </div>
                     <p className="influencer-list-description">
-                      {influencer.short_description}
+                      {influencer.user_description}
                     </p>
+                    {influencer.status === 'enriching' && (
+                      <span className="status-badge enriching">
+                        <Loader2 size={12} className="animate-spin" />
+                        Enriching...
+                      </span>
+                    )}
                     {influencer.status === 'generating' && (
                       <span className="status-badge generating">
                         <Loader2 size={12} className="animate-spin" />
@@ -191,11 +197,23 @@ export default function MyInfluencersPage() {
                 </div>
               </div>
 
-              {selectedInfluencer.full_description && (
-                <div className="influencer-description-box">
-                  <p>{selectedInfluencer.full_description}</p>
-                </div>
-              )}
+              <div className="influencer-description-box">
+                <h4 style={{ fontSize: 'var(--font-sm)', fontWeight: 'var(--font-semibold)', marginBottom: 'var(--space-2)', color: 'var(--text-muted)' }}>
+                  Your Description
+                </h4>
+                <p style={{ marginBottom: 'var(--space-4)' }}>{selectedInfluencer.user_description}</p>
+                
+                {selectedInfluencer.enriched_description && (
+                  <>
+                    <h4 style={{ fontSize: 'var(--font-sm)', fontWeight: 'var(--font-semibold)', marginBottom: 'var(--space-2)', color: 'var(--text-muted)' }}>
+                      AI-Enhanced Description
+                    </h4>
+                    <p style={{ fontStyle: 'italic', color: 'var(--text-tertiary)' }}>
+                      {selectedInfluencer.enriched_description}
+                    </p>
+                  </>
+                )}
+              </div>
 
               {/* Instagram-like Photo Grid */}
               <div className="influencer-photos-section">

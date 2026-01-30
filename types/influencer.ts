@@ -5,9 +5,9 @@ export interface Influencer {
   user_id: string;
   name: string;
   username?: string;
-  short_description: string;
-  full_description?: string;
-  generation_prompt: string;
+  user_description: string; // Original user description
+  enriched_description?: string; // LLM-enriched description
+  generation_prompt?: string; // Deprecated
   input_images?: string[];
   photo_face_closeup?: string;
   photo_full_body?: string;
@@ -15,7 +15,7 @@ export interface Influencer {
   photo_left_side?: string;
   photo_back_top?: string;
   additional_photos?: string[];
-  status: 'draft' | 'generating' | 'completed' | 'failed';
+  status: 'draft' | 'enriching' | 'generating' | 'completed' | 'failed';
   generation_error?: string;
   created_at: string;
   updated_at: string;
@@ -24,11 +24,16 @@ export interface Influencer {
 
 export interface CreateInfluencerRequest {
   name: string;
-  username?: string;
-  short_description: string;
-  full_description?: string;
-  generation_prompt: string;
+  user_description: string;
   input_images?: string[];
+}
+
+export interface EnrichDescriptionRequest {
+  user_description: string;
+}
+
+export interface EnrichDescriptionResponse {
+  enriched_description: string;
 }
 
 export interface UpdateInfluencerRequest {

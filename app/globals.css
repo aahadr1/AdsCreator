@@ -13304,6 +13304,11 @@ body[data-page="billing"] .pricing-card.current-plan {
   width: fit-content;
 }
 
+.status-badge.enriching {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
 .status-badge.generating {
   background: var(--status-info-bg);
   color: var(--status-info);
@@ -13562,6 +13567,17 @@ body[data-page="billing"] .pricing-card.current-plan {
   margin: 0 0 var(--space-2) 0;
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border);
+}
+
+.form-intro {
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+  line-height: var(--leading-relaxed);
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  background: var(--accent-muted);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
 }
 
 .form-group {
