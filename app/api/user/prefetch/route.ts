@@ -3,10 +3,10 @@ import { createSupabaseServer } from '../../../../lib/supabaseServer';
 import { getKvConfigFromEnv, kvListKeysPage, kvGetMany, kvListKeysPageMeta, taskListPrefix, type TaskRecord } from '../../../../lib/cloudflareKv';
 import { fetchSupabaseTaskRecords, mergeTaskRecords, serializeTaskRecord } from '../../../../lib/tasksData';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Ultra-fast parallel data fetcher running on edge
+// Ultra-fast parallel data fetcher
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

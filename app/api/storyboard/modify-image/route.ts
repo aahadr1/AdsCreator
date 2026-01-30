@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServer } from '@/lib/supabaseServer';
-import { put } from '@vercel/blob';
+import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '@/lib/r2';
 
 /**
  * POST /api/storyboard/modify-image - Upload and modify frame images
@@ -49,14 +49,48 @@ export async function POST(req: NextRequest) {
     // Upload image if provided
     if (imageFile && imageFile.size > 0) {
       const fileExtension = imageFile.name.split('.').pop() || 'jpg';
-      const fileName = `storyboard/${storyboardId}/scene${sceneNumber}_${framePosition}_${Date.now()}.${fileExtension}`;
+      const timestamp = Date.now();
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      const fileName = `storyboard/${storyboardId}/scene${sceneNumber}_${framePosition}_${timestamp}_${randomSuffix}.${fileExtension}`;
       
       try {
-        const blob = await put(fileName, imageFile, {
-          access: 'public',
-          addRandomSuffix: true,
+        // Use R2 instead of Vercel Blob
+        const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+        const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+        const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+        const bucket = process.env.R2_BUCKET || 'assets';
+        const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL || null;
+        const origin = new URL(req.url).origin;
+
+        if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey) {
+          return NextResponse.json({ error: 'Storage misconfigured' }, { status: 500 });
+        }
+
+        const r2 = createR2Client({ 
+          accountId: r2AccountId, 
+          accessKeyId: r2AccessKeyId, 
+          secretAccessKey: r2SecretAccessKey, 
+          bucket, 
+          publicBaseUrl 
         });
-        imageUrl = blob.url;
+
+        await ensureR2Bucket(r2, bucket);
+
+        const arrayBuffer = await imageFile.arrayBuffer();
+        const contentType = imageFile.type || 'image/jpeg';
+        
+        await r2PutObject({ 
+          client: r2, 
+          bucket, 
+          key: fileName, 
+          body: new Uint8Array(arrayBuffer), 
+          contentType,
+          cacheControl: 'public, max-age=31536000'
+        });
+
+        // Use proxy URL for reliability
+        const proxyUrl = `${origin.replace(/\/$/, '')}/api/r2/get?key=${encodeURIComponent(fileName)}`;
+        imageUrl = publicBaseUrl ? r2PublicUrl({ publicBaseUrl, bucket, key: fileName }) : proxyUrl;
       } catch (uploadError) {
         console.error('Error uploading image:', uploadError);
         return NextResponse.json({ error: 'Failed to upload image' }, { status: 500 });
