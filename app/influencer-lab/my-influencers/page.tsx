@@ -1,18 +1,20 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Loader2, AlertCircle, User, Instagram } from 'lucide-react';
 import { Influencer } from '@/types/influencer';
 import { supabaseClient } from '@/lib/supabaseClient';
 
 export default function MyInfluencersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [influencers, setInfluencers] = useState<Influencer[]>([]);
   const [selectedInfluencer, setSelectedInfluencer] = useState<Influencer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [createdUsername, setCreatedUsername] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchInfluencers = async () => {
@@ -55,6 +57,16 @@ export default function MyInfluencersPage() {
     fetchInfluencers();
   }, [router]);
 
+  useEffect(() => {
+    const created = searchParams?.get('created');
+    if (created && created.trim().length > 0) {
+      setCreatedUsername(created.trim());
+      // Clear the banner after a moment
+      const t = setTimeout(() => setCreatedUsername(null), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [searchParams]);
+
   const handleCreateNew = () => {
     router.push('/influencer-lab/my-influencers/new');
   };
@@ -66,6 +78,7 @@ export default function MyInfluencersPage() {
   // Get all photos for the Instagram-like grid
   const getInfluencerPhotos = (influencer: Influencer): string[] => {
     const photos: string[] = [];
+    if (influencer.photo_main) photos.push(influencer.photo_main);
     if (influencer.photo_face_closeup) photos.push(influencer.photo_face_closeup);
     if (influencer.photo_full_body) photos.push(influencer.photo_full_body);
     if (influencer.photo_right_side) photos.push(influencer.photo_right_side);
@@ -104,6 +117,12 @@ export default function MyInfluencersPage() {
         </button>
       </div>
 
+      {createdUsername && (
+        <div className="info-banner" style={{ marginBottom: 'var(--space-4)' }}>
+          Created influencer <strong>@{createdUsername}</strong>
+        </div>
+      )}
+
       <div className="my-influencers-layout">
         {/* Left Panel - List */}
         <div className="influencers-list-panel">
@@ -126,9 +145,9 @@ export default function MyInfluencersPage() {
                   }`}
                 >
                   <div className="influencer-avatar">
-                    {influencer.photo_face_closeup ? (
+                    {influencer.photo_main || influencer.photo_face_closeup ? (
                       <img
-                        src={influencer.photo_face_closeup}
+                        src={influencer.photo_main || influencer.photo_face_closeup}
                         alt={influencer.name}
                         className="influencer-avatar-img"
                       />
@@ -176,9 +195,9 @@ export default function MyInfluencersPage() {
             <div className="influencer-detail">
               <div className="influencer-detail-header">
                 <div className="influencer-detail-avatar">
-                  {selectedInfluencer.photo_face_closeup ? (
+                  {selectedInfluencer.photo_main || selectedInfluencer.photo_face_closeup ? (
                     <img
-                      src={selectedInfluencer.photo_face_closeup}
+                      src={selectedInfluencer.photo_main || selectedInfluencer.photo_face_closeup}
                       alt={selectedInfluencer.name}
                     />
                   ) : (

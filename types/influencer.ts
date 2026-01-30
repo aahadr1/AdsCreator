@@ -17,6 +17,7 @@ export interface Influencer {
   photo_right_side?: string;
   photo_left_side?: string;
   photo_back_top?: string;
+  photo_main?: string;
   additional_photos?: string[];
   status: 'draft' | 'enriching' | 'generating' | 'completed' | 'failed';
   generation_error?: string;

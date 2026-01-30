@@ -81,6 +81,11 @@ export default function NewInfluencerPage() {
       }
 
       const { influencer } = await createResponse.json();
+      const serverUsername = influencer?.username;
+      const redirectUsername =
+        typeof serverUsername === 'string' && serverUsername.trim().length > 0
+          ? serverUsername.trim()
+          : undefined;
 
       // Step 3: Start photoshoot generation in the background using enriched description
       fetch('/api/influencer/generate-photoshoot', {
@@ -97,7 +102,11 @@ export default function NewInfluencerPage() {
       }).catch(console.error); // Fire and forget
 
       // Redirect to my influencers page
-      router.push('/influencer-lab/my-influencers');
+      router.push(
+        redirectUsername
+          ? `/influencer-lab/my-influencers?created=${encodeURIComponent(redirectUsername)}`
+          : '/influencer-lab/my-influencers'
+      );
     } catch (err: any) {
       setError(err.message || 'Failed to create influencer');
       setLoading(false);
@@ -144,7 +153,7 @@ export default function NewInfluencerPage() {
               required
             />
             <p className="form-hint">
-              This will also be used as the username (e.g., @sarahjohnson)
+              This will also be used as the username (e.g., @sarahjohnson). If it already exists, we’ll auto-suffix it (e.g., @sarahjohnson2).
             </p>
           </div>
 

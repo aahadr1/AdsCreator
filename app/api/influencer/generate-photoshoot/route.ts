@@ -7,6 +7,26 @@ import { PHOTOSHOOT_ANGLES } from '@/types/influencer';
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 const NANO_BANANA_MODEL = 'google/nano-banana';
+const MAIN_COLLAGE_PROMPT = 'organize these 5 images all in the same image, intelligently';
+
+async function getModelVersionId(token: string, model: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${REPLICATE_API}/models/${model}`, {
+      headers: { Authorization: `Token ${token}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      console.error(`Failed to fetch Replicate model ${model}:`, await res.text());
+      return null;
+    }
+    const json: any = await res.json();
+    const versionId = json?.latest_version?.id;
+    return typeof versionId === 'string' && versionId.trim().length > 0 ? versionId.trim() : null;
+  } catch (e: any) {
+    console.error(`Error fetching Replicate model ${model}:`, e);
+    return null;
+  }
+}
 
 /**
  * POST /api/influencer/generate-photoshoot
@@ -38,7 +58,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { influencer_id, generation_prompt, input_images } = body;
+    const { influencer_id, generation_prompt, input_images, force_main_regen } = body;
 
     if (!influencer_id || !generation_prompt) {
       return NextResponse.json(
@@ -70,6 +90,14 @@ export async function POST(req: NextRequest) {
     if (!replicateToken) {
       return NextResponse.json(
         { error: 'Server misconfigured: missing REPLICATE_API_TOKEN' },
+        { status: 500 }
+      );
+    }
+
+    const nanoBananaVersionId = await getModelVersionId(String(replicateToken), NANO_BANANA_MODEL);
+    if (!nanoBananaVersionId) {
+      return NextResponse.json(
+        { error: `Server misconfigured: could not resolve latest version for ${NANO_BANANA_MODEL}` },
         { status: 500 }
       );
     }
@@ -107,12 +135,12 @@ export async function POST(req: NextRequest) {
         const response = await fetch(`${REPLICATE_API}/predictions`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${replicateToken}`,
+            Authorization: `Token ${replicateToken}`,
             'Content-Type': 'application/json',
             'Prefer': 'wait',
           },
           body: JSON.stringify({
-            version: NANO_BANANA_MODEL,
+            version: nanoBananaVersionId,
             input,
           }),
         });
@@ -142,7 +170,7 @@ export async function POST(req: NextRequest) {
             `${REPLICATE_API}/predictions/${finalPrediction.id}`,
             {
               headers: {
-                'Authorization': `Bearer ${replicateToken}`,
+                Authorization: `Token ${replicateToken}`,
               },
             }
           );
@@ -184,6 +212,84 @@ export async function POST(req: NextRequest) {
       ...generationResults,
       status: hasAnyPhoto ? 'completed' : 'failed',
     };
+
+    // Generate and store MAIN influencer image (6th image) if we have all 5 angles.
+    // Prefer newly generated URLs; fall back to existing row values (idempotency / reruns).
+    const face = generationResults.photo_face_closeup || influencer.photo_face_closeup;
+    const full = generationResults.photo_full_body || influencer.photo_full_body;
+    const right = generationResults.photo_right_side || influencer.photo_right_side;
+    const left = generationResults.photo_left_side || influencer.photo_left_side;
+    const back = generationResults.photo_back_top || influencer.photo_back_top;
+
+    const canBuildMain = !!(face && full && right && left && back);
+    const shouldBuildMain = canBuildMain && (force_main_regen === true || !influencer.photo_main);
+
+    if (shouldBuildMain) {
+      try {
+        const mainInput: Record<string, any> = {
+          prompt: MAIN_COLLAGE_PROMPT,
+          aspect_ratio: '1:1',
+          output_format: 'jpg',
+          image_input: [face, full, right, left, back],
+        };
+
+        const mainRes = await fetch(`${REPLICATE_API}/predictions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Token ${replicateToken}`,
+            'Content-Type': 'application/json',
+            Prefer: 'wait',
+          },
+          body: JSON.stringify({
+            version: nanoBananaVersionId,
+            input: mainInput,
+          }),
+        });
+
+        if (!mainRes.ok) {
+          const errorText = await mainRes.text();
+          console.error('Error generating MAIN influencer image:', errorText);
+          errors.push(`main: ${errorText}`);
+        } else {
+          const prediction = await mainRes.json();
+
+          let finalPrediction = prediction;
+          let attempts = 0;
+          const maxAttempts = 60;
+          while (
+            finalPrediction.status !== 'succeeded' &&
+            finalPrediction.status !== 'failed' &&
+            attempts < maxAttempts
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            const statusResponse = await fetch(`${REPLICATE_API}/predictions/${finalPrediction.id}`, {
+              headers: { Authorization: `Token ${replicateToken}` },
+            });
+            if (!statusResponse.ok) {
+              console.error('Error polling MAIN influencer image:', await statusResponse.text());
+              break;
+            }
+            finalPrediction = await statusResponse.json();
+            attempts++;
+          }
+
+          if (finalPrediction.status === 'succeeded' && finalPrediction.output) {
+            const imageUrl = Array.isArray(finalPrediction.output)
+              ? finalPrediction.output[0]
+              : finalPrediction.output;
+            updateData.photo_main = imageUrl;
+            console.log(`✓ Generated MAIN influencer image: ${imageUrl}`);
+          } else {
+            const errorMsg = finalPrediction.error || 'Generation timeout or failed';
+            errors.push(`main: ${errorMsg}`);
+            console.error('✗ Failed to generate MAIN influencer image:', errorMsg);
+          }
+        }
+      } catch (e: any) {
+        console.error('Error generating MAIN influencer image:', e);
+        errors.push(`main: ${e.message}`);
+      }
+    }
 
     if (errors.length > 0) {
       updateData.generation_error = errors.join('; ');

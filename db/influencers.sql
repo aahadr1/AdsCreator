@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS influencers (
   photo_right_side TEXT, -- Right side view
   photo_left_side TEXT, -- Left side view
   photo_back_top TEXT, -- Back view from bird's eye/top view
+
+  -- MAIN influencer image (6th): collage generated from the 5 angles
+  photo_main TEXT, -- Primary influencer image used for tagging/avatars
   
   -- Additional photos for Instagram-like grid
   additional_photos TEXT[] DEFAULT ARRAY[]::TEXT[],
@@ -52,6 +55,10 @@ CREATE TABLE IF NOT EXISTS influencers (
 CREATE INDEX IF NOT EXISTS idx_influencers_user_id ON influencers(user_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_influencers_updated_at ON influencers(updated_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_influencers_status ON influencers(status) WHERE deleted_at IS NULL;
+-- Global, case-insensitive username uniqueness (ignores soft-deleted rows)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_influencers_username_unique_ci
+  ON influencers (lower(username))
+  WHERE deleted_at IS NULL AND username IS NOT NULL;
 
 -- RLS Policies
 ALTER TABLE influencers ENABLE ROW LEVEL SECURITY;
@@ -100,4 +107,5 @@ COMMENT ON COLUMN influencers.photo_full_body IS 'Full body shot from photoshoot
 COMMENT ON COLUMN influencers.photo_right_side IS 'Right side view from photoshoot';
 COMMENT ON COLUMN influencers.photo_left_side IS 'Left side view from photoshoot';
 COMMENT ON COLUMN influencers.photo_back_top IS 'Back/top view from photoshoot';
+COMMENT ON COLUMN influencers.photo_main IS 'Primary influencer image (6th): montage/collage generated from the 5 photoshoot angles';
 COMMENT ON COLUMN influencers.additional_photos IS 'Array of additional photos for Instagram-like grid display';

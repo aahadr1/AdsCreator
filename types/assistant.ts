@@ -38,6 +38,14 @@ export interface AssistantPlan {
     description?: string;
     selected_at?: string;
   };
+  // Optional: when avatar is selected via @influencer tagging
+  selected_influencer?: {
+    id: string;
+    username?: string;
+    name?: string;
+    photo_main?: string | null;
+    selected_at?: string;
+  };
   // Optional: server-side persisted product image for consistent product appearance
   selected_product?: {
     url: string;

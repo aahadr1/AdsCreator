@@ -47,6 +47,24 @@ function normalizeText(s: string): string {
   return String(s || '').trim().toLowerCase();
 }
 
+function escapeLikePatternExact(input: string): string {
+  // Escape LIKE wildcards so ilike() behaves like case-insensitive equality.
+  // Postgres treats backslash as the default escape char for LIKE patterns.
+  return input.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+function extractLastUsernameMention(text: string): string | null {
+  // Capture @username mentions, tolerate punctuation after the username.
+  // Examples: "@sarah do X", "use @sarahjohnson.", "(@sarah_j) ...".
+  const re = /(^|[\s(])@([a-zA-Z0-9_]{2,32})(?=($|[^\w]))/g;
+  let m: RegExpExecArray | null = null;
+  let last: string | null = null;
+  while ((m = re.exec(String(text || ''))) !== null) {
+    last = m[2] || null;
+  }
+  return last ? last.toLowerCase() : null;
+}
+
 function getLastAssistantText(messages: Message[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -3109,6 +3127,115 @@ export async function POST(req: NextRequest) {
     };
     
     existingMessages.push(userMessage);
+
+    // Resolve influencer avatar tagging: "@username" selects influencer MAIN avatar automatically.
+    // This happens before confirmation parsing so the selection can be used immediately.
+    const taggedUsername = extractLastUsernameMention(body.message);
+    if (taggedUsername) {
+      try {
+        const { data: influencer, error: infErr } = await supabase
+          .from('influencers')
+          .select(
+            'id,name,username,user_description,enriched_description,photo_main,photo_face_closeup,photo_full_body,photo_right_side,photo_left_side,photo_back_top'
+          )
+          .eq('user_id', user.id) // safety: only allow tagging your own influencers
+          .is('deleted_at', null)
+          .ilike('username', escapeLikePatternExact(taggedUsername))
+          .maybeSingle();
+
+        if (infErr) {
+          console.error('[Influencer Tagging] Error resolving @username:', infErr);
+        } else if (!influencer) {
+          // Let the model respond naturally, but we do not select an avatar.
+          console.warn('[Influencer Tagging] No influencer found for:', taggedUsername);
+          (existingPlan as any) = {
+            ...(existingPlan || {}),
+            last_influencer_tag_error: {
+              username: taggedUsername,
+              error: 'not_found',
+              at: new Date().toISOString(),
+            },
+          };
+        } else {
+          const preferredUrl = influencer.photo_main || influencer.photo_face_closeup;
+          if (!preferredUrl || !isHttpUrl(String(preferredUrl))) {
+            console.warn('[Influencer Tagging] Influencer has no usable MAIN/face image yet:', {
+              id: influencer.id,
+              username: influencer.username,
+            });
+            (existingPlan as any) = {
+              ...(existingPlan || {}),
+              last_influencer_tag_error: {
+                username: taggedUsername,
+                error: 'no_ready_image',
+                at: new Date().toISOString(),
+              },
+            };
+          } else {
+            const cached = await maybeCacheAvatarToR2({
+              sourceUrl: String(preferredUrl),
+              conversationId: String(conversationId),
+              origin,
+            });
+
+            // Ensure media pool reflects that we have an active avatar.
+            const pool0 = (existingPlan as any)?.media_pool || createEmptyMediaPool();
+            const descriptionParts = [
+              `Influencer avatar @${String(influencer.username || taggedUsername)}`,
+              influencer.name ? `Name: ${String(influencer.name)}` : null,
+              influencer.enriched_description
+                ? `Persona: ${String(influencer.enriched_description)}`
+                : influencer.user_description
+                  ? `Persona: ${String(influencer.user_description)}`
+                  : null,
+              `Use this avatar for the user's request.`,
+            ].filter(Boolean);
+            const { pool: pool1, assetId } = addAssetToPool(pool0, {
+              type: 'avatar',
+              url: cached.url,
+              status: 'ready',
+              description: descriptionParts.join('\n'),
+              approved: true,
+              approvedAt: new Date().toISOString(),
+            });
+            const pool2 = setActiveAvatarInPool(pool1, assetId);
+
+            const nextPlan = {
+              ...(existingPlan || {}),
+              selected_avatar: {
+                url: cached.url,
+                prediction_id: undefined,
+                description: descriptionParts.join('\n'),
+                selected_at: new Date().toISOString(),
+              },
+              // Traceability for production debugging/UX (safe to store in JSONB plan)
+              selected_influencer: {
+                id: influencer.id,
+                username: influencer.username,
+                name: influencer.name,
+                photo_main: influencer.photo_main || null,
+                selected_at: new Date().toISOString(),
+              },
+              media_pool: pool2,
+            };
+
+            await supabase
+              .from('assistant_conversations')
+              .update({ plan: nextPlan, updated_at: new Date().toISOString() })
+              .eq('id', conversationId);
+
+            existingPlan = nextPlan;
+            console.log('[Influencer Tagging] Selected influencer avatar:', {
+              username: influencer.username,
+              url: cached.url,
+              cached: cached.cached,
+            });
+          }
+        }
+      } catch (e: any) {
+        console.error('[Influencer Tagging] Unexpected error:', e);
+      }
+    }
     
   // Check if user is confirming avatar usage
   const avatarCandidate = await getLastAvatarFromConversation(existingMessages, { conversationId: String(conversationId || ''), origin });
@@ -4225,6 +4352,20 @@ The user has already approved the previous step - move forward automatically.
                   selectedProductUrl: selectedProductUrl || 'none',
                   confirmedProductUrl: confirmedProductUrl || 'none',
                 });
+              }
+            }
+
+            // If the user has a server-selected avatar (including influencer @tag), ensure image_generation
+            // calls automatically include it as a reference image.
+            if (toolCall.tool === 'image_generation') {
+              const input = toolCall.input as any;
+              const influencerSelected = typeof (existingPlan as any)?.selected_influencer?.id === 'string';
+              if (influencerSelected && selectedAvatarUrl) {
+                const refs: string[] = Array.isArray(input.image_input) ? input.image_input.slice() : [];
+                if (!refs.includes(selectedAvatarUrl)) {
+                  refs.unshift(selectedAvatarUrl);
+                }
+                input.image_input = refs;
               }
             }
             
