@@ -21,7 +21,6 @@ export default function InfluencerLabPage() {
       icon: <Video size={32} />,
       href: '/influencer-lab/video-remake',
       gradient: 'from-blue-500 to-cyan-500',
-      disabled: true,
     },
     {
       title: 'Create from scratch',
