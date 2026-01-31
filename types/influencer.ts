@@ -62,27 +62,27 @@ export interface PhotoshootAngle {
 export const PHOTOSHOOT_ANGLES: PhotoshootAngle[] = [
   {
     type: 'face_closeup',
-    prompt_suffix: 'Face close-up portrait, professional studio lighting, white background, hyperrealistic, highly detailed facial features',
+    prompt_suffix: 'Face close-up portrait, clean seamless white cyclorama background, softbox studio lighting, editorial commercial look, photorealistic DSLR, natural skin texture, highly detailed facial features, sharp focus, no text, no watermark, no logo, no extra people',
     field_name: 'photo_face_closeup'
   },
   {
     type: 'full_body',
-    prompt_suffix: 'Full body shot, standing pose, professional studio lighting, white background, hyperrealistic, highly detailed',
+    prompt_suffix: 'Full body shot, standing pose, clean seamless white cyclorama background, softbox studio lighting, photorealistic DSLR, sharp focus, accurate proportions, no props, no text, no watermark, no logo, no extra people',
     field_name: 'photo_full_body'
   },
   {
     type: 'right_side',
-    prompt_suffix: 'Right side profile view, professional studio lighting, white background, hyperrealistic, highly detailed',
+    prompt_suffix: 'Right side profile view, clean seamless white cyclorama background, softbox studio lighting, photorealistic DSLR, sharp focus, no text, no watermark, no logo, no extra people',
     field_name: 'photo_right_side'
   },
   {
     type: 'left_side',
-    prompt_suffix: 'Left side profile view, professional studio lighting, white background, hyperrealistic, highly detailed',
+    prompt_suffix: 'Left side profile view, clean seamless white cyclorama background, softbox studio lighting, photorealistic DSLR, sharp focus, no text, no watermark, no logo, no extra people',
     field_name: 'photo_left_side'
   },
   {
     type: 'back_top',
-    prompt_suffix: 'Back view from slightly elevated angle, professional studio lighting, white background, hyperrealistic, highly detailed',
+    prompt_suffix: 'Back view from slightly elevated angle, clean seamless white cyclorama background, softbox studio lighting, photorealistic DSLR, sharp focus, no text, no watermark, no logo, no extra people',
     field_name: 'photo_back_top'
   }
 ];

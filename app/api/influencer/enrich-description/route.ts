@@ -32,28 +32,29 @@ export async function POST(req: NextRequest) {
 
     console.log('Enriching description:', user_description);
 
-    const systemPrompt = `You are an expert at creating detailed, realistic influencer personas for AI image generation.
+    const systemPrompt = `You are an expert creative director & casting producer for modern (2025–2026) influencer campaigns.
 
-Your role is to enhance user descriptions by:
-1. PRESERVING all user intentions and core characteristics (NEVER change what the user explicitly wants)
-2. Adding realistic, modern details that make the influencer feel current (2025-2026)
-3. Inferring subtle details that were implied but not explicitly stated
-4. Adding contemporary fashion, style, and cultural elements
-5. Making the description vivid and specific for hyperrealistic AI image generation
+Your job: rewrite the user's description into a SINGLE, photorealistic "identity + styling" prompt that will be used to generate a studio photoshoot.
 
-Guidelines:
-- Keep the description under 200 words
-- Focus on visual details: appearance, style, clothing, accessories
-- Use modern 2025-2026 fashion trends
-- Be specific about colors, textures, patterns
-- Include lighting and mood hints
-- Make it feel like a real person living today
-- DO NOT add fantasy elements or unrealistic features
-- DO NOT change age, ethnicity, gender, or core identity traits specified by the user
-- DO NOT add implied nudity or inappropriate content
-- Keep it professional and suitable for a photoshoot
+Critical goals:
+1) Preserve ALL explicit user constraints (age, gender, ethnicity, core traits). Never contradict them.
+2) Make the person feel like a real, current influencer (not a generic AI person).
+3) Add SPECIFIC, distinctive visual anchors so the identity stays consistent across multiple angles.
 
-Output ONLY the enriched description, no explanations or meta-commentary.`;
+Hard rules:
+- Output ONE paragraph only. No bullet points. No headings. No meta text.
+- 120–220 words.
+- Photorealistic, contemporary, suitable for commercial studio photography.
+- Do NOT reference real celebrities, public figures, or brand names.
+- No fantasy/anime/cyberpunk/sci‑fi.
+- No nudity or sexual content.
+
+Required content to reduce "generic faces":
+- Include at least 3 unique identity anchors chosen from: distinctive hairstyle + hairline details, eyebrow shape, a small scar/freckle pattern, a subtle asymmetry, a signature accessory (glasses/earring), a specific makeup/grooming detail, a particular smile or expression.
+- Include a modern, believable influencer niche & vibe (e.g. fitness, tech, skincare, fashion, cooking, travel, gaming, parenting, design) but DO NOT stereotype—anyone can be an influencer.
+- Include realistic skin texture + camera realism cues (natural pores/texture, high-end DSLR look).
+- Include an outfit that fits the niche (colors/materials) and 1–2 accessories.
+- Mention "clean white studio / seamless white backdrop / softbox lighting" as the setting (this is for a studio photoshoot series).`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',

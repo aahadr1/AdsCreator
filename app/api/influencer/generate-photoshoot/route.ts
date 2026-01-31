@@ -4,10 +4,92 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServer } from '@/lib/supabaseServer';
 import { PHOTOSHOOT_ANGLES } from '@/types/influencer';
+import { createR2Client, ensureR2Bucket, r2PutObject } from '@/lib/r2';
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 const NANO_BANANA_MODEL = 'google/nano-banana';
-const MAIN_COLLAGE_PROMPT = 'organize these 5 images all in the same image, intelligently';
+const MAIN_COLLAGE_PROMPT =
+  'Create a clean square collage from the 5 provided studio photos. Keep each photo unmodified and photorealistic. Arrange them in a neat grid layout with thin white gutters, balanced spacing, and consistent framing. No text, no logos, no watermarks.';
+
+function isHttpUrl(s: string): boolean {
+  return /^https?:\/\//i.test((s || '').trim());
+}
+
+function getPublicAppOrigin(): string | null {
+  const candidate =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_BASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
+    process.env.APP_URL?.trim() ||
+    null;
+  if (!candidate) return null;
+  try {
+    const u = new URL(candidate);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function toAbsoluteFromApp(url: string, appOrigin: string | null): string {
+  const u = String(url || '').trim();
+  if (!u) return u;
+  if (isHttpUrl(u)) return u;
+  if (!appOrigin) return u;
+  if (u.startsWith('/')) return `${appOrigin}${u}`;
+  return u;
+}
+
+function guessExtFromContentType(contentType: string | null): string {
+  const ct = String(contentType || '').toLowerCase();
+  if (ct.includes('png')) return 'png';
+  if (ct.includes('webp')) return 'webp';
+  if (ct.includes('gif')) return 'gif';
+  if (ct.includes('jpeg') || ct.includes('jpg')) return 'jpg';
+  return 'bin';
+}
+
+async function persistToR2FromUrl(params: { url: string; keyPrefix: string; cacheControl?: string | null }): Promise<string> {
+  const { url, keyPrefix, cacheControl } = params;
+  const inputUrl = String(url || '').trim();
+  if (!isHttpUrl(inputUrl)) return inputUrl;
+
+  const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+  const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
+  const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
+  const r2Endpoint = process.env.R2_S3_ENDPOINT || null;
+  const bucket = process.env.R2_BUCKET || 'assets';
+
+  // If R2 isn't configured, fail in production (we must not store ephemeral URLs).
+  if (!r2AccountId || !r2AccessKeyId || !r2SecretAccessKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Missing R2 credentials: cannot persist influencer photos');
+    }
+    return inputUrl;
+  }
+
+  const res = await fetch(inputUrl, { cache: 'no-store' });
+  if (!res.ok) return inputUrl;
+  const arrayBuffer = await res.arrayBuffer();
+  const contentType = res.headers.get('content-type') || 'application/octet-stream';
+  const ext = guessExtFromContentType(contentType);
+  const safePrefix = keyPrefix.replace(/[^a-zA-Z0-9/_-]/g, '_').replace(/\/{2,}/g, '/');
+  const key = `${safePrefix}.${ext}`;
+
+  const r2 = createR2Client({ accountId: r2AccountId, accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey, bucket, endpoint: r2Endpoint });
+  await ensureR2Bucket(r2, bucket);
+  await r2PutObject({
+    client: r2,
+    bucket,
+    key,
+    body: new Uint8Array(arrayBuffer),
+    contentType,
+    cacheControl: cacheControl || process.env.R2_UPLOAD_CACHE_CONTROL || 'public, max-age=31536000',
+  });
+
+  // Store RELATIVE URL for stability across environments.
+  return `/api/r2/get?key=${encodeURIComponent(key)}`;
+}
 
 async function getModelVersionId(token: string, model: string): Promise<string | null> {
   try {
@@ -123,6 +205,7 @@ async function runInfluencerPhotoshootInBackground(params: {
   nanoBananaVersionId: string;
 }) {
   const supabase = createSupabaseServer();
+  const appOrigin = getPublicAppOrigin();
   const {
     influencerId,
     userId,
@@ -159,7 +242,7 @@ async function runInfluencerPhotoshootInBackground(params: {
     influencer.photo_back_top,
   ].filter(Boolean);
   for (const u of existingAngleUrls) {
-    if (typeof u === 'string' && u.length > 0) cumulativeImages.push(u);
+    if (typeof u === 'string' && u.length > 0) cumulativeImages.push(toAbsoluteFromApp(u, appOrigin));
   }
 
   // Generate missing angles sequentially; update DB after each success so UI can display instantly.
@@ -186,13 +269,21 @@ async function runInfluencerPhotoshootInBackground(params: {
         continue;
       }
 
-      const url = out.url.trim();
-      cumulativeImages.push(url);
+      const rawUrl = out.url.trim();
+      const persistedRelative = await persistToR2FromUrl({
+        url: rawUrl,
+        keyPrefix: `influencers/${influencerId}/${angle.type}-${Date.now()}`,
+        cacheControl: 'public, max-age=31536000',
+      });
+      const persistedAbsoluteForRefs = toAbsoluteFromApp(persistedRelative, appOrigin);
+      // Use stable URL for downstream references whenever possible.
+      cumulativeImages.push(isHttpUrl(persistedAbsoluteForRefs) ? persistedAbsoluteForRefs : rawUrl);
 
       await supabase
         .from('influencers')
         .update({
-          [angle.field_name]: url,
+          // Store stable R2-backed URL (relative to our app).
+          [angle.field_name]: persistedRelative,
           status: 'generating',
           generation_error: errors.length > 0 ? errors.join('; ') : null,
         })
@@ -229,20 +320,26 @@ async function runInfluencerPhotoshootInBackground(params: {
   const shouldBuildMain = hasAll5 && (forceMainRegen || !afterAngles?.photo_main);
 
   if (shouldBuildMain) {
+    const refs = [face, full, right, left, back].map((u) => toAbsoluteFromApp(String(u || ''), appOrigin));
     const out = await generateImageWithNanoBanana({
       replicateToken,
       nanoBananaVersionId,
       prompt: MAIN_COLLAGE_PROMPT,
       aspect_ratio: '1:1',
-      image_input: [face, full, right, left, back].map(String),
+      image_input: refs,
       label: 'main',
     });
 
     if (out.url && out.url.trim().length > 0) {
+      const persistedRelative = await persistToR2FromUrl({
+        url: out.url.trim(),
+        keyPrefix: `influencers/${influencerId}/main-${Date.now()}`,
+        cacheControl: 'public, max-age=31536000',
+      });
       await supabase
         .from('influencers')
         .update({
-          photo_main: out.url.trim(),
+          photo_main: persistedRelative,
           generation_error: errors.length > 0 ? errors.join('; ') : null,
         })
         .eq('id', influencerId)
