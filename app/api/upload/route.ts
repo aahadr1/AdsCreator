@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server';
 import { createR2Client, ensureR2Bucket, r2PutObject, r2PublicUrl } from '@/lib/r2';
+import { getPublicOrigin } from '@/lib/publicOrigin';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    const origin = new URL(req.url).origin;
+    const origin = getPublicOrigin(req);
     const r2AccountId = process.env.R2_ACCOUNT_ID || '';
     const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID || '';
     const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY || '';
