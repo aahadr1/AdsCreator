@@ -42,6 +42,14 @@ function statusBadgeClass(status: ReplicateStatus): string {
   return 'badge';
 }
 
+type ReferenceSource = 'upload' | 'avatar';
+
+function referenceBadge(source: ReferenceSource | null): { label: string; className: string } {
+  if (source === 'avatar') return { label: 'Using: @avatar', className: 'badge badge-accent' };
+  if (source === 'upload') return { label: 'Using: uploaded image', className: 'badge badge-success' };
+  return { label: 'Choose reference', className: 'badge' };
+}
+
 async function extractFirstFrameFromVideoFile(videoFile: File): Promise<Blob> {
   const url = URL.createObjectURL(videoFile);
   try {
@@ -184,7 +192,9 @@ export default function VideoRemakePage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
-  const [referenceMode, setReferenceMode] = useState<'upload' | 'avatar'>('upload');
+  // The user should not manually toggle source: we infer intent.
+  // We still track a "preferred" source to resolve when BOTH are available.
+  const [preferredSource, setPreferredSource] = useState<ReferenceSource>('upload');
 
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [influencers, setInfluencers] = useState<Influencer[]>([]);
@@ -259,6 +269,7 @@ export default function VideoRemakePage() {
 
   const selectImage = useCallback((file: File) => {
     setImageFile(file);
+    setPreferredSource('upload');
     setImageUrl(null);
     setOutputUrl(null);
     setPredictionId(null);
@@ -282,19 +293,30 @@ export default function VideoRemakePage() {
 
   const influencerImageUrl = useMemo(() => pickBestInfluencerImage(selectedInfluencer), [selectedInfluencer]);
 
+  const hasUploadReference = useMemo(() => !!imageFile, [imageFile]);
+  const hasAvatarReference = useMemo(() => !!selectedInfluencer && !!influencerImageUrl, [selectedInfluencer, influencerImageUrl]);
+
+  const activeSource = useMemo<ReferenceSource | null>(() => {
+    // Prefer user's most recent intent if that source is available.
+    if (preferredSource === 'avatar' && hasAvatarReference) return 'avatar';
+    if (preferredSource === 'upload' && hasUploadReference) return 'upload';
+    // Otherwise, fall back to whatever is available.
+    if (hasAvatarReference) return 'avatar';
+    if (hasUploadReference) return 'upload';
+    return null;
+  }, [preferredSource, hasAvatarReference, hasUploadReference]);
+
   const ready = useMemo(() => {
     if (!videoFile) return false;
     if (videoFile.size > 100 * 1024 * 1024) return false;
-    if (referenceMode === 'upload') {
+    if (!activeSource) return false;
+    if (activeSource === 'upload') {
       if (!imageFile) return false;
       if (imageFile.size > 10 * 1024 * 1024) return false;
       return true;
     }
-    // avatar mode
-    if (!selectedInfluencer) return false;
-    if (!influencerImageUrl) return false;
-    return true;
-  }, [videoFile, imageFile, referenceMode, selectedInfluencer, influencerImageUrl]);
+    return hasAvatarReference;
+  }, [videoFile, imageFile, activeSource, hasAvatarReference]);
 
   async function uploadOnce(file: File) {
     const form = new FormData();
@@ -317,7 +339,7 @@ export default function VideoRemakePage() {
       setVideoUrl(out.url);
     }
 
-    if (referenceMode === 'upload') {
+    if (activeSource === 'upload') {
       if (!imageFile) throw new Error('Missing reference image');
       if (!i) {
         pushLog('Uploading reference image...');
@@ -515,7 +537,6 @@ export default function VideoRemakePage() {
 
   // Auto-run avatar preparation when the user has selected both a video + influencer.
   useEffect(() => {
-    if (referenceMode !== 'avatar') return;
     if (!videoFile) return;
     if (!selectedInfluencer) return;
     if (!influencerImageUrl) return;
@@ -525,7 +546,7 @@ export default function VideoRemakePage() {
     // Fire-and-forget; errors are logged.
     void prepareAvatarCompositeIfNeeded().catch((e) => pushLog(`Avatar prep error: ${e?.message || String(e)}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [referenceMode, videoFile, selectedInfluencer?.id, influencerImageUrl]);
+  }, [videoFile, selectedInfluencer?.id, influencerImageUrl]);
 
   async function startGeneration() {
     try {
@@ -536,16 +557,16 @@ export default function VideoRemakePage() {
 
       if (!ready) {
         pushLog(
-          referenceMode === 'upload'
-            ? 'Please provide a valid reference video (≤ 100MB) and reference image (≤ 10MB).'
-            : 'Please provide a valid reference video (≤ 100MB) and select a valid influencer avatar (@tag).'
+          activeSource === 'avatar'
+            ? 'Please provide a valid reference video (≤ 100MB) and select a valid influencer avatar (@tag).'
+            : 'Please provide a valid reference video (≤ 100MB) and reference image (≤ 10MB).'
         );
         setStatus('unknown');
         return;
       }
 
       // In avatar mode, ensure the composite is actually ready before proceeding.
-      if (referenceMode === 'avatar') {
+      if (activeSource === 'avatar') {
         if (!selectedInfluencer) throw new Error('No influencer selected');
         if (!influencerImageUrl) throw new Error('Selected influencer has no MAIN/face image');
         if (!avatarCompositeImageUrl) {
@@ -558,7 +579,7 @@ export default function VideoRemakePage() {
 
       const input: Record<string, unknown> = {
         prompt: prompt.trim() || undefined,
-        image: referenceMode === 'avatar' ? toAbsoluteUrl(urls.image, origin) : urls.image,
+        image: activeSource === 'avatar' ? toAbsoluteUrl(urls.image, origin) : urls.image,
         video: urls.video,
         character_orientation: characterOrientation,
         mode,
@@ -641,44 +662,41 @@ export default function VideoRemakePage() {
             <span className="badge">Kling Motion Control</span>
           </div>
 
-          <div className="options" style={{ marginTop: 0 }}>
-            <div>
-              <div className="small">Reference image source</div>
-              <select
-                className="select"
-                value={referenceMode}
-                onChange={(e) => {
-                  const next = e.target.value as 'upload' | 'avatar';
-                  setReferenceMode(next);
-                  setImageUrl(null);
-                  setOutputUrl(null);
-                  setPredictionId(null);
-                  if (next === 'upload') {
-                    clearAvatar();
-                  } else {
-                    setImageFile(null);
-                    setImagePreviewUrl(null);
-                  }
-                }}
-              >
-                <option value="upload">Upload reference image</option>
-                <option value="avatar" disabled={!authToken}>
-                  Use influencer avatar (@tag)
-                </option>
-              </select>
-              {!authToken ? (
-                <div className="small" style={{ marginTop: 6 }}>
-                  Sign in to tag an influencer avatar.
-                </div>
-              ) : null}
+          <div className="panel" style={{ padding: 'var(--space-5)', margin: 0 }}>
+            <div className="header" style={{ marginBottom: 'var(--space-4)', paddingBottom: 'var(--space-3)' }}>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-lg)' }}>Reference image</h3>
+              <span className={referenceBadge(activeSource).className}>{referenceBadge(activeSource).label}</span>
             </div>
-            {referenceMode === 'avatar' ? (
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div className="small">Upload a reference image</div>
+                  {activeSource === 'upload' && imageFile ? <span className="badge badge-success">Active</span> : null}
+                </div>
+                <FileCard
+                  title="Reference image (character/background)"
+                  subtitle="PNG/JPG • up to 10MB • defines appearance + scene"
+                  icon="🖼️"
+                  accept="image/*"
+                  file={imageFile}
+                  uploaded={!!imageUrl && activeSource === 'upload'}
+                  previewUrl={imagePreviewUrl}
+                  onPick={selectImage}
+                />
+              </div>
+
               <div style={{ position: 'relative' }}>
-                <div className="small">Avatar tag</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div className="small">Or tag an influencer avatar</div>
+                  {activeSource === 'avatar' && hasAvatarReference ? <span className="badge badge-accent">Active</span> : null}
+                </div>
+
                 <input
                   className="input"
-                  placeholder="@username"
+                  placeholder={authToken ? '@username' : 'Sign in to tag an influencer'}
                   value={avatarQuery}
+                  disabled={!authToken}
                   onChange={(e) => {
                     const v = e.target.value;
                     setAvatarQuery(v);
@@ -732,6 +750,7 @@ export default function VideoRemakePage() {
                           onClick={() => {
                             setSelectedInfluencer(inf);
                             setAvatarQuery(`@${username}`);
+                            setPreferredSource('avatar');
                             setShowSuggestions(false);
                             setAvatarCompositeStatus('unknown');
                             setAvatarCompositePredictionId(null);
@@ -769,7 +788,13 @@ export default function VideoRemakePage() {
                   </div>
                 ) : null}
               </div>
-            ) : null}
+            </div>
+
+            <div style={{ marginTop: 'var(--space-4)' }}>
+              <div className="small" style={{ marginBottom: 8 }}>
+                If you tag an influencer, we’ll automatically extract the first frame, run Nano Banana, and use that result as the Kling image input.
+              </div>
+            </div>
           </div>
 
           <div className="options" style={{ marginTop: 0 }}>
@@ -796,58 +821,46 @@ export default function VideoRemakePage() {
               previewUrl={videoPreviewUrl}
               onPick={selectVideo}
             />
-            {referenceMode === 'upload' ? (
-              <FileCard
-                title="Reference image (character/background)"
-                subtitle="PNG/JPG • up to 10MB • defines appearance + scene"
-                icon="🖼️"
-                accept="image/*"
-                file={imageFile}
-                uploaded={!!imageUrl}
-                previewUrl={imagePreviewUrl}
-                onPick={selectImage}
-              />
-            ) : (
-              <div className="panel" style={{ padding: 'var(--space-5)', margin: 0 }}>
-                <div className="header" style={{ marginBottom: 'var(--space-4)', paddingBottom: 'var(--space-3)' }}>
-                  <h3 style={{ margin: 0, fontSize: 'var(--font-lg)' }}>Avatar swap (auto)</h3>
-                  <span className={statusBadgeClass(avatarCompositeStatus)}>
-                    {avatarCompositeStatus === 'unknown' ? 'READY' : String(avatarCompositeStatus).toUpperCase()}
-                  </span>
+
+            <div className="panel" style={{ padding: 'var(--space-5)', margin: 0 }}>
+              <div className="header" style={{ marginBottom: 'var(--space-4)', paddingBottom: 'var(--space-3)' }}>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-lg)' }}>Avatar swap (auto)</h3>
+                <span className={statusBadgeClass(avatarCompositeStatus)}>
+                  {avatarCompositeStatus === 'unknown' ? 'READY' : String(avatarCompositeStatus).toUpperCase()}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--panel-muted)' }}>
+                  <div className="small">First frame (auto extracted)</div>
+                  {firstFrameEffectiveUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={firstFrameEffectiveUrl} alt="First frame preview" style={{ width: '100%', borderRadius: 10, marginTop: 10 }} />
+                  ) : (
+                    <div className="small" style={{ marginTop: 10 }}>
+                      Upload a video to extract the first frame.
+                    </div>
+                  )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--panel-muted)' }}>
-                    <div className="small">First frame (auto extracted)</div>
-                    {firstFrameEffectiveUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={firstFrameEffectiveUrl} alt="First frame preview" style={{ width: '100%', borderRadius: 10, marginTop: 10 }} />
-                    ) : (
-                      <div className="small" style={{ marginTop: 10 }}>
-                        Upload a video to extract the first frame.
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--panel-muted)' }}>
-                    <div className="small">Kling image input (Nano Banana result)</div>
-                    {avatarCompositeEffectiveUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={avatarCompositeEffectiveUrl} alt="Prepared reference image" style={{ width: '100%', borderRadius: 10, marginTop: 10 }} />
-                    ) : (
-                      <div className="small" style={{ marginTop: 10 }}>
-                        Select an avatar tag and we’ll prepare the reference image automatically.
-                      </div>
-                    )}
-                    {avatarCompositePredictionId ? (
-                      <div className="small" style={{ marginTop: 8 }}>
-                        Nano Banana ID: {avatarCompositePredictionId}
-                      </div>
-                    ) : null}
-                  </div>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--panel-muted)' }}>
+                  <div className="small">Kling image input (Nano Banana result)</div>
+                  {avatarCompositeEffectiveUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={avatarCompositeEffectiveUrl} alt="Prepared reference image" style={{ width: '100%', borderRadius: 10, marginTop: 10 }} />
+                  ) : (
+                    <div className="small" style={{ marginTop: 10 }}>
+                      Tag an influencer to generate the prepared reference image.
+                    </div>
+                  )}
+                  {avatarCompositePredictionId ? (
+                    <div className="small" style={{ marginTop: 8 }}>
+                      Nano Banana ID: {avatarCompositePredictionId}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
           <div className="options">
@@ -887,9 +900,9 @@ export default function VideoRemakePage() {
 
           {!ready && (videoFile || imageFile || selectedInfluencer) ? (
             <div className="small" style={{ marginTop: 'var(--space-3)', color: 'var(--status-warn)' }}>
-              {referenceMode === 'upload'
-                ? 'Ensure video is ≤ 100MB and image is ≤ 10MB.'
-                : 'Ensure video is ≤ 100MB and the tagged influencer has a MAIN/face image ready.'}
+              {activeSource === 'avatar'
+                ? 'Ensure video is ≤ 100MB and the tagged influencer has a MAIN/face image ready.'
+                : 'Ensure video is ≤ 100MB and image is ≤ 10MB.'}
             </div>
           ) : null}
         </div>
@@ -926,7 +939,7 @@ export default function VideoRemakePage() {
                   <div className="small">{videoUrl ?? '—'}</div>
                   <div>Image URL</div>
                   <div className="small">
-                    {referenceMode === 'avatar'
+                    {activeSource === 'avatar'
                       ? (avatarCompositeImageUrl ? toAbsoluteUrl(avatarCompositeImageUrl, origin) : '—')
                       : (imageUrl ?? '—')}
                   </div>
