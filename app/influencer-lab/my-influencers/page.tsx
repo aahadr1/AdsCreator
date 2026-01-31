@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Loader2, AlertCircle, User, Instagram } from 'lucide-react';
 import { Influencer } from '@/types/influencer';
@@ -16,8 +16,28 @@ export default function MyInfluencersPage() {
   const [token, setToken] = useState<string | null>(null);
   const [createdUsername, setCreatedUsername] = useState<string | null>(null);
 
+  const fetchInfluencers = useCallback(
+    async (accessToken: string) => {
+      const response = await fetch('/api/influencer', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error('Failed to fetch influencers');
+      const data = await response.json();
+      const list: Influencer[] = data.influencers || [];
+      setInfluencers(list);
+      setSelectedInfluencer((prev) => {
+        if (!prev) return list[0] || null;
+        const updated = list.find((i) => i.id === prev.id);
+        return updated || (list[0] || null);
+      });
+      return list;
+    },
+    []
+  );
+
   useEffect(() => {
-    const fetchInfluencers = async () => {
+    const boot = async () => {
       try {
         const {
           data: { session },
@@ -29,24 +49,7 @@ export default function MyInfluencersPage() {
         }
 
         setToken(session.access_token);
-
-        const response = await fetch('/api/influencer', {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch influencers');
-        }
-
-        const data = await response.json();
-        setInfluencers(data.influencers || []);
-
-        // Auto-select first influencer if available
-        if (data.influencers && data.influencers.length > 0 && !selectedInfluencer) {
-          setSelectedInfluencer(data.influencers[0]);
-        }
+        await fetchInfluencers(session.access_token);
       } catch (err: any) {
         setError(err.message || 'Failed to load influencers');
       } finally {
@@ -54,8 +57,8 @@ export default function MyInfluencersPage() {
       }
     };
 
-    fetchInfluencers();
-  }, [router]);
+    boot();
+  }, [router, fetchInfluencers]);
 
   useEffect(() => {
     const created = searchParams?.get('created');
@@ -74,6 +77,32 @@ export default function MyInfluencersPage() {
   const handleSelectInfluencer = (influencer: Influencer) => {
     setSelectedInfluencer(influencer);
   };
+
+  const shouldPoll = useMemo(() => {
+    return influencers.some((inf) => inf.status === 'generating' || inf.status === 'enriching');
+  }, [influencers]);
+
+  // Poll while generation is in progress so images appear as soon as each one is generated.
+  useEffect(() => {
+    if (!token) return;
+    if (!shouldPoll) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        if (cancelled) return;
+        await fetchInfluencers(token);
+      } catch (e) {
+        // Silent: keep polling; transient network issues are expected
+      }
+    };
+    const id = setInterval(tick, 3000);
+    // Also run immediately (so user sees updates fast)
+    void tick();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [token, shouldPoll, fetchInfluencers]);
 
   // Get all photos for the Instagram-like grid
   const getInfluencerPhotos = (influencer: Influencer): string[] => {

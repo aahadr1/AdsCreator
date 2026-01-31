@@ -90,6 +90,8 @@ export default function NewInfluencerPage() {
       // Step 3: Start photoshoot generation in the background using enriched description
       fetch('/api/influencer/generate-photoshoot', {
         method: 'POST',
+        // Important: allow the request to survive navigation away from the page
+        keepalive: true,
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
